@@ -6,12 +6,14 @@ on:
       - main
     paths:
       - 'Backend/**'
+      - 'website/**'
       - '.github/workflows/backend-ci-cd.yml'
   pull_request:
     branches:
       - main
     paths:
       - 'Backend/**'
+      - 'website/**'
   workflow_dispatch:
 
 concurrency:
@@ -81,12 +83,25 @@ jobs:
           script: |
             set -e
             DEPLOY_PATH="${TARGET_DIR:-/var/www/solar-mobile-app}"
-            echo "Navigating to deploy directory..."
+            echo "Navigating to deploy directory: $DEPLOY_PATH..."
             cd "$DEPLOY_PATH"
 
             echo "Fetching latest changes from Git..."
             git fetch origin main
             git reset --hard origin/main
+
+            echo "=== VPS WEB DIAGNOSTICS ==="
+            echo "Node: $(node -v 2>&1 || echo 'Not installed')"
+            echo "NPM: $(npm -v 2>&1 || echo 'Not installed')"
+            echo "--- /home listing ---"
+            ls -la /home || true
+            echo "--- /var/www listing ---"
+            ls -la /var/www || true
+            echo "--- public_html scan ---"
+            find /home /var/www -maxdepth 3 -name "public_html" 2>/dev/null || true
+            echo "--- solarpro search ---"
+            find /home /var/www /etc -maxdepth 3 -iname "*solarpro*" 2>/dev/null || true
+            echo "=== END VPS WEB DIAGNOSTICS ==="
 
             echo "Running deployment script..."
             cd Backend
