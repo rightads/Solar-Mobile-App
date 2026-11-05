@@ -26,11 +26,20 @@ class AppConstants {
     return 'http://localhost:8000';
   }
 
-  // API - Resolves local backend host directly
-  static String get baseUrl => localBaseUrl;
-  static String get liveHost => localLiveHost;
-  static String get remoteBaseUrl => localBaseUrl;
-  static String get remoteLiveHost => localLiveHost;
+  // Production override: pass --dart-define=API_BASE_URL=https://host/api/v1
+  // and --dart-define=API_LIVE_HOST=https://host at build time.
+  static const String _apiBaseUrlOverride =
+      String.fromEnvironment('API_BASE_URL');
+  static const String _apiLiveHostOverride =
+      String.fromEnvironment('API_LIVE_HOST');
+
+  // API - Uses build-time override if provided, else local backend host
+  static String get baseUrl =>
+      _apiBaseUrlOverride.isNotEmpty ? _apiBaseUrlOverride : localBaseUrl;
+  static String get liveHost =>
+      _apiLiveHostOverride.isNotEmpty ? _apiLiveHostOverride : localLiveHost;
+  static String get remoteBaseUrl => baseUrl;
+  static String get remoteLiveHost => liveHost;
 
   // Timeout settings for local API requests
   static const int connectTimeout = 30000;
