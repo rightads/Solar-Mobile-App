@@ -90,55 +90,56 @@ else
     docker compose -f docker-compose.prod.yml logs --tail=20 website || true
 fi
 
-# 7. Configure CyberPanel / LiteSpeed reverse proxy for solarpro-app.in
-echo "🌐 Configuring LiteSpeed reverse proxy for solarpro-app.in..."
+# 7. Configure CyberPanel / LiteSpeed to serve React website on solarpro-app.in
+echo "🌐 Configuring LiteSpeed to serve React SPA on solarpro-app.in..."
 
-# Tail LiteSpeed error log for diagnostics
-if [ -f "/usr/local/lsws/logs/error.log" ]; then
-    echo "📋 Recent LiteSpeed error log:"
-    tail -n 15 /usr/local/lsws/logs/error.log || true
-fi
-
-# Clean up any broken RewriteRule in .htaccess
-HTACCESS="/home/solarpro-app.in/public_html/.htaccess"
-if [ -f "$HTACCESS" ]; then
-    echo "🧹 Clearing previous .htaccess proxy rule..."
-    > "$HTACCESS"
-fi
-
-# Configure OpenLiteSpeed vhost for solarpro-app.in
+# Clean up any proxy context from vhost.conf to avoid 503 proxy errors
 VHOST_CONF="/usr/local/lsws/conf/vhosts/solarpro-app.in/vhost.conf"
 if [ -f "$VHOST_CONF" ]; then
-    echo "⚙️ Found $VHOST_CONF, configuring extprocessor and proxy context..."
-    if ! grep -q "solarpro_proxy" "$VHOST_CONF"; then
-        cat << 'EOF' >> "$VHOST_CONF"
-
-extprocessor solarpro_proxy {
-  type                    proxy
-  address                 127.0.0.1:3005
-  maxConns                100
-  pcKeepAliveTimeout      60
-  initTimeout             60
-  retryTimeout            0
-  respBuffer              0
-}
-
-context / {
-  type                    proxy
-  handler                 solarpro_proxy
-  addDefaultCharset       off
-}
-EOF
-        echo "✅ Added proxy context to $VHOST_CONF"
-    else
-        echo "ℹ️ solarpro_proxy already configured in $VHOST_CONF"
-    fi
-else
-    echo "⚠️ Notice: $VHOST_CONF not found."
-    find /usr/local/lsws/conf/ -name "*solarpro*" 2>/dev/null || true
+    echo "🧹 Removing legacy proxy contexts from $VHOST_CONF..."
+    python3 -c "
+import re
+try:
+    with open('$VHOST_CONF', 'r') as f:
+        c = f.read()
+    c = re.sub(r'extprocessor\s+solarpro_proxy\s*\{[^}]*\}', '', c)
+    c = re.sub(r'context\s+/\s*\{[^}]*handler\s+solarpro_proxy[^}]*\}', '', c)
+    with open('$VHOST_CONF', 'w') as f:
+        f.write(c)
+except Exception as e:
+    print('Notice:', e)
+" 2>/dev/null || true
 fi
 
-# Reload LiteSpeed so changes take effect
+# Deploy built React artifacts to LiteSpeed document root
+CYBERPANEL_DIR="/home/solarpro-app.in/public_html"
+if [ -d "$CYBERPANEL_DIR" ]; then
+    echo "📦 Deploying React production build into $CYBERPANEL_DIR..."
+    if [ -d "$DEPLOY_PATH/website/dist" ]; then
+        cp -rf "$DEPLOY_PATH/website/dist/"* "$CYBERPANEL_DIR/"
+    elif [ -d "../website/dist" ]; then
+        cp -rf ../website/dist/* "$CYBERPANEL_DIR/"
+    fi
+
+    # Set up clean SPA .htaccess routing for React
+    cat << 'EOF' > "$CYBERPANEL_DIR/.htaccess"
+RewriteEngine On
+RewriteBase /
+RewriteRule ^index\.html$ - [L]
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteRule . /index.html [L]
+EOF
+
+    # Fix file permissions for LiteSpeed / CyberPanel user
+    SITE_USER=$(stat -c '%U:%G' "$CYBERPANEL_DIR" 2>/dev/null || echo "nobody:nogroup")
+    chown -R "$SITE_USER" "$CYBERPANEL_DIR" 2>/dev/null || true
+    chmod -R 755 "$CYBERPANEL_DIR" 2>/dev/null || true
+    chmod 644 "$CYBERPANEL_DIR/.htaccess" 2>/dev/null || true
+    echo "✅ React SPA successfully installed into $CYBERPANEL_DIR"
+fi
+
+# Reload LiteSpeed so all changes take effect immediately
 echo "🔄 Reloading LiteSpeed server..."
 if [ -f "/usr/local/lsws/bin/lswsctrl" ]; then
     /usr/local/lsws/bin/lswsctrl reload || true

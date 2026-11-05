@@ -110,8 +110,10 @@ jobs:
             npm run build
             echo "✅ React website build complete in $DEPLOY_PATH/website/dist"
 
-            # Allow website ports in firewall
+            # Allow website ports and loopback in firewall
             ufw allow 3000:3005/tcp comment 'Website Ports' 2>/dev/null || true
+            ufw allow in on lo 2>/dev/null || true
+            ufw allow in on docker0 2>/dev/null || true
 
             echo "Running deployment script..."
             cd "$DEPLOY_PATH/Backend"
