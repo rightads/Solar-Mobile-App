@@ -75,7 +75,7 @@ fi
 echo "🩺 Verifying Website container health on http://127.0.0.1:3005..."
 WEB_HEALTHY=false
 for i in {1..8}; do
-    if curl -sf http://127.0.0.1:3005/healthz > /dev/null 2>&1 || curl -sf http://127.0.0.1:3005 > /dev/null 2>&1; then
+    if curl -sf http://127.0.0.1:3005/healthz > /dev/null 2>&1 || curl -sf http://127.0.0.1:3005 > /dev/null 2>&1 || curl -sf http://localhost:3005 > /dev/null 2>&1; then
         WEB_HEALTHY=true
         break
     fi
@@ -86,22 +86,56 @@ done
 if [ "$WEB_HEALTHY" = true ]; then
     echo "✅ Website container is live on port 3005."
 else
-    echo "⚠️ Warning: Website container did not respond to /healthz on port 3005 yet."
+    echo "⚠️ Warning: Website container did not respond to health check yet. Container logs:"
+    docker compose -f docker-compose.prod.yml logs --tail=20 website || true
 fi
 
 # 7. Configure CyberPanel / LiteSpeed reverse proxy for solarpro-app.in
+echo "🌐 Checking CyberPanel / LiteSpeed setup for solarpro-app.in..."
+
+# List existing home directories and vhosts for diagnostics
+echo "Current /home/ entries:"
+ls -la /home/ 2>/dev/null || true
+
+# If solarpro-app.in directory doesn't exist, try creating via CyberPanel CLI
+if [ ! -d "/home/solarpro-app.in/public_html" ]; then
+    echo "🔍 /home/solarpro-app.in/public_html not found."
+    if command -v cyberpanel > /dev/null 2>&1; then
+        echo "⚙️ Creating website solarpro-app.in via CyberPanel CLI..."
+        cyberpanel createWebsite --package Default --owner admin --domainName solarpro-app.in --email admin@solarpro-app.in --php 8.1 2>&1 || true
+    fi
+fi
+
+# Determine target directory
+TARGET_HTACCESS=""
 if [ -d "/home/solarpro-app.in/public_html" ]; then
-    echo "🔗 Configuring CyberPanel reverse proxy for solarpro-app.in -> 127.0.0.1:3005..."
-    HTACCESS="/home/solarpro-app.in/public_html/.htaccess"
-    if ! grep -q "127.0.0.1:3005" "$HTACCESS" 2>/dev/null; then
-        cat << 'EOF' > "$HTACCESS"
+    TARGET_HTACCESS="/home/solarpro-app.in/public_html/.htaccess"
+elif [ -d "/home/www.solarpro-app.in/public_html" ]; then
+    TARGET_HTACCESS="/home/www.solarpro-app.in/public_html/.htaccess"
+fi
+
+if [ -n "$TARGET_HTACCESS" ]; then
+    echo "🔗 Writing LiteSpeed reverse proxy rules to $TARGET_HTACCESS..."
+    cat << 'EOF' > "$TARGET_HTACCESS"
 RewriteEngine On
 RewriteRule ^(.*)$ http://127.0.0.1:3005/$1 [P,L]
 EOF
-        echo "✅ CyberPanel .htaccess reverse proxy configured successfully."
-    else
-        echo "✅ CyberPanel reverse proxy already active in $HTACCESS."
+    chmod 644 "$TARGET_HTACCESS"
+    SITE_USER=$(stat -c '%U:%G' "$(dirname "$TARGET_HTACCESS")" 2>/dev/null || echo "")
+    if [ -n "$SITE_USER" ]; then
+        chown "$SITE_USER" "$TARGET_HTACCESS" 2>/dev/null || true
     fi
+    echo "✅ Reverse proxy configured in $TARGET_HTACCESS -> http://127.0.0.1:3005"
+    
+    # Reload LiteSpeed so changes take effect
+    if [ -f "/usr/local/lsws/bin/lswsctrl" ]; then
+        /usr/local/lsws/bin/lswsctrl reload 2>/dev/null || true
+    elif command -v systemctl > /dev/null 2>&1 && systemctl is-active --quiet lsws; then
+        systemctl reload lsws 2>/dev/null || true
+    fi
+else
+    echo "ℹ️ Notice: Website solarpro-app.in directory not found under /home/."
+    echo "ℹ️ Please create the website in CyberPanel UI (Websites -> Create Website -> solarpro-app.in)."
 fi
 
 # 8. Housekeeping: remove dangling images to prevent VPS disk from filling up
