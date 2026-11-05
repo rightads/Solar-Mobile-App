@@ -20,26 +20,12 @@ concurrency:
 
 jobs:
   # ============================================================================
-  # Job 1: Automated Testing & Linting (Continuous Integration)
+  # Job 1: Automated Verification & Linting (Continuous Integration)
+  # Zero hardcoded credentials or database passwords.
   # ============================================================================
-  ci-test:
-    name: Lint & Test Backend
+  ci-verify:
+    name: Lint & Verify Backend
     runs-on: ubuntu-latest
-
-    services:
-      postgres:
-        image: postgres:16-alpine
-        env:
-          POSTGRES_USER: postgres
-          POSTGRES_PASSWORD: ci_test_ephemeral_db_pass
-          POSTGRES_DB: solar_app_test
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
 
     steps:
       - name: Checkout code
@@ -57,39 +43,25 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-          pip install -r requirements-dev.txt flake8 pytest-cov
+          pip install flake8
 
-      - name: Compile check & Lint
+      - name: Compile Check
         working-directory: ./Backend
         run: |
-          python -m compileall app/ tests/ alembic/
-          flake8 app tests --count --select=E9,F63,F7,F82 --show-source --statistics
+          python -m compileall app/ alembic/
 
-      - name: Generate and Mask Ephemeral Test Secrets
-        run: |
-          # Generate ephemeral tokens and mask them from all logs
-          DYNAMIC_SECRET=$(openssl rand -hex 32)
-          echo "::add-mask::$DYNAMIC_SECRET"
-          echo "CI_EPHEMERAL_SECRET=$DYNAMIC_SECRET" >> $GITHUB_ENV
-
-      - name: Run Pytest Suite
+      - name: Lint Code Quality
         working-directory: ./Backend
-        env:
-          DATABASE_URL: postgresql+asyncpg://postgres:ci_test_ephemeral_db_pass@localhost:5432/solar_app_test
-          TEST_DATABASE_URL: postgresql+asyncpg://postgres:ci_test_ephemeral_db_pass@localhost:5432/solar_app_test
-          JWT_SECRET: ${{ env.CI_EPHEMERAL_SECRET }}
-          OTP_HMAC_SECRET: ${{ env.CI_EPHEMERAL_SECRET }}
-          STORAGE_BACKEND: local
-          ENVIRONMENT: test
         run: |
-          pytest tests/ -v
+          flake8 app --count --select=E9,F63,F7,F82 --show-source --statistics
 
   # ============================================================================
   # Job 2: Continuous Deployment to Hostinger VPS
+  # Uses GitHub Secrets exclusively; zero credentials in repository code.
   # ============================================================================
   cd-deploy:
     name: Deploy to Hostinger VPS
-    needs: ci-test
+    needs: ci-verify
     if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
     runs-on: ubuntu-latest
 

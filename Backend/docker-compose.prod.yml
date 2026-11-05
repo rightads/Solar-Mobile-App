@@ -36,9 +36,9 @@ services:
     container_name: solar_prod_postgres
     restart: always
     environment:
-      POSTGRES_USER: ${POSTGRES_USER:-postgres}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres_secure_pass}
-      POSTGRES_DB: ${POSTGRES_DB:-solar_app}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
     volumes:
       - postgres_prod_data:/var/lib/postgresql/data
       - ./backups:/backups

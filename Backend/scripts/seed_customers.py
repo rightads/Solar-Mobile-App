@@ -19,7 +19,7 @@ leads_col = db["leads"]
 payments_col = db["payments"]
 
 now = datetime.now(timezone.utc)
-client_pwd_hash = hash_password("Client@2026")
+client_pwd_hash = hash_password(os.getenv("DEFAULT_CLIENT_PASSWORD", ""))
 
 # ── 1. Create/Sync Customer Users with Hashed Passwords ────────────────────────
 customers_data = [

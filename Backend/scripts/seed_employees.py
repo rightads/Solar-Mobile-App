@@ -2,6 +2,8 @@ import sys, os
 sys.path.insert(0, os.path.abspath("."))
 from app.db.mongo import mongo_create_employee, get_mongo_db, mongo_get_client_home, mongo_get_client_payments
 
+default_seed_password = os.getenv("DEFAULT_SEED_PASSWORD", "")
+
 employees = [
     {
         "id": "emp-sls-042",
@@ -12,7 +14,7 @@ employees = [
         "role": "sales",
         "trade": "sales",
         "team": "Sales Team North",
-        "password": "Sales@2026",
+        "password": default_seed_password,
     },
     {
         "id": "emp-srv-104",
@@ -23,7 +25,7 @@ employees = [
         "role": "technician",
         "trade": "service",
         "team": "Service & Maintenance Team A",
-        "password": "Service@2026",
+        "password": default_seed_password,
     },
     {
         "id": "emp-kedl-007",
@@ -34,7 +36,7 @@ employees = [
         "role": "kedl",
         "trade": "kedl",
         "team": "KEDL Liaison Team",
-        "password": "Kedl@2026",
+        "password": default_seed_password,
     },
     {
         "id": "emp-site-015",
@@ -45,7 +47,7 @@ employees = [
         "role": "labour",
         "trade": "structure",
         "team": "Structure & Mounting Team 1",
-        "password": "Site@2026",
+        "password": default_seed_password,
     },
 ]
 
