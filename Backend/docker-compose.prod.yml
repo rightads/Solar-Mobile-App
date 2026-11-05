@@ -1,4 +1,13 @@
 services:
+  website:
+    build:
+      context: ../website
+      dockerfile: Dockerfile
+    container_name: solar_prod_website
+    restart: always
+    ports:
+      - "3000:80"
+
   nginx:
     image: nginx:alpine
     container_name: solar_prod_nginx

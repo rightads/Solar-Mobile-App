@@ -5,15 +5,15 @@ on:
     branches:
       - main
     paths:
-      - 'Backend/**'
-      - 'website/**'
-      - '.github/workflows/backend-ci-cd.yml'
+      - "Backend/**"
+      - "website/**"
+      - ".github/workflows/backend-ci-cd.yml"
   pull_request:
     branches:
       - main
     paths:
-      - 'Backend/**'
-      - 'website/**'
+      - "Backend/**"
+      - "website/**"
   workflow_dispatch:
 
 concurrency:
@@ -36,9 +36,9 @@ jobs:
       - name: Set up Python 3.12
         uses: actions/setup-python@v5
         with:
-          python-version: '3.12'
-          cache: 'pip'
-          cache-dependency-path: 'Backend/requirements.txt'
+          python-version: "3.12"
+          cache: "pip"
+          cache-dependency-path: "Backend/requirements.txt"
 
       - name: Install dependencies
         working-directory: ./Backend
@@ -110,8 +110,8 @@ jobs:
             npm run build
             echo "✅ React website build complete in $DEPLOY_PATH/website/dist"
 
-            # Allow preview ports in firewall
-            ufw allow 3000:3005/tcp comment 'Website Preview Ports' 2>/dev/null || true
+            # Allow port 3000 for preview
+            ufw allow 3000/tcp comment 'Website Preview Port' 2>/dev/null || true
 
             echo "Running deployment script..."
             cd "$DEPLOY_PATH/Backend"

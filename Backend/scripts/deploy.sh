@@ -22,8 +22,11 @@ if [ ! -f .env.prod ]; then
     exit 1
 fi
 
-# 2. Build and launch containers
-echo "📦 Building backend container and launching docker stack..."
+# 2. Free port 3000 if occupied by old node process and launch containers
+echo "🧹 Freeing port 3000 if occupied..."
+fuser -k 3000/tcp 2>/dev/null || true
+
+echo "📦 Building website and backend containers and launching docker stack..."
 docker compose -f docker-compose.prod.yml up -d --build --remove-orphans
 
 # 3. Wait for PostgreSQL to become healthy
@@ -57,14 +60,47 @@ for i in {1..8}; do
 done
 
 if [ "$HEALTHY" = true ]; then
-    echo "✅ Health check passed! API is live and responding."
+    echo "✅ Health check passed! API is live on port 8000."
 else
     echo "❌ Health check failed after 8 retries. Recent container logs:"
     docker compose -f docker-compose.prod.yml logs --tail=40 backend
     exit 1
 fi
 
-# 6. Housekeeping: remove dangling images to prevent VPS disk from filling up
+# 6. Verify Website Container Healthcheck
+echo "🩺 Verifying Website container health on http://127.0.0.1:3000..."
+WEB_HEALTHY=false
+for i in {1..6}; do
+    if curl -sf http://127.0.0.1:3000/healthz > /dev/null 2>&1 || curl -sf http://127.0.0.1:3000 > /dev/null 2>&1; then
+        WEB_HEALTHY=true
+        break
+    fi
+    echo "Waiting for website container to respond... ($i/6)"
+    sleep 2
+done
+
+if [ "$WEB_HEALTHY" = true ]; then
+    echo "✅ Website container is live on port 3000."
+else
+    echo "⚠️ Warning: Website container did not respond to /healthz on port 3000 yet."
+fi
+
+# 7. Configure CyberPanel / LiteSpeed reverse proxy for solarpro-app.in
+if [ -d "/home/solarpro-app.in/public_html" ]; then
+    echo "🔗 Configuring CyberPanel reverse proxy for solarpro-app.in -> 127.0.0.1:3000..."
+    HTACCESS="/home/solarpro-app.in/public_html/.htaccess"
+    if ! grep -q "127.0.0.1:3000" "$HTACCESS" 2>/dev/null; then
+        cat << 'EOF' > "$HTACCESS"
+RewriteEngine On
+RewriteRule ^(.*)$ http://127.0.0.1:3000/$1 [P,L]
+EOF
+        echo "✅ CyberPanel .htaccess reverse proxy configured successfully."
+    else
+        echo "✅ CyberPanel reverse proxy already active in $HTACCESS."
+    fi
+fi
+
+# 8. Housekeeping: remove dangling images to prevent VPS disk from filling up
 echo "🧹 Pruning dangling Docker images..."
 docker image prune -f
 
