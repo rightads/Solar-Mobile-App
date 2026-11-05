@@ -61,11 +61,11 @@ class Settings(BaseSettings):
     RESEND_FROM_EMAIL: str = "SolarPro <onboarding@resend.dev>"
     SMTP_HOST: str = "smtp.gmail.com"
     SMTP_PORT: int = 587
-    SMTP_USER: str = "kgoyal2609@gmail.com"
-    SMTP_PASSWORD: str = "gvry sjpv lkig hmxv"
+    SMTP_USER: str = ""
+    SMTP_PASSWORD: str = ""
     SMTP_TLS: bool = True
     SMTP_SSL: bool = False
-    EMAILS_FROM_EMAIL: str = "kgoyal2609@gmail.com"
+    EMAILS_FROM_EMAIL: str = ""
     EMAILS_FROM_NAME: str = "SolarPro Verification"
     EMAIL_VERIFICATION_EXPIRE_SECONDS: int = 600
 

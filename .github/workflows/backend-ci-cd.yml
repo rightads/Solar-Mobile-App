@@ -31,7 +31,7 @@ jobs:
         image: postgres:16-alpine
         env:
           POSTGRES_USER: postgres
-          POSTGRES_PASSWORD: password
+          POSTGRES_PASSWORD: ci_test_ephemeral_db_pass
           POSTGRES_DB: solar_app_test
         ports:
           - 5432:5432
@@ -65,13 +65,20 @@ jobs:
           python -m compileall app/ tests/ alembic/
           flake8 app tests --count --select=E9,F63,F7,F82 --show-source --statistics
 
+      - name: Generate and Mask Ephemeral Test Secrets
+        run: |
+          # Generate ephemeral tokens and mask them from all logs
+          DYNAMIC_SECRET=$(openssl rand -hex 32)
+          echo "::add-mask::$DYNAMIC_SECRET"
+          echo "CI_EPHEMERAL_SECRET=$DYNAMIC_SECRET" >> $GITHUB_ENV
+
       - name: Run Pytest Suite
         working-directory: ./Backend
         env:
-          DATABASE_URL: postgresql+asyncpg://postgres:password@localhost:5432/solar_app_test
-          TEST_DATABASE_URL: postgresql+asyncpg://postgres:password@localhost:5432/solar_app_test
-          JWT_SECRET: test_jwt_secret_key_ci_environment_minimum_32_chars
-          OTP_HMAC_SECRET: test_otp_secret_key_ci_environment_minimum_32_chars
+          DATABASE_URL: postgresql+asyncpg://postgres:ci_test_ephemeral_db_pass@localhost:5432/solar_app_test
+          TEST_DATABASE_URL: postgresql+asyncpg://postgres:ci_test_ephemeral_db_pass@localhost:5432/solar_app_test
+          JWT_SECRET: ${{ env.CI_EPHEMERAL_SECRET }}
+          OTP_HMAC_SECRET: ${{ env.CI_EPHEMERAL_SECRET }}
           STORAGE_BACKEND: local
           ENVIRONMENT: test
         run: |
@@ -89,32 +96,26 @@ jobs:
     steps:
       - name: Deploy to Hostinger VPS via SSH
         uses: appleboy/ssh-action@v1.0.3
+        env:
+          TARGET_DIR: ${{ secrets.HOSTINGER_DEPLOY_PATH }}
         with:
           host: ${{ secrets.HOSTINGER_HOST }}
           username: ${{ secrets.HOSTINGER_USERNAME }}
           key: ${{ secrets.HOSTINGER_SSH_KEY }}
           port: ${{ secrets.HOSTINGER_PORT || 22 }}
           script_stop: true
+          envs: TARGET_DIR
           script: |
             set -e
-            DEPLOY_PATH="${{ secrets.HOSTINGER_DEPLOY_PATH || '/var/www/solar-mobile-app' }}"
-            echo "🚀 Connecting to Hostinger VPS..."
-            echo "📁 Deploy directory: $DEPLOY_PATH"
-
-            if [ ! -d "$DEPLOY_PATH" ]; then
-              echo "❌ Error: Deployment directory $DEPLOY_PATH does not exist!"
-              echo "Please follow the setup guide to clone the repository first."
-              exit 1
-            fi
-
+            DEPLOY_PATH="${TARGET_DIR:-/var/www/solar-mobile-app}"
+            echo "Navigating to deploy directory..."
             cd "$DEPLOY_PATH"
 
-            echo "📥 Fetching latest code from GitHub (origin/main)..."
+            echo "Fetching latest changes from Git..."
             git fetch origin main
             git reset --hard origin/main
 
-            echo "📦 Running production deployment script..."
+            echo "Running deployment script..."
             cd Backend
             chmod +x scripts/deploy.sh
             bash scripts/deploy.sh
-
