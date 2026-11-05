@@ -2,7 +2,7 @@ from collections import defaultdict
 from datetime import date, datetime, timezone
 import mimetypes
 import os
-from typing import BinaryIO, List, Optional
+from typing import BinaryIO, Dict, List, Optional
 import uuid
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
