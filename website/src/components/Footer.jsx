@@ -69,7 +69,7 @@ export default function Footer({ onOpenModal }) {
           <ul>
             <li><a href="#calculator">Solar ROI Calculator</a></li>
             <li><a href="#faq">System Compatibility</a></li>
-            <li><a href="#downloads">Release Notes v1.0.0</a></li>
+            <li><a href="#downloads">Release Notes v1.5.0</a></li>
             <li><a href="#navbar">Back to Top ↑</a></li>
           </ul>
         </div>

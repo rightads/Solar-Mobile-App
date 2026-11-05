@@ -2,8 +2,8 @@ import React, { useEffect } from 'react';
 
 export default function DownloadModal({ platform, onClose, onDownload }) {
   const OFFICIAL_RELEASES = {
-    android: 'https://github.com/xxKrishna2609xx/Solar-Mobile-App/releases/download/Android/SolarPro-Android-v1.0.0.apk',
-    windows: 'https://github.com/xxKrishna2609xx/Solar-Mobile-App/releases/download/Windows/SolarPro-Windows-x64-v1.0.0.zip'
+    android: 'https://github.com/rightads/Solar-Mobile-App/releases/download/Android/SolarPro-Android-v1.5.0.apk',
+    windows: 'https://github.com/rightads/Solar-Mobile-App/releases/download/Windows/SolarPro-Windows-x64-v1.0.0.zip'
   };
 
   useEffect(() => {
@@ -101,7 +101,7 @@ export default function DownloadModal({ platform, onClose, onDownload }) {
               </div>
               <div>
                 <h3>Download SolarPro for Android</h3>
-                <span className="m-ver">v1.0.0 • Mobile &amp; Field Companion</span>
+                <span className="m-ver">v1.5.0 • Mobile &amp; Field Companion</span>
               </div>
             </div>
 
@@ -127,14 +127,14 @@ export default function DownloadModal({ platform, onClose, onDownload }) {
                 <ul>
                   <li>Scan the QR code or tap the direct download button on your Android phone.</li>
                   <li>When prompted, allow <em>&quot;Install from Unknown Sources&quot;</em> for your browser.</li>
-                  <li>Open <code>SolarPro.apk</code> and tap <strong>Install</strong>.</li>
+                  <li>Open <code>SolarPro-Android-v1.5.0.apk</code> and tap <strong>Install</strong>.</li>
                 </ul>
               </div>
             </div>
 
             <div className="modal-checksum" style={{ marginTop: '-10px', marginBottom: '16px' }}>
               <span className="chk-label">Package Verification:</span>
-              <code>SHA-256: 1719773030661C2C0DC977D1A1450F24FAC035E3166F655FCC4D8F097FCA70D4</code>
+              <code>Release Tag: Android • SolarPro-Android-v1.5.0.apk</code>
             </div>
 
             <div className="modal-actions">
@@ -148,7 +148,7 @@ export default function DownloadModal({ platform, onClose, onDownload }) {
                   <polyline points="7 10 12 15 17 10"></polyline>
                   <line x1="12" y1="15" x2="12" y2="3"></line>
                 </svg>
-                <span>Download Android Package (.APK • 54.1 MB)</span>
+                <span>Download Android Package (.APK • 61.7 MB)</span>
               </a>
             </div>
           </div>

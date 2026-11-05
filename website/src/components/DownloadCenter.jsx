@@ -2,8 +2,8 @@ import React from 'react';
 
 export default function DownloadCenter({ userPlatform, onOpenModal, onDownload }) {
   const OFFICIAL_RELEASES = {
-    android: 'https://github.com/xxKrishna2609xx/Solar-Mobile-App/releases/download/Android/SolarPro-Android-v1.0.0.apk',
-    windows: 'https://github.com/xxKrishna2609xx/Solar-Mobile-App/releases/download/Windows/SolarPro-Windows-x64-v1.0.0.zip'
+    android: 'https://github.com/rightads/Solar-Mobile-App/releases/download/Android/SolarPro-Android-v1.5.0.apk',
+    windows: 'https://github.com/rightads/Solar-Mobile-App/releases/download/Windows/SolarPro-Windows-x64-v1.0.0.zip'
   };
 
   const isAndroid = userPlatform === 'android';
@@ -98,7 +98,7 @@ export default function DownloadCenter({ userPlatform, onOpenModal, onDownload }
               </div>
               <div>
                 <h3>SolarPro for Android</h3>
-                <span className="dl-version-tag">Version 1.0.0 Stable (APK)</span>
+                <span className="dl-version-tag">Version 1.5.0 Stable (APK)</span>
               </div>
             </div>
 
@@ -137,7 +137,7 @@ export default function DownloadCenter({ userPlatform, onOpenModal, onDownload }
                   <polyline points="7 10 12 15 17 10"></polyline>
                   <line x1="12" y1="15" x2="12" y2="3"></line>
                 </svg>
-                <span>Download Android APK (54.1 MB)</span>
+                <span>Download Android APK (61.7 MB)</span>
               </a>
               
               <button
