@@ -72,8 +72,9 @@ jobs:
           TARGET_DIR: ${{ secrets.HOSTINGER_DEPLOY_PATH }}
         with:
           host: ${{ secrets.HOSTINGER_HOST }}
-          username: ${{ secrets.HOSTINGER_USERNAME }}
-          key: ${{ secrets.HOSTINGER_SSH_KEY }}
+          username: ${{ secrets.HOSTINGER_USERNAME || 'root' }}
+          key: ${{ secrets.HOSTINGER_SSH_KEY || secrets.SSH_PRIVATE_KEY || secrets.SSH_KEY }}
+          password: ${{ secrets.HOSTINGER_PASSWORD }}
           port: ${{ secrets.HOSTINGER_PORT || 22 }}
           script_stop: true
           envs: TARGET_DIR
