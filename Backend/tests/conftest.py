@@ -11,7 +11,7 @@ from app.db.session import get_db
 from app.main import app
 
 # Test engine
-test_db_url = settings.TEST_DATABASE_URL
+test_db_url = settings.TEST_DATABASE_URL or settings.DATABASE_URL or "postgresql+asyncpg://postgres:postgres@localhost:5432/solar_test_db"
 test_engine = create_async_engine(test_db_url, echo=False)
 TestingSessionLocal = async_sessionmaker(
     bind=test_engine,

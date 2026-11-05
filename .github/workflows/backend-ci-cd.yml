@@ -1,0 +1,120 @@
+name: Backend CI/CD Pipeline
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'Backend/**'
+      - '.github/workflows/backend-ci-cd.yml'
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'Backend/**'
+  workflow_dispatch:
+
+concurrency:
+  group: backend-deploy-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ============================================================================
+  # Job 1: Automated Testing & Linting (Continuous Integration)
+  # ============================================================================
+  ci-test:
+    name: Lint & Test Backend
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: password
+          POSTGRES_DB: solar_app_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+          cache-dependency-path: 'Backend/requirements.txt'
+
+      - name: Install dependencies
+        working-directory: ./Backend
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install -r requirements-dev.txt flake8 pytest-cov
+
+      - name: Compile check & Lint
+        working-directory: ./Backend
+        run: |
+          python -m compileall app/ tests/ alembic/
+          flake8 app tests --count --select=E9,F63,F7,F82 --show-source --statistics
+
+      - name: Run Pytest Suite
+        working-directory: ./Backend
+        env:
+          DATABASE_URL: postgresql+asyncpg://postgres:password@localhost:5432/solar_app_test
+          TEST_DATABASE_URL: postgresql+asyncpg://postgres:password@localhost:5432/solar_app_test
+          JWT_SECRET: test_jwt_secret_key_ci_environment_minimum_32_chars
+          OTP_HMAC_SECRET: test_otp_secret_key_ci_environment_minimum_32_chars
+          STORAGE_BACKEND: local
+          ENVIRONMENT: test
+        run: |
+          pytest tests/ -v
+
+  # ============================================================================
+  # Job 2: Continuous Deployment to Hostinger VPS
+  # ============================================================================
+  cd-deploy:
+    name: Deploy to Hostinger VPS
+    needs: ci-test
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Deploy to Hostinger VPS via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.HOSTINGER_HOST }}
+          username: ${{ secrets.HOSTINGER_USERNAME }}
+          key: ${{ secrets.HOSTINGER_SSH_KEY }}
+          port: ${{ secrets.HOSTINGER_PORT || 22 }}
+          script_stop: true
+          script: |
+            set -e
+            DEPLOY_PATH="${{ secrets.HOSTINGER_DEPLOY_PATH || '/var/www/solar-mobile-app' }}"
+            echo "🚀 Connecting to Hostinger VPS..."
+            echo "📁 Deploy directory: $DEPLOY_PATH"
+
+            if [ ! -d "$DEPLOY_PATH" ]; then
+              echo "❌ Error: Deployment directory $DEPLOY_PATH does not exist!"
+              echo "Please follow the setup guide to clone the repository first."
+              exit 1
+            fi
+
+            cd "$DEPLOY_PATH"
+
+            echo "📥 Fetching latest code from GitHub (origin/main)..."
+            git fetch origin main
+            git reset --hard origin/main
+
+            echo "📦 Running production deployment script..."
+            cd Backend
+            chmod +x scripts/deploy.sh
+            bash scripts/deploy.sh
+
