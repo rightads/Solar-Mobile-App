@@ -45,9 +45,24 @@ until docker compose -f docker-compose.prod.yml exec -T -u postgres postgres pg_
 done
 
 echo "🔑 Synchronizing PostgreSQL credentials and database..."
-docker compose -f docker-compose.prod.yml exec -T -u postgres postgres psql -c "ALTER USER postgres WITH PASSWORD 'postgres';" 2>/dev/null || true
-docker compose -f docker-compose.prod.yml exec -T -u postgres postgres psql -c "CREATE DATABASE solar_db;" 2>/dev/null || true
-docker compose -f docker-compose.prod.yml exec -T -u postgres postgres psql -c "GRANT ALL PRIVILEGES ON DATABASE solar_db TO postgres;" 2>/dev/null || true
+docker compose -f docker-compose.prod.yml exec -T -u postgres postgres psql -d template1 -c "
+DO \$\$
+BEGIN
+  IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'postgres') THEN
+    CREATE ROLE postgres WITH SUPERUSER LOGIN PASSWORD 'postgres';
+  ELSE
+    ALTER USER postgres WITH SUPERUSER PASSWORD 'postgres';
+  END IF;
+END
+\$\$;
+" || true
+
+docker compose -f docker-compose.prod.yml exec -T -u postgres postgres psql -d template1 -c "
+SELECT 'CREATE DATABASE solar_db OWNER postgres'
+WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = 'solar_db')\gexec
+" || true
+
+docker compose -f docker-compose.prod.yml exec -T -u postgres postgres psql -d template1 -c "GRANT ALL PRIVILEGES ON DATABASE solar_db TO postgres;" || true
 
 # 4. Apply database migrations
 echo "🗄️ Running Alembic database migrations..."
