@@ -91,52 +91,64 @@ else
 fi
 
 # 7. Configure CyberPanel / LiteSpeed reverse proxy for solarpro-app.in
-echo "🌐 Checking CyberPanel / LiteSpeed setup for solarpro-app.in..."
+echo "🌐 Configuring LiteSpeed reverse proxy for solarpro-app.in..."
 
-# List existing home directories and vhosts for diagnostics
-echo "Current /home/ entries:"
-ls -la /home/ 2>/dev/null || true
-
-# If solarpro-app.in directory doesn't exist, try creating via CyberPanel CLI
-if [ ! -d "/home/solarpro-app.in/public_html" ]; then
-    echo "🔍 /home/solarpro-app.in/public_html not found."
-    if command -v cyberpanel > /dev/null 2>&1; then
-        echo "⚙️ Creating website solarpro-app.in via CyberPanel CLI..."
-        cyberpanel createWebsite --package Default --owner admin --domainName solarpro-app.in --email admin@solarpro-app.in --php 8.1 2>&1 || true
-    fi
+# Tail LiteSpeed error log for diagnostics
+if [ -f "/usr/local/lsws/logs/error.log" ]; then
+    echo "📋 Recent LiteSpeed error log:"
+    tail -n 15 /usr/local/lsws/logs/error.log || true
 fi
 
-# Determine target directory
-TARGET_HTACCESS=""
-if [ -d "/home/solarpro-app.in/public_html" ]; then
-    TARGET_HTACCESS="/home/solarpro-app.in/public_html/.htaccess"
-elif [ -d "/home/www.solarpro-app.in/public_html" ]; then
-    TARGET_HTACCESS="/home/www.solarpro-app.in/public_html/.htaccess"
+# Clean up any broken RewriteRule in .htaccess
+HTACCESS="/home/solarpro-app.in/public_html/.htaccess"
+if [ -f "$HTACCESS" ]; then
+    echo "🧹 Clearing previous .htaccess proxy rule..."
+    > "$HTACCESS"
 fi
 
-if [ -n "$TARGET_HTACCESS" ]; then
-    echo "🔗 Writing LiteSpeed reverse proxy rules to $TARGET_HTACCESS..."
-    cat << 'EOF' > "$TARGET_HTACCESS"
-RewriteEngine On
-RewriteRule ^(.*)$ http://127.0.0.1:3005/$1 [P,L]
+# Configure OpenLiteSpeed vhost for solarpro-app.in
+VHOST_CONF="/usr/local/lsws/conf/vhosts/solarpro-app.in/vhost.conf"
+if [ -f "$VHOST_CONF" ]; then
+    echo "⚙️ Found $VHOST_CONF, configuring extprocessor and proxy context..."
+    if ! grep -q "solarpro_proxy" "$VHOST_CONF"; then
+        cat << 'EOF' >> "$VHOST_CONF"
+
+extprocessor solarpro_proxy {
+  type                    proxy
+  address                 127.0.0.1:3005
+  maxConns                100
+  pcKeepAliveTimeout      60
+  initTimeout             60
+  retryTimeout            0
+  respBuffer              0
+}
+
+context / {
+  type                    proxy
+  handler                 solarpro_proxy
+  addDefaultCharset       off
+}
 EOF
-    chmod 644 "$TARGET_HTACCESS"
-    SITE_USER=$(stat -c '%U:%G' "$(dirname "$TARGET_HTACCESS")" 2>/dev/null || echo "")
-    if [ -n "$SITE_USER" ]; then
-        chown "$SITE_USER" "$TARGET_HTACCESS" 2>/dev/null || true
-    fi
-    echo "✅ Reverse proxy configured in $TARGET_HTACCESS -> http://127.0.0.1:3005"
-    
-    # Reload LiteSpeed so changes take effect
-    if [ -f "/usr/local/lsws/bin/lswsctrl" ]; then
-        /usr/local/lsws/bin/lswsctrl reload 2>/dev/null || true
-    elif command -v systemctl > /dev/null 2>&1 && systemctl is-active --quiet lsws; then
-        systemctl reload lsws 2>/dev/null || true
+        echo "✅ Added proxy context to $VHOST_CONF"
+    else
+        echo "ℹ️ solarpro_proxy already configured in $VHOST_CONF"
     fi
 else
-    echo "ℹ️ Notice: Website solarpro-app.in directory not found under /home/."
-    echo "ℹ️ Please create the website in CyberPanel UI (Websites -> Create Website -> solarpro-app.in)."
+    echo "⚠️ Notice: $VHOST_CONF not found."
+    find /usr/local/lsws/conf/ -name "*solarpro*" 2>/dev/null || true
 fi
+
+# Reload LiteSpeed so changes take effect
+echo "🔄 Reloading LiteSpeed server..."
+if [ -f "/usr/local/lsws/bin/lswsctrl" ]; then
+    /usr/local/lsws/bin/lswsctrl reload || true
+elif command -v systemctl > /dev/null 2>&1 && systemctl is-active --quiet lsws; then
+    systemctl reload lsws || true
+fi
+
+sleep 2
+echo "🩺 Testing local domain resolution for solarpro-app.in..."
+curl -is -m 5 -H "Host: solarpro-app.in" http://127.0.0.1/ | head -n 25 || true
 
 # 8. Housekeeping: remove dangling images to prevent VPS disk from filling up
 echo "🧹 Pruning dangling Docker images..."
