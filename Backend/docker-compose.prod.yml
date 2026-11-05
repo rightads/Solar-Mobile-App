@@ -6,7 +6,7 @@ services:
     container_name: solar_prod_website
     restart: always
     ports:
-      - "3000:80"
+      - "3005:80"
 
   nginx:
     image: nginx:alpine

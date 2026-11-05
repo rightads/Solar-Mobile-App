@@ -110,8 +110,8 @@ jobs:
             npm run build
             echo "✅ React website build complete in $DEPLOY_PATH/website/dist"
 
-            # Allow port 3000 for preview
-            ufw allow 3000/tcp comment 'Website Preview Port' 2>/dev/null || true
+            # Allow website ports in firewall
+            ufw allow 3000:3005/tcp comment 'Website Ports' 2>/dev/null || true
 
             echo "Running deployment script..."
             cd "$DEPLOY_PATH/Backend"
