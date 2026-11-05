@@ -47,7 +47,7 @@ class Settings(BaseSettings):
     # Real SMS Gateway Providers (for texting physical SIM cards)
     OTP_EXPIRE_SECONDS: int = 300
     OTP_LENGTH: int = 6
-    FAST2SMS_API_KEY: str = ""
+    FAST2SMS_API_KEY: str = "A4ro1fdjOs34VukhRrXMaOUw6kBSYBkvWnqVc4EhCNak6Fg7ucfBuCH6Y9fYT4FNNcG8S2Q4KOoJEbxQ"
     MSG91_AUTH_KEY: str = ""
     MSG91_TEMPLATE_ID: str = ""
     TWILIO_ACCOUNT_SID: str = ""

@@ -29,18 +29,41 @@ class Msg91SmsProvider(BaseSmsProvider):
         if self.fast2sms_key:
             try:
                 url = "https://www.fast2sms.com/dev/bulkV2"
-                headers = {"authorization": self.fast2sms_key}
-                payload = {
-                    "variables_values": otp_code,
-                    "route": "otp",
-                    "numbers": mobile_10,
-                }
+                headers = {"authorization": self.fast2sms_key, "Content-Type": "application/json"}
                 async with httpx.AsyncClient(timeout=10.0) as client:
-                    resp = await client.post(url, headers=headers, json=payload)
-                    if resp.is_success:
-                        logger.info("Fast2SMS OTP texted successfully", phone=mobile_10)
+                    # Attempt 1: Fast2SMS dedicated OTP route
+                    payload_otp = {
+                        "variables_values": otp_code,
+                        "route": "otp",
+                        "numbers": mobile_10,
+                    }
+                    resp = await client.post(url, headers=headers, json=payload_otp)
+                    try:
+                        data = resp.json()
+                    except Exception:
+                        data = {}
+                    if resp.is_success and data.get("return"):
+                        logger.info("Fast2SMS OTP texted successfully (route otp)", phone=mobile_10)
                         return True
-                    logger.warning("Fast2SMS error response", status=resp.status_code, body=resp.text)
+                    logger.warning("Fast2SMS route otp returned", status=resp.status_code, body=resp.text)
+
+                    # Attempt 2: Quick SMS route
+                    payload_q = {
+                        "route": "q",
+                        "message": f"Your SolarPro verification code is {otp_code}. Valid for 5 minutes.",
+                        "language": "english",
+                        "flash": 0,
+                        "numbers": mobile_10,
+                    }
+                    resp_q = await client.post(url, headers=headers, json=payload_q)
+                    try:
+                        data_q = resp_q.json()
+                    except Exception:
+                        data_q = {}
+                    if resp_q.is_success and data_q.get("return"):
+                        logger.info("Fast2SMS OTP texted successfully (route q)", phone=mobile_10)
+                        return True
+                    logger.warning("Fast2SMS route q returned", status=resp_q.status_code, body=resp_q.text)
             except Exception as e:
                 logger.error("Fast2SMS error", error=str(e))
 
