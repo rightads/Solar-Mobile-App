@@ -94,23 +94,7 @@ jobs:
             # Sync production environment secrets if configured in GitHub Actions
             if [ -n "$ENV_PROD_SECRET" ]; then
                 echo "🔑 Syncing production environment variables to Backend/.env.prod..."
-                EXISTING_PG_URL=""
-                if [ -f "Backend/.env.prod" ]; then
-                    EXISTING_PG_URL=$(grep -E '^DATABASE_URL=' Backend/.env.prod | cut -d'=' -f2- || true)
-                    EXISTING_PG_USER=$(grep -E '^POSTGRES_USER=' Backend/.env.prod | cut -d'=' -f2- || true)
-                    EXISTING_PG_PASS=$(grep -E '^POSTGRES_PASSWORD=' Backend/.env.prod | cut -d'=' -f2- || true)
-                    EXISTING_PG_DB=$(grep -E '^POSTGRES_DB=' Backend/.env.prod | cut -d'=' -f2- || true)
-                fi
-
                 echo "$ENV_PROD_SECRET" > Backend/.env.prod
-
-                # Retain working PostgreSQL database settings if already configured
-                if [ -n "$EXISTING_PG_URL" ] && [[ "$EXISTING_PG_URL" != *"REPLACE_WITH"* ]]; then
-                    sed -i "s|^DATABASE_URL=.*|DATABASE_URL=$EXISTING_PG_URL|" Backend/.env.prod
-                    [ -n "$EXISTING_PG_USER" ] && sed -i "s|^POSTGRES_USER=.*|POSTGRES_USER=$EXISTING_PG_USER|" Backend/.env.prod
-                    [ -n "$EXISTING_PG_PASS" ] && sed -i "s|^POSTGRES_PASSWORD=.*|POSTGRES_PASSWORD=$EXISTING_PG_PASS|" Backend/.env.prod
-                    [ -n "$EXISTING_PG_DB" ] && sed -i "s|^POSTGRES_DB=.*|POSTGRES_DB=$EXISTING_PG_DB|" Backend/.env.prod
-                fi
                 chmod 600 Backend/.env.prod
                 echo "✅ Backend/.env.prod synchronized successfully."
             fi

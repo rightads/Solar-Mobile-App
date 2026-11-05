@@ -35,18 +35,19 @@ done
 echo "📦 Building and restarting website and backend Docker containers..."
 docker compose -f docker-compose.prod.yml up -d --build --remove-orphans
 
-# 3. Wait for PostgreSQL to become healthy
-echo "⏳ Waiting for PostgreSQL database container to be healthy..."
+# 3. Wait for PostgreSQL to become healthy and sync credentials
+echo "⏳ Waiting for PostgreSQL database container to be ready..."
 RETRIES=10
-until docker compose -f docker-compose.prod.yml exec -T postgres pg_isready > /dev/null 2>&1 || [ $RETRIES -eq 0 ]; do
+until docker compose -f docker-compose.prod.yml exec -T -u postgres postgres pg_isready > /dev/null 2>&1 || [ $RETRIES -eq 0 ]; do
     echo "Waiting for postgres... ($RETRIES attempts remaining)"
     sleep 3
     RETRIES=$((RETRIES - 1))
 done
 
-if [ $RETRIES -eq 0 ]; then
-    echo "⚠️ Warning: Postgres healthcheck timed out, proceeding to migrations check..."
-fi
+echo "🔑 Synchronizing PostgreSQL credentials and database..."
+docker compose -f docker-compose.prod.yml exec -T -u postgres postgres psql -c "ALTER USER postgres WITH PASSWORD 'postgres';" 2>/dev/null || true
+docker compose -f docker-compose.prod.yml exec -T -u postgres postgres psql -c "CREATE DATABASE solar_db;" 2>/dev/null || true
+docker compose -f docker-compose.prod.yml exec -T -u postgres postgres psql -c "GRANT ALL PRIVILEGES ON DATABASE solar_db TO postgres;" 2>/dev/null || true
 
 # 4. Apply database migrations
 echo "🗄️ Running Alembic database migrations..."
