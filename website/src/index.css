@@ -572,6 +572,9 @@ h1, h2, h3, h4 {
   box-shadow: var(--shadow-lg);
   position: relative;
   overflow: hidden;
+  cursor: pointer;
+  text-align: left;
+  font-family: inherit;
 }
 
 .btn-download-hero::before {
@@ -2526,14 +2529,22 @@ h1, h2, h3, h4 {
   gap: 10px;
 }
 
-.footer-links-col a {
+.footer-links-col a,
+.footer-links-col .footer-link-btn {
   text-decoration: none;
   font-size: 0.85rem;
   color: var(--text-muted);
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  text-align: left;
+  font-family: inherit;
   transition: color 0.2s ease;
 }
 
-.footer-links-col a:hover {
+.footer-links-col a:hover,
+.footer-links-col .footer-link-btn:hover {
   color: #FFFFFF;
 }
 
