@@ -22,11 +22,17 @@ if [ ! -f .env.prod ]; then
     exit 1
 fi
 
-# 2. Free port 3005 if occupied by old process and launch containers
-echo "🧹 Freeing port 3005 if occupied..."
-kill -9 $(lsof -t -i:3005) 2>/dev/null || fuser -k 3005/tcp 2>/dev/null || true
+echo "📋 Verifying production environment configurations in .env.prod..."
+for VAR in MONGODB_URI SMTP_USER RESEND_API_KEY SUPER_ADMIN_EMAIL JWT_SECRET; do
+    if grep -qE "^${VAR}=" .env.prod && [ -n "$(grep -E "^${VAR}=" .env.prod | cut -d'=' -f2-)" ]; then
+        echo "  ✅ $VAR is configured."
+    else
+        echo "  ℹ️ Note: $VAR is not yet configured or is empty in .env.prod."
+    fi
+done
 
-echo "📦 Building website and backend containers and launching docker stack..."
+# 2. Launch containers via Docker Compose
+echo "📦 Building and restarting website and backend Docker containers..."
 docker compose -f docker-compose.prod.yml up -d --build --remove-orphans
 
 # 3. Wait for PostgreSQL to become healthy
@@ -147,11 +153,25 @@ elif command -v systemctl > /dev/null 2>&1 && systemctl is-active --quiet lsws; 
     systemctl reload lsws || true
 fi
 
+# 8. Issue / verify SSL certificate for solarpro-app.in via CyberPanel
+echo "🔒 Checking SSL certificate for solarpro-app.in..."
+if command -v cyberpanel > /dev/null 2>&1; then
+    echo "🔐 Requesting/Refreshing Let's Encrypt SSL for solarpro-app.in via CyberPanel CLI..."
+    cyberpanel issueSSL --domainName solarpro-app.in 2>&1 || true
+    if [ -f "/usr/local/lsws/bin/lswsctrl" ]; then
+        /usr/local/lsws/bin/lswsctrl reload || true
+    fi
+fi
+
 sleep 2
 echo "🩺 Testing local domain resolution for solarpro-app.in..."
 curl -is -m 5 -H "Host: solarpro-app.in" http://127.0.0.1/ | head -n 25 || true
 
-# 8. Housekeeping: remove dangling images to prevent VPS disk from filling up
+# 9. Verify Backend container logs on startup (MongoDB & Super Admin sync)
+echo "📋 Backend container startup logs:"
+docker compose -f docker-compose.prod.yml logs --tail=20 backend || true
+
+# 10. Housekeeping: remove dangling images to prevent VPS disk from filling up
 echo "🧹 Pruning dangling Docker images..."
 docker image prune -f
 

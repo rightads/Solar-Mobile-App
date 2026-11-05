@@ -72,6 +72,7 @@ jobs:
         uses: appleboy/ssh-action@v1.0.3
         env:
           TARGET_DIR: ${{ secrets.HOSTINGER_DEPLOY_PATH }}
+          ENV_PROD_SECRET: ${{ secrets.HOSTINGER_ENV_PROD }}
         with:
           host: ${{ secrets.HOSTINGER_HOST }}
           username: ${{ secrets.HOSTINGER_USERNAME || 'root' }}
@@ -79,7 +80,7 @@ jobs:
           password: ${{ secrets.HOSTINGER_PASSWORD }}
           port: ${{ secrets.HOSTINGER_PORT || 22 }}
           script_stop: true
-          envs: TARGET_DIR
+          envs: TARGET_DIR,ENV_PROD_SECRET
           script: |
             set -e
             DEPLOY_PATH="${TARGET_DIR:-/var/www/solar-mobile-app}"
@@ -89,6 +90,30 @@ jobs:
             echo "Fetching latest changes from Git..."
             git fetch origin main
             git reset --hard origin/main
+
+            # Sync production environment secrets if configured in GitHub Actions
+            if [ -n "$ENV_PROD_SECRET" ]; then
+                echo "🔑 Syncing production environment variables to Backend/.env.prod..."
+                EXISTING_PG_URL=""
+                if [ -f "Backend/.env.prod" ]; then
+                    EXISTING_PG_URL=$(grep -E '^DATABASE_URL=' Backend/.env.prod | cut -d'=' -f2- || true)
+                    EXISTING_PG_USER=$(grep -E '^POSTGRES_USER=' Backend/.env.prod | cut -d'=' -f2- || true)
+                    EXISTING_PG_PASS=$(grep -E '^POSTGRES_PASSWORD=' Backend/.env.prod | cut -d'=' -f2- || true)
+                    EXISTING_PG_DB=$(grep -E '^POSTGRES_DB=' Backend/.env.prod | cut -d'=' -f2- || true)
+                fi
+
+                echo "$ENV_PROD_SECRET" > Backend/.env.prod
+
+                # Retain working PostgreSQL database settings if already configured
+                if [ -n "$EXISTING_PG_URL" ] && [[ "$EXISTING_PG_URL" != *"REPLACE_WITH"* ]]; then
+                    sed -i "s|^DATABASE_URL=.*|DATABASE_URL=$EXISTING_PG_URL|" Backend/.env.prod
+                    [ -n "$EXISTING_PG_USER" ] && sed -i "s|^POSTGRES_USER=.*|POSTGRES_USER=$EXISTING_PG_USER|" Backend/.env.prod
+                    [ -n "$EXISTING_PG_PASS" ] && sed -i "s|^POSTGRES_PASSWORD=.*|POSTGRES_PASSWORD=$EXISTING_PG_PASS|" Backend/.env.prod
+                    [ -n "$EXISTING_PG_DB" ] && sed -i "s|^POSTGRES_DB=.*|POSTGRES_DB=$EXISTING_PG_DB|" Backend/.env.prod
+                fi
+                chmod 600 Backend/.env.prod
+                echo "✅ Backend/.env.prod synchronized successfully."
+            fi
 
             echo "=== Ensuring Node 20 LTS on VPS ==="
             NODE_MAJOR=$(node -v 2>/dev/null | cut -d'.' -f1 | tr -d 'v' || echo "0")
