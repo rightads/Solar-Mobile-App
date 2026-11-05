@@ -66,6 +66,10 @@ class SystemPhase(str, enum.Enum):
     THREE = "three"
 
 
+# Alias for backward compatibility
+CustomerPhase = SystemPhase
+
+
 class PaymentMode(str, enum.Enum):
     CASH = "cash"
     UPI = "upi"

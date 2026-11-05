@@ -5,6 +5,7 @@ from app.models.customer import Customer, StageHistory
 from app.models.document import CustomerDocument
 from app.models.enums import (
     CustomerStage,
+    CustomerPhase,
     DocumentType,
     ItemCategory,
     ItemUnit,
