@@ -45,7 +45,8 @@ until docker compose -f docker-compose.prod.yml exec -T -u postgres postgres pg_
 done
 
 echo "🔑 Synchronizing PostgreSQL credentials and database..."
-docker compose -f docker-compose.prod.yml exec -T -u postgres postgres psql -d template1 -c "
+# 1. If cluster was initialized with solar_prod_user, use it to create postgres superuser
+docker compose -f docker-compose.prod.yml exec -T -u postgres postgres psql -U solar_prod_user -d template1 -c "
 DO \$\$
 BEGIN
   IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'postgres') THEN
@@ -55,14 +56,20 @@ BEGIN
   END IF;
 END
 \$\$;
-" || true
+" 2>/dev/null || true
 
-docker compose -f docker-compose.prod.yml exec -T -u postgres postgres psql -d template1 -c "
-SELECT 'CREATE DATABASE solar_db OWNER postgres'
-WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = 'solar_db')\gexec
-" || true
+# 2. If cluster was initialized with postgres, ensure postgres password is set
+docker compose -f docker-compose.prod.yml exec -T -u postgres postgres psql -U postgres -d template1 -c "
+ALTER USER postgres WITH SUPERUSER PASSWORD 'postgres';
+" 2>/dev/null || true
 
-docker compose -f docker-compose.prod.yml exec -T -u postgres postgres psql -d template1 -c "GRANT ALL PRIVILEGES ON DATABASE solar_db TO postgres;" || true
+# 3. Ensure solar_db database exists and is owned by postgres
+docker compose -f docker-compose.prod.yml exec -T -u postgres postgres psql -U solar_prod_user -d template1 -c "CREATE DATABASE solar_db OWNER postgres;" 2>/dev/null || \
+docker compose -f docker-compose.prod.yml exec -T -u postgres postgres psql -U postgres -d template1 -c "CREATE DATABASE solar_db OWNER postgres;" 2>/dev/null || true
+
+# 4. Grant full privileges on existing databases
+docker compose -f docker-compose.prod.yml exec -T -u postgres postgres psql -U solar_prod_user -d template1 -c "GRANT ALL PRIVILEGES ON DATABASE solar_prod_db TO postgres;" 2>/dev/null || true
+docker compose -f docker-compose.prod.yml exec -T -u postgres postgres psql -U postgres -d template1 -c "GRANT ALL PRIVILEGES ON DATABASE solar_db TO postgres;" 2>/dev/null || true
 
 # 4. Apply database migrations
 echo "🗄️ Running Alembic database migrations..."
