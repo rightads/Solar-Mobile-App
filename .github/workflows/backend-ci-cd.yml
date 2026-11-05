@@ -90,20 +90,27 @@ jobs:
             git fetch origin main
             git reset --hard origin/main
 
-            echo "=== VPS WEB DIAGNOSTICS ==="
-            echo "Node: $(node -v 2>&1 || echo 'Not installed')"
-            echo "NPM: $(npm -v 2>&1 || echo 'Not installed')"
-            echo "--- /home listing ---"
-            ls -la /home || true
-            echo "--- /var/www listing ---"
-            ls -la /var/www || true
-            echo "--- public_html scan ---"
-            find /home /var/www -maxdepth 3 -name "public_html" 2>/dev/null || true
-            echo "--- solarpro search ---"
-            find /home /var/www /etc -maxdepth 3 -iname "*solarpro*" 2>/dev/null || true
-            echo "=== END VPS WEB DIAGNOSTICS ==="
+            echo "=== Ensuring Node 20 LTS on VPS ==="
+            NODE_MAJOR=$(node -v 2>/dev/null | cut -d'.' -f1 | tr -d 'v' || echo "0")
+            if [ -z "$NODE_MAJOR" ] || [ "$NODE_MAJOR" -lt 18 ]; then
+                echo "Installing Node.js 20 LTS repository..."
+                curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
+                apt-get install -y nodejs
+            fi
+            echo "Active Node: $(node -v)"
+            echo "Active NPM: $(npm -v)"
+
+            echo "=== Building React Website ==="
+            cd "$DEPLOY_PATH/website"
+            rm -rf node_modules package-lock.json
+            npm install
+            npm run build
+            echo "✅ React website build complete in $DEPLOY_PATH/website/dist"
+
+            # Allow port 3000 for preview
+            ufw allow 3000/tcp comment 'Website Preview Port' 2>/dev/null || true
 
             echo "Running deployment script..."
-            cd Backend
+            cd "$DEPLOY_PATH/Backend"
             chmod +x scripts/deploy.sh
             bash scripts/deploy.sh
