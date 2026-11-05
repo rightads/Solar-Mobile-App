@@ -6,6 +6,7 @@ services:
     container_name: solar_prod_nginx
     restart: always
     ports:
+      - "8000:8000"
       - "80:80"
       - "443:443"
     volumes:

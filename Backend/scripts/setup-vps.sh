@@ -39,6 +39,7 @@ echo "🛡️ Configuring firewall rules..."
 ufw default deny incoming
 ufw default allow outgoing
 ufw allow 22/tcp comment 'SSH'
+ufw allow 8000/tcp comment 'API Port 8000'
 ufw allow 80/tcp comment 'HTTP Nginx'
 ufw allow 443/tcp comment 'HTTPS Nginx'
 echo "y" | ufw enable

@@ -45,10 +45,10 @@ docker compose -f docker-compose.prod.yml exec -T backend alembic upgrade head
 echo "✅ Database schema updated successfully."
 
 # 5. Verify API Healthcheck
-echo "🩺 Verifying API health on http://127.0.0.1/api/v1/health..."
+echo "🩺 Verifying API health on http://127.0.0.1:8000/api/v1/health..."
 HEALTHY=false
 for i in {1..8}; do
-    if curl -sf http://127.0.0.1/api/v1/health > /dev/null 2>&1 || docker compose -f docker-compose.prod.yml exec -T backend curl -sf http://localhost:8000/api/v1/health > /dev/null 2>&1; then
+    if curl -sf http://127.0.0.1:8000/api/v1/health > /dev/null 2>&1 || curl -sf http://127.0.0.1/api/v1/health > /dev/null 2>&1 || docker compose -f docker-compose.prod.yml exec -T backend curl -sf http://localhost:8000/api/v1/health > /dev/null 2>&1; then
         HEALTHY=true
         break
     fi
