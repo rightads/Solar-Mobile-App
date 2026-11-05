@@ -93,9 +93,12 @@ jobs:
             echo "=== Ensuring Node 20 LTS on VPS ==="
             NODE_MAJOR=$(node -v 2>/dev/null | cut -d'.' -f1 | tr -d 'v' || echo "0")
             if [ -z "$NODE_MAJOR" ] || [ "$NODE_MAJOR" -lt 18 ]; then
+                echo "Removing conflicting old distro packages..."
+                apt-get remove -y --purge libnode-dev libnode72 nodejs npm || true
+                apt-get autoremove -y || true
                 echo "Installing Node.js 20 LTS repository..."
                 curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
-                apt-get install -y nodejs
+                apt-get install -y -o Dpkg::Options::="--force-overwrite" nodejs
             fi
             echo "Active Node: $(node -v)"
             echo "Active NPM: $(npm -v)"
