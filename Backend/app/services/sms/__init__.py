@@ -5,7 +5,12 @@ from app.services.sms.msg91 import Msg91SmsProvider
 
 
 def get_sms_provider() -> BaseSmsProvider:
-    if getattr(settings, "MSG91_AUTH_KEY", "") or getattr(settings, "FAST2SMS_API_KEY", ""):
+    if (
+        getattr(settings, "FAST2SMS_API_KEY", "")
+        or getattr(settings, "TWO_FACTOR_API_KEY", "")
+        or getattr(settings, "TWILIO_ACCOUNT_SID", "")
+        or getattr(settings, "MSG91_AUTH_KEY", "")
+    ):
         return Msg91SmsProvider()
     if settings.ENV == "dev" or settings.ENV == "test":
         return ConsoleSmsProvider()

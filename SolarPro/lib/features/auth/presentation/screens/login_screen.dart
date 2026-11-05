@@ -134,19 +134,11 @@ class _LoginScreenState extends State<LoginScreen> {
       if (mounted) {
         setState(() => _isLoading = false);
         final email = res?['email'] as String?;
-        final devOtp = res?['dev_otp'] as String?;
+        _clientOtpController.clear();
+        _vendorOtpController.clear();
         onSentSuccess();
-        if (devOtp != null && devOtp.isNotEmpty) {
-          if (_currentPortal == 0) {
-            _clientOtpController.text = devOtp;
-          } else if (_currentPortal == 1) {
-            _vendorOtpController.text = devOtp;
-          }
-          _showSuccessSnack('OTP is $devOtp (Dev Mode). Verification code also sent.');
-        } else {
-          final emailNotice = email != null ? ' & $email' : '';
-          _showSuccessSnack('Verification code sent to +91 $cleanPhone$emailNotice. Please check your inbox.');
-        }
+        final emailNotice = email != null ? ' and $email' : '';
+        _showSuccessSnack('Verification OTP sent to +91 $cleanPhone$emailNotice. Please enter it below.');
       }
     } catch (e) {
       if (mounted) {

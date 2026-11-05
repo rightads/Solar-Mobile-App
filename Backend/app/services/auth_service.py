@@ -75,18 +75,10 @@ class AuthService:
         if user_email:
             msg += f" and {user_email}"
 
-        # If SMS gateway credentials are not configured or EXPOSE_DEV_OTP is active, provide dev_otp
-        has_real_sms = bool(getattr(settings, "MSG91_AUTH_KEY", None) or getattr(settings, "FAST2SMS_API_KEY", None))
-        expose_otp = getattr(settings, "EXPOSE_DEV_OTP", True)
-
-        dev_otp_val = None
-        if not has_real_sms or expose_otp or settings.ENV == "dev":
-            dev_otp_val = otp_code
-
         return {
             "message": msg,
             "email": user_email,
-            "dev_otp": dev_otp_val,
+            "dev_otp": None,
         }
 
     @staticmethod

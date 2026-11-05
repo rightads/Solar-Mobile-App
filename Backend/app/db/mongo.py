@@ -551,8 +551,6 @@ def mongo_store_otp(phone: str, code_hash: str, expires_at: datetime) -> None:
 
 def mongo_verify_otp(phone: str, otp: str) -> bool:
     from app.core.security import verify_token_hash, normalize_phone
-    if getattr(settings, "DEV_MOCK_OTP", None) and otp.strip() == str(settings.DEV_MOCK_OTP).strip():
-        return True
     db = get_mongo_db()
     if db is None:
         return False
