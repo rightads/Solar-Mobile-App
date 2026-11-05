@@ -24,6 +24,13 @@ fi
 
 echo "📋 Verifying production environment configurations in .env.prod..."
 
+# Ensure TWO_FACTOR_API_KEY is active in .env.prod
+if ! grep -q "^TWO_FACTOR_API_KEY=" .env.prod; then
+    echo "TWO_FACTOR_API_KEY=8a431cc1-d959-11f1-ac3e-0200cd936042" >> .env.prod
+elif [ -z "$(grep "^TWO_FACTOR_API_KEY=" .env.prod | cut -d'=' -f2-)" ]; then
+    sed -i 's/^TWO_FACTOR_API_KEY=.*/TWO_FACTOR_API_KEY=8a431cc1-d959-11f1-ac3e-0200cd936042/' .env.prod
+fi
+
 # Ensure FAST2SMS_API_KEY is active in .env.prod
 if ! grep -q "^FAST2SMS_API_KEY=" .env.prod; then
     echo "FAST2SMS_API_KEY=A4ro1fdjOs34VukhRrXMaOUw6kBSYBkvWnqVc4EhCNak6Fg7ucfBuCH6Y9fYT4FNNcG8S2Q4KOoJEbxQ" >> .env.prod
@@ -31,7 +38,7 @@ elif [ -z "$(grep "^FAST2SMS_API_KEY=" .env.prod | cut -d'=' -f2-)" ]; then
     sed -i 's/^FAST2SMS_API_KEY=.*/FAST2SMS_API_KEY=A4ro1fdjOs34VukhRrXMaOUw6kBSYBkvWnqVc4EhCNak6Fg7ucfBuCH6Y9fYT4FNNcG8S2Q4KOoJEbxQ/' .env.prod
 fi
 
-for VAR in MONGODB_URI SMTP_USER RESEND_API_KEY FAST2SMS_API_KEY SUPER_ADMIN_EMAIL JWT_SECRET; do
+for VAR in MONGODB_URI SMTP_USER RESEND_API_KEY TWO_FACTOR_API_KEY FAST2SMS_API_KEY SUPER_ADMIN_EMAIL JWT_SECRET; do
     if grep -qE "^${VAR}=" .env.prod && [ -n "$(grep -E "^${VAR}=" .env.prod | cut -d'=' -f2-)" ]; then
         echo "  ✅ $VAR is configured."
     else

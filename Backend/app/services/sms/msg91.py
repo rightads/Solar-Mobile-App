@@ -25,7 +25,21 @@ class Msg91SmsProvider(BaseSmsProvider):
             mobile_10 = clean_phone[-10:]
             mobile_with_cc = f"91{mobile_10}"
 
-        # 1. Fast2SMS (Indian SMS Gateway)
+        # 1. 2Factor.in (Primary Indian SMS Gateway)
+        if self.two_factor_key:
+            try:
+                url = f"https://2factor.in/API/V1/{self.two_factor_key}/SMS/{mobile_10}/{otp_code}"
+                async with httpx.AsyncClient(timeout=10.0) as client:
+                    resp = await client.get(url)
+                    data = resp.json() if resp.headers.get("content-type", "").startswith("application/json") else {}
+                    if resp.is_success and data.get("Status") == "Success":
+                        logger.info("2Factor.in OTP texted successfully", phone=mobile_10, session_id=data.get("Details"))
+                        return True
+                    logger.warning("2Factor.in error response", status=resp.status_code, body=resp.text)
+            except Exception as e:
+                logger.error("2Factor.in error", error=str(e))
+
+        # 2. Fast2SMS (Fallback Indian SMS Gateway)
         if self.fast2sms_key:
             try:
                 url = "https://www.fast2sms.com/dev/bulkV2"
@@ -66,19 +80,6 @@ class Msg91SmsProvider(BaseSmsProvider):
                     logger.warning("Fast2SMS route q returned", status=resp_q.status_code, body=resp_q.text)
             except Exception as e:
                 logger.error("Fast2SMS error", error=str(e))
-
-        # 2. 2Factor.in (Indian SMS Gateway)
-        if self.two_factor_key:
-            try:
-                url = f"https://2factor.in/v1/API/V1/{self.two_factor_key}/SMS/{mobile_10}/{otp_code}/SolarPro+OTP"
-                async with httpx.AsyncClient(timeout=10.0) as client:
-                    resp = await client.get(url)
-                    if resp.is_success:
-                        logger.info("2Factor.in OTP texted successfully", phone=mobile_10)
-                        return True
-                    logger.warning("2Factor.in error response", status=resp.status_code, body=resp.text)
-            except Exception as e:
-                logger.error("2Factor.in error", error=str(e))
 
         # 3. Twilio SMS
         if self.twilio_sid and self.twilio_token and self.twilio_from:
