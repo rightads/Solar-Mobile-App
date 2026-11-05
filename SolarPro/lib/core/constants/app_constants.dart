@@ -11,33 +11,22 @@ class AppConstants {
   static const String appTagline = 'Powering India\'s Solar Future';
   static const String companyName = 'SolarPro Management';
 
-  // Local Backend Configuration
-  static const bool useHostedBackend = false;
+  // Production Hosted Backend Configuration (Hostinger VPS)
+  static const String serverHost = 'http://82.29.165.43:8000';
+  static const String serverBaseUrl = 'http://82.29.165.43:8000/api/v1';
 
-  static String get localBaseUrl {
-    if (kIsWeb) return 'http://localhost:8000/api/v1';
-    if (Platform.isAndroid) return 'http://10.0.2.2:8000/api/v1';
-    return 'http://localhost:8000/api/v1';
-  }
-
-  static String get localLiveHost {
-    if (kIsWeb) return 'http://localhost:8000';
-    if (Platform.isAndroid) return 'http://10.0.2.2:8000';
-    return 'http://localhost:8000';
-  }
-
-  // Production override: pass --dart-define=API_BASE_URL=https://host/api/v1
-  // and --dart-define=API_LIVE_HOST=https://host at build time.
+  // Build-time override: pass --dart-define=API_BASE_URL=http://.../api/v1
+  // and --dart-define=API_LIVE_HOST=http://... at build time if overriding.
   static const String _apiBaseUrlOverride =
       String.fromEnvironment('API_BASE_URL');
   static const String _apiLiveHostOverride =
       String.fromEnvironment('API_LIVE_HOST');
 
-  // API - Uses build-time override if provided, else local backend host
+  // API - Always defaults to production Hostinger VPS http://82.29.165.43:8000
   static String get baseUrl =>
-      _apiBaseUrlOverride.isNotEmpty ? _apiBaseUrlOverride : localBaseUrl;
+      _apiBaseUrlOverride.isNotEmpty ? _apiBaseUrlOverride : serverBaseUrl;
   static String get liveHost =>
-      _apiLiveHostOverride.isNotEmpty ? _apiLiveHostOverride : localLiveHost;
+      _apiLiveHostOverride.isNotEmpty ? _apiLiveHostOverride : serverHost;
   static String get remoteBaseUrl => baseUrl;
   static String get remoteLiveHost => liveHost;
 

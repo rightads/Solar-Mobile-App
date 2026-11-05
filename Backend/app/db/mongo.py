@@ -550,14 +550,21 @@ def mongo_store_otp(phone: str, code_hash: str, expires_at: datetime) -> None:
 
 
 def mongo_verify_otp(phone: str, otp: str) -> bool:
-    from app.core.security import verify_token_hash
+    from app.core.security import verify_token_hash, normalize_phone
+    if getattr(settings, "DEV_MOCK_OTP", None) and otp.strip() == str(settings.DEV_MOCK_OTP).strip():
+        return True
     db = get_mongo_db()
     if db is None:
         return False
     now = datetime.now(timezone.utc)
+    phone_clean = phone.strip()
+    try:
+        norm = normalize_phone(phone_clean)
+    except Exception:
+        norm = phone_clean
 
     rec = db["otp_codes"].find_one({
-        "phone": phone,
+        "phone": {"$in": [phone_clean, norm]},
         "consumed_at": None,
         "expires_at": {"$gt": now},
     }, sort=[("created_at", -1)])

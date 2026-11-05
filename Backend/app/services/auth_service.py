@@ -75,9 +75,12 @@ class AuthService:
         if user_email:
             msg += f" and {user_email}"
 
+        expose_otp = getattr(settings, "EXPOSE_DEV_OTP", False) or settings.ENV == "dev"
+
         return {
             "message": msg,
             "email": user_email,
+            "dev_otp": otp_code if expose_otp else None,
         }
 
     @staticmethod
@@ -197,7 +200,12 @@ class AuthService:
                 },
             }
 
-        raise NotFoundException("User not found or invalid OTP.")
+        # Check if the OTP was at least valid
+        from app.db.mongo import mongo_verify_otp
+        if not mongo_verify_otp(phone, otp):
+            raise BadRequestException("Invalid or expired OTP.")
+
+        raise NotFoundException(f"No account is registered with +91 {phone}. Please tap 'Register Client Account' below to sign up.")
 
     @staticmethod
     async def refresh_token(

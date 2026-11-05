@@ -26,6 +26,19 @@ class PaymentRepository {
 
   PaymentRepository({ApiClient? apiClient}) : _apiClient = apiClient ?? ApiClient();
 
+  String _parseDioError(DioException de, String fallback) {
+    final data = de.response?.data;
+    if (data is Map) {
+      if (data['error'] is Map && data['error']['message'] != null) {
+        return data['error']['message'].toString();
+      }
+      if (data['detail'] != null) {
+        return data['detail'].toString();
+      }
+    }
+    return de.message ?? fallback;
+  }
+
   /// Fetch all payments and financial summary for a customer
   Future<CustomerPaymentsResult> getCustomerPayments(String customerId) async {
     try {
@@ -44,10 +57,7 @@ class PaymentRepository {
 
       return CustomerPaymentsResult(items: items, summary: summary);
     } on DioException catch (de) {
-      final msg = de.response?.data?['error']?['message'] ??
-          de.response?.data?['detail'] ??
-          de.message ??
-          'Failed to load customer payments';
+      final msg = _parseDioError(de, 'Failed to load customer payments');
       throw Exception(msg);
     } catch (e) {
       throw Exception('Unexpected error fetching payments: $e');
@@ -71,10 +81,7 @@ class PaymentRepository {
           .map((e) => PaymentModel.fromJson(Map<String, dynamic>.from(e as Map)))
           .toList();
     } on DioException catch (de) {
-      final msg = de.response?.data?['error']?['message'] ??
-          de.response?.data?['detail'] ??
-          de.message ??
-          'Failed to load pending payments';
+      final msg = _parseDioError(de, 'Failed to load pending payments');
       throw Exception(msg);
     } catch (e) {
       throw Exception('Unexpected error loading pending payments: $e');
@@ -88,10 +95,7 @@ class PaymentRepository {
       final res = await _apiClient.dio.post('/payments/$paymentId/sales-approve');
       return PaymentModel.fromJson(Map<String, dynamic>.from(res.data as Map));
     } on DioException catch (de) {
-      final msg = de.response?.data?['error']?['message'] ??
-          de.response?.data?['detail'] ??
-          de.message ??
-          'Failed to approve payment';
+      final msg = _parseDioError(de, 'Failed to approve payment');
       throw Exception(msg);
     } catch (e) {
       throw Exception('Unexpected error approving payment: $e');
@@ -107,10 +111,7 @@ class PaymentRepository {
       );
       return PaymentModel.fromJson(Map<String, dynamic>.from(res.data as Map));
     } on DioException catch (de) {
-      final msg = de.response?.data?['error']?['message'] ??
-          de.response?.data?['detail'] ??
-          de.message ??
-          'Failed to reject payment';
+      final msg = _parseDioError(de, 'Failed to reject payment');
       throw Exception(msg);
     } catch (e) {
       throw Exception('Unexpected error rejecting payment: $e');
@@ -153,10 +154,7 @@ class PaymentRepository {
 
       return PaymentModel.fromJson(Map<String, dynamic>.from(res.data as Map));
     } on DioException catch (de) {
-      final msg = de.response?.data?['error']?['message'] ??
-          de.response?.data?['detail'] ??
-          de.message ??
-          'Failed to record payment';
+      final msg = _parseDioError(de, 'Failed to record payment');
       throw Exception(msg);
     } catch (e) {
       throw Exception('Unexpected error recording payment: $e');

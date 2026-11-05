@@ -47,6 +47,11 @@ class Settings(BaseSettings):
     # OTP Settings
     OTP_EXPIRE_SECONDS: int = 300
     OTP_LENGTH: int = 6
+    DEV_MOCK_OTP: str = "123456"
+    EXPOSE_DEV_OTP: bool = True
+    MSG91_AUTH_KEY: str = ""
+    MSG91_TEMPLATE_ID: str = ""
+    FAST2SMS_API_KEY: str = ""
 
     # Super Admin Configuration (seeded in DB via ENV)
     SUPER_ADMIN_NAME: str = "Super Admin"

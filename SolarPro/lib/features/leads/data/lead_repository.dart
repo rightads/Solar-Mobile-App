@@ -12,6 +12,19 @@ class LeadRepository {
 
   LeadRepository({ApiClient? apiClient}) : _apiClient = apiClient ?? ApiClient();
 
+  String _parseDioError(DioException de, String fallback) {
+    final data = de.response?.data;
+    if (data is Map) {
+      if (data['error'] is Map && data['error']['message'] != null) {
+        return data['error']['message'].toString();
+      }
+      if (data['detail'] != null) {
+        return data['detail'].toString();
+      }
+    }
+    return de.message ?? fallback;
+  }
+
   /// Fetch all leads accessible to the current user (salesman is auto-scoped by backend)
   Future<List<LeadModel>> getLeads({
     String? status,
@@ -52,10 +65,7 @@ class LeadRepository {
 
       return items.map((e) => LeadModel.fromJson(Map<String, dynamic>.from(e as Map))).toList();
     } on DioException catch (de) {
-      final msg = de.response?.data?['error']?['message'] ??
-          de.response?.data?['detail'] ??
-          de.message ??
-          'Failed to load leads';
+      final msg = _parseDioError(de, 'Failed to load leads');
       throw Exception(msg);
     } catch (e) {
       throw Exception('Unexpected error fetching leads: $e');
@@ -88,10 +98,7 @@ class LeadRepository {
 
       return LeadModel.fromJson(Map<String, dynamic>.from(res.data as Map));
     } on DioException catch (de) {
-      final msg = de.response?.data?['error']?['message'] ??
-          de.response?.data?['detail'] ??
-          de.message ??
-          'Failed to create lead';
+      final msg = _parseDioError(de, 'Failed to create lead');
       throw Exception(msg);
     } catch (e) {
       throw Exception('Unexpected error creating lead: $e');
@@ -122,10 +129,7 @@ class LeadRepository {
       final res = await _apiClient.dio.patch('/leads/$leadId', data: payload);
       return LeadModel.fromJson(Map<String, dynamic>.from(res.data as Map));
     } on DioException catch (de) {
-      final msg = de.response?.data?['error']?['message'] ??
-          de.response?.data?['detail'] ??
-          de.message ??
-          'Failed to update lead';
+      final msg = _parseDioError(de, 'Failed to update lead');
       throw Exception(msg);
     } catch (e) {
       throw Exception('Unexpected error updating lead: $e');
@@ -140,10 +144,7 @@ class LeadRepository {
       });
       return LeadModel.fromJson(Map<String, dynamic>.from(res.data as Map));
     } on DioException catch (de) {
-      final msg = de.response?.data?['error']?['message'] ??
-          de.response?.data?['detail'] ??
-          de.message ??
-          'Failed to return lead';
+      final msg = _parseDioError(de, 'Failed to return lead');
       throw Exception(msg);
     } catch (e) {
       throw Exception('Unexpected error marking lead lost: $e');

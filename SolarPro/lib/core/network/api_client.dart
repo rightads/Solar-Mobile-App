@@ -67,10 +67,33 @@ class ApiClient {
     if (de.type == DioExceptionType.connectionError) {
       return 'Unable to reach the server. Please check your network connection.';
     }
-    final errData = de.response?.data is Map ? (de.response?.data as Map)['error'] : null;
-    return (errData is Map ? errData['message']?.toString() : null) ??
-        de.response?.data?['detail']?.toString() ??
-        fallback;
+    final rawData = de.response?.data;
+    if (rawData is Map) {
+      final errData = rawData['error'];
+      if (errData is Map && errData['message'] != null) {
+        return errData['message'].toString();
+      }
+      final detail = rawData['detail'];
+      if (detail != null) {
+        if (detail is String) return detail;
+        if (detail is List && detail.isNotEmpty) {
+          final first = detail.first;
+          if (first is Map && first['msg'] != null) {
+            return first['msg'].toString().replaceFirst('Value error, ', '');
+          }
+          return detail.toString();
+        }
+        return detail.toString();
+      }
+      final msg = rawData['message'];
+      if (msg != null) return msg.toString();
+    } else if (rawData is String && rawData.isNotEmpty) {
+      final trimmed = rawData.trim();
+      if (!trimmed.startsWith('<') && !trimmed.startsWith('<!DOCTYPE')) {
+        return trimmed;
+      }
+    }
+    return fallback;
   }
 
   Dio get dio => _dio;
@@ -117,15 +140,15 @@ class ApiClient {
       }
       return data;
     } on DioException catch (de) {
-      final errData = de.response?.data is Map ? (de.response?.data as Map)['error'] : null;
-      final errCode = errData is Map ? errData['code']?.toString() : null;
+      final rawData = de.response?.data;
+      final errData = rawData is Map && rawData['error'] is Map ? rawData['error'] as Map : null;
+      final errCode = errData?['code']?.toString();
       if (errCode == 'EMAIL_NOT_VERIFIED' || de.response?.statusCode == 403) {
-        final details = errData is Map && errData['details'] is Map ? errData['details'] as Map : null;
+        final details = errData?['details'] is Map ? errData!['details'] as Map : null;
         final email = details?['email']?.toString() ?? (identifier.contains('@') ? identifier : null);
         throw EmailVerificationRequiredException(
-          message: errData is Map && errData['message'] != null
-              ? errData['message'].toString()
-              : 'Email verification is required before logging in.',
+          message: errData?['message']?.toString() ??
+              'Email verification is required before logging in.',
           email: email,
           role: details?['role']?.toString() ?? 'client',
         );
@@ -144,9 +167,13 @@ class ApiClient {
     try {
       final res = await _dio.post('/auth/request-otp', data: {'phone': phone});
       return res.data as Map<String, dynamic>?;
+    } on DioException catch (de) {
+      final msg = _formatDioError(de, fallback: 'Failed to request OTP');
+      dev.log('requestOtp DioException: $msg');
+      throw Exception(msg);
     } catch (e) {
       dev.log('requestOtp error: $e');
-      return null;
+      rethrow;
     }
   }
 
@@ -190,20 +217,21 @@ class ApiClient {
       }
       return data;
     } on DioException catch (de) {
-      final errData = de.response?.data is Map ? (de.response?.data as Map)['error'] : null;
-      final errCode = errData is Map ? errData['code']?.toString() : null;
+      final rawData = de.response?.data;
+      final errData = rawData is Map && rawData['error'] is Map ? rawData['error'] as Map : null;
+      final errCode = errData?['code']?.toString();
       if (errCode == 'EMAIL_NOT_VERIFIED' || de.response?.statusCode == 403) {
-        final details = errData is Map && errData['details'] is Map ? errData['details'] as Map : null;
+        final details = errData?['details'] is Map ? errData!['details'] as Map : null;
         final email = details?['email']?.toString();
         throw EmailVerificationRequiredException(
-          message: errData is Map && errData['message'] != null
-              ? errData['message'].toString()
-              : 'Email verification is required before logging in.',
+          message: errData?['message']?.toString() ??
+              'Email verification is required before logging in.',
           email: email,
           role: details?['role']?.toString() ?? 'client',
         );
       }
       final msg = _formatDioError(de, fallback: 'Invalid or expired OTP.');
+      dev.log('verifyOtp DioException: $msg');
       throw Exception(msg);
     } catch (e) {
       dev.log('verifyOtp error: $e');

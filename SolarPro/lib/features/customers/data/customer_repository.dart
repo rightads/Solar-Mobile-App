@@ -12,6 +12,19 @@ class CustomerRepository {
 
   CustomerRepository({ApiClient? apiClient}) : _apiClient = apiClient ?? ApiClient();
 
+  String _parseDioError(DioException de, String fallback) {
+    final data = de.response?.data;
+    if (data is Map) {
+      if (data['error'] is Map && data['error']['message'] != null) {
+        return data['error']['message'].toString();
+      }
+      if (data['detail'] != null) {
+        return data['detail'].toString();
+      }
+    }
+    return de.message ?? fallback;
+  }
+
   /// Fetch customers scoped to the logged-in user (salesman only sees own converted customers)
   Future<List<CustomerModel>> getCustomers({
     String? stage,
@@ -46,10 +59,7 @@ class CustomerRepository {
           .map((e) => CustomerModel.fromJson(Map<String, dynamic>.from(e as Map)))
           .toList();
     } on DioException catch (de) {
-      final msg = de.response?.data?['error']?['message'] ??
-          de.response?.data?['detail'] ??
-          de.message ??
-          'Failed to load customers';
+      final msg = _parseDioError(de, 'Failed to load customers');
       throw Exception(msg);
     } catch (e) {
       throw Exception('Unexpected error fetching customers: $e');
@@ -62,10 +72,7 @@ class CustomerRepository {
       final res = await _apiClient.dio.get('/customers/$customerId');
       return CustomerModel.fromJson(Map<String, dynamic>.from(res.data as Map));
     } on DioException catch (de) {
-      final msg = de.response?.data?['error']?['message'] ??
-          de.response?.data?['detail'] ??
-          de.message ??
-          'Customer not found';
+      final msg = _parseDioError(de, 'Customer not found');
       throw Exception(msg);
     } catch (e) {
       throw Exception('Unexpected error fetching customer: $e');
@@ -106,10 +113,7 @@ class CustomerRepository {
       final res = await _apiClient.dio.post('/leads/$leadId/convert', data: payload);
       return CustomerModel.fromJson(Map<String, dynamic>.from(res.data as Map));
     } on DioException catch (de) {
-      final msg = de.response?.data?['error']?['message'] ??
-          de.response?.data?['detail'] ??
-          de.message ??
-          'Failed to convert lead to customer';
+      final msg = _parseDioError(de, 'Failed to convert lead to customer');
       throw Exception(msg);
     } catch (e) {
       throw Exception('Unexpected error converting lead: $e');
@@ -149,10 +153,7 @@ class CustomerRepository {
 
       return Map<String, dynamic>.from(res.data as Map);
     } on DioException catch (de) {
-      final msg = de.response?.data?['error']?['message'] ??
-          de.response?.data?['detail'] ??
-          de.message ??
-          'Failed to upload document';
+      final msg = _parseDioError(de, 'Failed to upload document');
       throw Exception(msg);
     } catch (e) {
       throw Exception('Unexpected error uploading document: $e');
@@ -168,10 +169,7 @@ class CustomerRepository {
       }
       return [];
     } on DioException catch (de) {
-      final msg = de.response?.data?['error']?['message'] ??
-          de.response?.data?['detail'] ??
-          de.message ??
-          'Failed to load documents';
+      final msg = _parseDioError(de, 'Failed to load documents');
       throw Exception(msg);
     } catch (e) {
       throw Exception('Unexpected error loading documents: $e');

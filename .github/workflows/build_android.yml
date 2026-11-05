@@ -1,0 +1,68 @@
+name: Build Android APK
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'SolarPro/**'
+      - '.github/workflows/build_android.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-android:
+    name: Build Android Release APK
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+          cache: 'gradle'
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+          cache: true
+
+      - name: Install dependencies
+        working-directory: ./SolarPro
+        run: flutter pub get
+
+      - name: Build Android Release APK
+        working-directory: ./SolarPro
+        run: |
+          flutter build apk --release \
+            --dart-define=API_BASE_URL=http://82.29.165.43:8000/api/v1 \
+            --dart-define=API_LIVE_HOST=http://82.29.165.43:8000
+
+      - name: Rename Release APK
+        run: |
+          cp SolarPro/build/app/outputs/flutter-apk/app-release.apk SolarPro-Android-v1.5.0.apk
+
+      - name: Upload APK Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: SolarPro-Android-v1.5.0
+          path: SolarPro-Android-v1.5.0.apk
+
+      - name: Publish APK to GitHub Release
+        uses: softprops/action-gh-release@v2
+        if: github.ref == 'refs/heads/main'
+        with:
+          tag_name: Android
+          name: "SolarPro Android Release"
+          draft: false
+          prerelease: false
+          files: SolarPro-Android-v1.5.0.apk
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
