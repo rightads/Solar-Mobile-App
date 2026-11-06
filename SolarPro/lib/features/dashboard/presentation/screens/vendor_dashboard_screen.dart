@@ -275,11 +275,34 @@ void _showAdminLogoutDialog(BuildContext context) {
 }
 
 // ── Home Tab ─────────────────────────────────────────────────────────────────
-class _DashboardHome extends StatelessWidget {
+class _DashboardHome extends StatefulWidget {
   final ValueChanged<int> onNavigateTab;
   const _DashboardHome({required this.onNavigateTab});
 
+  @override
+  State<_DashboardHome> createState() => _DashboardHomeState();
+}
+
+class _DashboardHomeState extends State<_DashboardHome> {
   static const _recent = <_RA>[];
+  int _pendingCount = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadPendingApprovals();
+  }
+
+  Future<void> _loadPendingApprovals() async {
+    try {
+      final list = await ApiClient().getPendingApprovals(status: 'pending');
+      if (mounted) {
+        setState(() {
+          _pendingCount = list.length;
+        });
+      }
+    } catch (_) {}
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -401,6 +424,67 @@ class _DashboardHome extends StatelessWidget {
           padding: const EdgeInsets.fromLTRB(16, 16, 16, 40),
           sliver: SliverList(
             delegate: SliverChildListDelegate([
+              // ── Pending Staff Registration Alert Banner ───────────────────────
+              if (_pendingCount > 0)
+                Container(
+                  margin: const EdgeInsets.only(bottom: 16),
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      colors: [
+                        AppColors.orange500.withValues(alpha: 0.22),
+                        AppColors.navy800,
+                      ],
+                    ),
+                    borderRadius: BorderRadius.circular(AppRadius.lg),
+                    border: Border.all(color: AppColors.orange500.withValues(alpha: 0.5)),
+                  ),
+                  child: Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: AppColors.orange500.withValues(alpha: 0.25),
+                          shape: BoxShape.circle,
+                        ),
+                        child: const Icon(Icons.person_add_rounded, color: AppColors.orange400, size: 20),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              '$_pendingCount New Employee Registration${_pendingCount > 1 ? "s" : ""} Pending',
+                              style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13),
+                            ),
+                            const SizedBox(height: 2),
+                            const Text(
+                              'New staff require your approval to access the app and work tasks.',
+                              style: TextStyle(color: AppColors.grey400, fontSize: 11),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      ElevatedButton(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: AppColors.orange500,
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                          textStyle: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                        ),
+                        onPressed: () async {
+                          await context.push(AppRoutes.adminApprovals);
+                          _loadPendingApprovals();
+                        },
+                        child: const Text('Review'),
+                      ),
+                    ],
+                  ),
+                ),
+
               // ── Stats Grid ─────────────────────────────────────────────
               GridView.count(
                 crossAxisCount: 2,
@@ -411,7 +495,7 @@ class _DashboardHome extends StatelessWidget {
                 childAspectRatio: 1.38,
                 children: [
                   GestureDetector(
-                    onTap: () => onNavigateTab(1), // Leads tab
+                    onTap: () => widget.onNavigateTab(1), // Leads tab
                     child: const SpStatCard(
                         label: 'Active Leads',
                         value: '0',
@@ -421,7 +505,7 @@ class _DashboardHome extends StatelessWidget {
                         delay: 0),
                   ),
                   GestureDetector(
-                    onTap: () => onNavigateTab(2), // Customers tab
+                    onTap: () => widget.onNavigateTab(2), // Customers tab
                     child: const SpStatCard(
                         label: 'Customers',
                         value: '0',
@@ -467,7 +551,7 @@ class _DashboardHome extends StatelessWidget {
                       label: 'Leads\nPortal',
                       icon: Icons.person_add_rounded,
                       color: AppColors.teal500,
-                      onTap: () => onNavigateTab(1),
+                      onTap: () => widget.onNavigateTab(1),
                       delay: 0,
                     ),
                     const SizedBox(width: 12),
@@ -475,7 +559,7 @@ class _DashboardHome extends StatelessWidget {
                       label: 'Customer\nDirectory',
                       icon: Icons.assignment_ind_rounded,
                       color: AppColors.gold500,
-                      onTap: () => onNavigateTab(2),
+                      onTap: () => widget.onNavigateTab(2),
                       delay: 80,
                     ),
                     const SizedBox(width: 12),
@@ -483,8 +567,23 @@ class _DashboardHome extends StatelessWidget {
                       label: 'Staff &\nEmployees',
                       icon: Icons.badge_rounded,
                       color: AppColors.gold500,
-                      onTap: () => context.push(AppRoutes.adminEmployees),
+                      onTap: () async {
+                        await context.push(AppRoutes.adminEmployees);
+                        _loadPendingApprovals();
+                      },
                       delay: 120,
+                    ),
+                    const SizedBox(width: 12),
+                    _QuickActionCard(
+                      label: 'Staff\nApprovals',
+                      icon: Icons.how_to_reg_rounded,
+                      color: AppColors.orange500,
+                      badgeText: _pendingCount > 0 ? '$_pendingCount' : null,
+                      onTap: () async {
+                        await context.push(AppRoutes.adminApprovals);
+                        _loadPendingApprovals();
+                      },
+                      delay: 140,
                     ),
                     const SizedBox(width: 12),
                     _QuickActionCard(
@@ -515,7 +614,7 @@ class _DashboardHome extends StatelessWidget {
                       label: 'Stock\nInventory',
                       icon: Icons.inventory_2_rounded,
                       color: AppColors.info,
-                      onTap: () => onNavigateTab(3),
+                      onTap: () => widget.onNavigateTab(3),
                       delay: 400,
                     ),
                   ],
@@ -694,6 +793,13 @@ class _MoreMenu extends StatelessWidget {
           ),
           const SizedBox(height: 10),
           _MenuItemCard(
+            label: 'User & Staff Registration Approvals',
+            icon: Icons.how_to_reg_rounded,
+            color: AppColors.orange500,
+            onTap: () => context.push(AppRoutes.adminApprovals),
+          ),
+          const SizedBox(height: 10),
+          _MenuItemCard(
             label: 'Payment Manager & Receipts',
             icon: Icons.payments_rounded,
             color: AppColors.gold500,
@@ -819,6 +925,7 @@ class _QuickActionCard extends StatelessWidget {
   final Color color;
   final VoidCallback onTap;
   final int delay;
+  final String? badgeText;
 
   const _QuickActionCard({
     required this.label,
@@ -826,40 +933,73 @@ class _QuickActionCard extends StatelessWidget {
     required this.color,
     required this.onTap,
     required this.delay,
+    this.badgeText,
   });
 
   @override
   Widget build(BuildContext context) {
     return GestureDetector(
       onTap: onTap,
-      child: Container(
-        width: 90,
-        decoration: BoxDecoration(
-          color: color.withValues(alpha: 0.1),
-          borderRadius: BorderRadius.circular(AppRadius.xl),
-          border: Border.all(color: color.withValues(alpha: 0.25)),
-        ),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Container(
-              width: 38,
-              height: 38,
-              decoration: BoxDecoration(
-                color: color.withValues(alpha: 0.2),
-                shape: BoxShape.circle,
+      child: Stack(
+        clipBehavior: Clip.none,
+        children: [
+          Container(
+            width: 90,
+            decoration: BoxDecoration(
+              color: color.withValues(alpha: 0.1),
+              borderRadius: BorderRadius.circular(AppRadius.xl),
+              border: Border.all(color: color.withValues(alpha: 0.25)),
+            ),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Container(
+                  width: 38,
+                  height: 38,
+                  decoration: BoxDecoration(
+                    color: color.withValues(alpha: 0.2),
+                    shape: BoxShape.circle,
+                  ),
+                  child: Icon(icon, color: color, size: 18),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  label,
+                  textAlign: TextAlign.center,
+                  style: AppTextStyles.caption
+                      .copyWith(fontSize: 10, color: AppColors.grey200),
+                ),
+              ],
+            ),
+          ),
+          if (badgeText != null)
+            Positioned(
+              top: -4,
+              right: -4,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                decoration: BoxDecoration(
+                  color: AppColors.orange500,
+                  borderRadius: BorderRadius.circular(AppRadius.pill),
+                  border: Border.all(color: AppColors.navy900, width: 1.5),
+                  boxShadow: [
+                    BoxShadow(
+                      color: AppColors.orange500.withValues(alpha: 0.5),
+                      blurRadius: 6,
+                    ),
+                  ],
+                ),
+                child: Text(
+                  badgeText!,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 9,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
               ),
-              child: Icon(icon, color: color, size: 18),
             ),
-            const SizedBox(height: 6),
-            Text(
-              label,
-              textAlign: TextAlign.center,
-              style: AppTextStyles.caption
-                  .copyWith(fontSize: 10, color: AppColors.grey200),
-            ),
-          ],
-        ),
+        ],
       ),
     )
         .animate(delay: Duration(milliseconds: delay))

@@ -95,6 +95,9 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
         return Icons.payments_rounded;
       case 'ticket':
         return Icons.confirmation_number_rounded;
+      case 'user_approval':
+      case 'approval':
+        return Icons.how_to_reg_rounded;
       default:
         return Icons.notifications_rounded;
     }
@@ -113,6 +116,9 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
         return AppColors.success;
       case 'ticket':
         return AppColors.error;
+      case 'user_approval':
+      case 'approval':
+        return AppColors.orange500;
       default:
         return AppColors.info;
     }

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:solar_pro/core/constants/app_constants.dart';
+import 'package:solar_pro/core/network/api_client.dart';
 import 'package:solar_pro/core/theme/app_theme.dart';
 
 class DesktopSidebarItem {
@@ -17,7 +18,7 @@ class DesktopSidebarItem {
   });
 }
 
-class DesktopSidebar extends StatelessWidget {
+class DesktopSidebar extends StatefulWidget {
   final int selectedIndex;
   final ValueChanged<int> onSelect;
   final bool isCollapsed;
@@ -32,8 +33,33 @@ class DesktopSidebar extends StatelessWidget {
   });
 
   @override
+  State<DesktopSidebar> createState() => _DesktopSidebarState();
+}
+
+class _DesktopSidebarState extends State<DesktopSidebar> {
+  int _pendingApprovalsCount = 0;
+
+  bool get isCollapsed => widget.isCollapsed;
+  int get selectedIndex => widget.selectedIndex;
+  ValueChanged<int> get onSelect => widget.onSelect;
+  VoidCallback? get onToggleCollapse => widget.onToggleCollapse;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadPendingCount();
+  }
+
+  Future<void> _loadPendingCount() async {
+    try {
+      final list = await ApiClient().getPendingApprovals(status: 'pending');
+      if (mounted) setState(() => _pendingApprovalsCount = list.length);
+    } catch (_) {}
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final double width = isCollapsed ? 76.0 : 250.0;
+    final double width = widget.isCollapsed ? 76.0 : 250.0;
 
     return AnimatedContainer(
       duration: const Duration(milliseconds: 240),
@@ -53,7 +79,7 @@ class DesktopSidebar extends StatelessWidget {
           // ── App Brand Header ───────────────────────────────────────────────
           Container(
             height: 72,
-            padding: EdgeInsets.symmetric(horizontal: isCollapsed ? 12 : 18),
+            padding: EdgeInsets.symmetric(horizontal: widget.isCollapsed ? 12 : 18),
             alignment: Alignment.centerLeft,
             decoration: BoxDecoration(
               border: Border(
@@ -162,7 +188,12 @@ class DesktopSidebar extends StatelessWidget {
                   icon: Icons.verified_user_rounded,
                   label: 'User Approvals',
                   color: AppColors.orange500,
-                  onTap: () => context.push(AppRoutes.adminApprovals),
+                  badge: _pendingApprovalsCount > 0 ? '$_pendingApprovalsCount New' : null,
+                  badgeColor: AppColors.orange500,
+                  onTap: () async {
+                    await context.push(AppRoutes.adminApprovals);
+                    _loadPendingCount();
+                  },
                 ),
                 const SizedBox(height: 8),
                 _buildActionItem(
@@ -351,6 +382,8 @@ class DesktopSidebar extends StatelessWidget {
     required String label,
     required Color color,
     required VoidCallback onTap,
+    String? badge,
+    Color? badgeColor,
   }) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 4),
@@ -379,6 +412,28 @@ class DesktopSidebar extends StatelessWidget {
                       ),
                     ),
                   ),
+                  if (badge != null)
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                      margin: const EdgeInsets.only(right: 6),
+                      decoration: BoxDecoration(
+                        color: (badgeColor ?? color).withValues(alpha: 0.2),
+                        borderRadius: BorderRadius.circular(AppRadius.pill),
+                        border: Border.all(
+                          color: (badgeColor ?? color).withValues(alpha: 0.6),
+                          width: 0.8,
+                        ),
+                      ),
+                      child: Text(
+                        badge,
+                        style: TextStyle(
+                          color: badgeColor ?? color,
+                          fontSize: 10,
+                          fontWeight: FontWeight.w700,
+                          fontFamily: 'Outfit',
+                        ),
+                      ),
+                    ),
                   const Icon(Icons.arrow_forward_rounded, size: 14, color: AppColors.grey600),
                 ],
               ],

@@ -63,10 +63,11 @@ async def create_employee(
 async def list_employees(
     trade: Optional[str] = Query(default=None),
     team: Optional[str] = Query(default=None),
+    status: Optional[str] = Query(default=None),
     current_user=Depends(get_current_user),
 ):
     from app.db.mongo import mongo_get_employees
-    return mongo_get_employees(trade=trade, team=team)
+    return mongo_get_employees(trade=trade, team=team, status=status)
 
 
 @router.get(

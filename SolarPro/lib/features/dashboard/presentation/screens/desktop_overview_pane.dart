@@ -1,15 +1,40 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
+import 'package:go_router/go_router.dart';
+import 'package:solar_pro/core/constants/app_constants.dart';
+import 'package:solar_pro/core/network/api_client.dart';
 import 'package:solar_pro/core/theme/app_theme.dart';
 import 'package:solar_pro/shared/widgets/sp_stat_card.dart';
 
-class DesktopOverviewPane extends StatelessWidget {
+class DesktopOverviewPane extends StatefulWidget {
   final ValueChanged<int> onNavigateTab;
 
   const DesktopOverviewPane({
     super.key,
     required this.onNavigateTab,
   });
+
+  @override
+  State<DesktopOverviewPane> createState() => _DesktopOverviewPaneState();
+}
+
+class _DesktopOverviewPaneState extends State<DesktopOverviewPane> {
+  int _pendingCount = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadPendingCount();
+  }
+
+  Future<void> _loadPendingCount() async {
+    try {
+      final list = await ApiClient().getPendingApprovals(status: 'pending');
+      if (mounted) {
+        setState(() => _pendingCount = list.length);
+      }
+    } catch (_) {}
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -19,10 +44,77 @@ class DesktopOverviewPane extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          // ── Pending Staff Registration Alert Banner ─────────────────────────
+          if (_pendingCount > 0)
+            Container(
+              margin: const EdgeInsets.only(bottom: 20),
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [
+                    AppColors.orange500.withValues(alpha: 0.22),
+                    const Color(0xFF0C192E),
+                  ],
+                ),
+                borderRadius: BorderRadius.circular(AppRadius.lg),
+                border: Border.all(color: AppColors.orange500.withValues(alpha: 0.5)),
+              ),
+              child: Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: AppColors.orange500.withValues(alpha: 0.25),
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(Icons.person_add_rounded, color: AppColors.orange400, size: 22),
+                  ),
+                  const SizedBox(width: 16),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          '$_pendingCount Employee Registration Request${_pendingCount > 1 ? "s" : ""} Pending Review',
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 14,
+                            fontFamily: 'Outfit',
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        const Text(
+                          'Newly registered employees cannot be assigned installation or sales tasks until approved by Admin.',
+                          style: TextStyle(color: AppColors.grey400, fontSize: 12),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 16),
+                  ElevatedButton.icon(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppColors.orange500,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                      textStyle: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                    ),
+                    onPressed: () async {
+                      await context.push(AppRoutes.adminApprovals);
+                      _loadPendingCount();
+                    },
+                    icon: const Icon(Icons.arrow_forward_rounded, size: 16),
+                    label: const Text('Review Applications'),
+                  ),
+                ],
+              ),
+            ),
+
           // ── Top 4-Column KPI Metrics ───────────────────────────────────────
           Row(
-            children: const [
-              Expanded(
+            children: [
+              const Expanded(
                 child: SpStatCard(
                   label: 'Total Revenue',
                   value: '₹0',
@@ -32,8 +124,8 @@ class DesktopOverviewPane extends StatelessWidget {
                   delay: 0,
                 ),
               ),
-              SizedBox(width: 16),
-              Expanded(
+              const SizedBox(width: 16),
+              const Expanded(
                 child: SpStatCard(
                   label: 'Active Customers',
                   value: '0 Systems',
@@ -43,8 +135,8 @@ class DesktopOverviewPane extends StatelessWidget {
                   delay: 80,
                 ),
               ),
-              SizedBox(width: 16),
-              Expanded(
+              const SizedBox(width: 16),
+              const Expanded(
                 child: SpStatCard(
                   label: 'KEDL In Progress',
                   value: '0 Files',
@@ -54,15 +146,21 @@ class DesktopOverviewPane extends StatelessWidget {
                   delay: 160,
                 ),
               ),
-              SizedBox(width: 16),
+              const SizedBox(width: 16),
               Expanded(
-                child: SpStatCard(
-                  label: 'Pending Approvals',
-                  value: '₹0',
-                  icon: Icons.pending_actions_rounded,
-                  iconColor: AppColors.warning,
-                  change: '0 in queue',
-                  delay: 240,
+                child: GestureDetector(
+                  onTap: () async {
+                    await context.push(AppRoutes.adminApprovals);
+                    _loadPendingCount();
+                  },
+                  child: SpStatCard(
+                    label: 'Pending Approvals',
+                    value: '$_pendingCount Requests',
+                    icon: Icons.how_to_reg_rounded,
+                    iconColor: _pendingCount > 0 ? AppColors.orange500 : AppColors.warning,
+                    change: _pendingCount > 0 ? '$_pendingCount awaiting action' : 'All staff reviewed',
+                    delay: 240,
+                  ),
                 ),
               ),
             ],
@@ -96,28 +194,38 @@ class DesktopOverviewPane extends StatelessWidget {
                   label: 'Leads Pipeline',
                   icon: Icons.person_add_rounded,
                   color: AppColors.teal500,
-                  onTap: () => onNavigateTab(1),
+                  onTap: () => widget.onNavigateTab(1),
                 ),
                 const SizedBox(width: 12),
                 _buildQuickBtn(
                   label: 'Customer Accounts',
                   icon: Icons.group_rounded,
                   color: AppColors.gold500,
-                  onTap: () => onNavigateTab(2),
+                  onTap: () => widget.onNavigateTab(2),
+                ),
+                const SizedBox(width: 12),
+                _buildQuickBtn(
+                  label: 'Staff Approvals${_pendingCount > 0 ? " ($_pendingCount)" : ""}',
+                  icon: Icons.how_to_reg_rounded,
+                  color: _pendingCount > 0 ? AppColors.orange400 : AppColors.gold500,
+                  onTap: () async {
+                    await context.push(AppRoutes.adminApprovals);
+                    _loadPendingCount();
+                  },
                 ),
                 const SizedBox(width: 12),
                 _buildQuickBtn(
                   label: 'Verify Payments',
                   icon: Icons.verified_rounded,
                   color: AppColors.success,
-                  onTap: () => onNavigateTab(3),
+                  onTap: () => widget.onNavigateTab(3),
                 ),
                 const SizedBox(width: 12),
                 _buildQuickBtn(
                   label: 'Assign Installation',
                   icon: Icons.construction_rounded,
                   color: AppColors.orange500,
-                  onTap: () => onNavigateTab(4),
+                  onTap: () => widget.onNavigateTab(4),
                 ),
                 const Spacer(),
                 TextButton.icon(
@@ -144,7 +252,7 @@ class DesktopOverviewPane extends StatelessWidget {
                       title: 'Current Solar Project Pipelines',
                       subtitle: 'Active residential and commercial rooftop phases',
                       actionLabel: 'View All Customers →',
-                      onAction: () => onNavigateTab(2),
+                      onAction: () => widget.onNavigateTab(2),
                       child: _buildEmptyState(
                         'No active installation pipelines. Enroll customers to track solar progress.',
                         Icons.solar_power_outlined,
@@ -155,7 +263,7 @@ class DesktopOverviewPane extends StatelessWidget {
                       title: 'Installation Team Work Status',
                       subtitle: 'Live field updates from Structure & Electrical crews',
                       actionLabel: 'Manage Teams →',
-                      onAction: () => onNavigateTab(4),
+                      onAction: () => widget.onNavigateTab(4),
                       child: _buildEmptyState(
                         'No field installation teams currently dispatched.',
                         Icons.construction_outlined,
@@ -176,7 +284,7 @@ class DesktopOverviewPane extends StatelessWidget {
                       title: 'Pending Financial Approvals',
                       subtitle: 'Customer milestone submissions requiring verification',
                       actionLabel: 'Payments Queue →',
-                      onAction: () => onNavigateTab(3),
+                      onAction: () => widget.onNavigateTab(3),
                       child: _buildEmptyState(
                         'No pending milestone receipts requiring review.',
                         Icons.verified_outlined,
@@ -187,7 +295,7 @@ class DesktopOverviewPane extends StatelessWidget {
                       title: 'KEDL & Net Metering Watchlist',
                       subtitle: 'DISCOM applications and demand notes',
                       actionLabel: 'Tracker →',
-                      onAction: () => onNavigateTab(5),
+                      onAction: () => widget.onNavigateTab(5),
                       child: _buildEmptyState(
                         'No DISCOM or net metering applications pending.',
                         Icons.description_outlined,
@@ -201,6 +309,7 @@ class DesktopOverviewPane extends StatelessWidget {
         ],
       ),
     );
+  }
   }
 
   Widget _buildQuickBtn({

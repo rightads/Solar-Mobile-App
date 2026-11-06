@@ -433,6 +433,27 @@ class AuthService:
             }
 
         # Non-client roles (employee/vendor/admin) require Super Admin approval
+        # 1. Create In-App Notification in MongoDB Atlas for Admin
+        try:
+            from app.db.mongo import mongo_create_notification
+            mongo_create_notification({
+                "title": f"New {role_clean.capitalize()} Registration",
+                "body": f"{user_doc['name']} has applied for {role_clean.capitalize()} role (+91 {user_doc['phone']}). Tap to review and accept.",
+                "type": "user_approval",
+                "target_role": "admin",
+                "target_id": user_id,
+                "metadata": {
+                    "user_id": user_id,
+                    "name": user_doc["name"],
+                    "phone": user_doc["phone"],
+                    "role": role_clean,
+                    "email": user_doc.get("email"),
+                },
+            })
+        except Exception as e:
+            logger.warning("Failed to create in-app notification for admin", error=str(e))
+
+        # 2. Dispatch Email notification to Super Admin if configured
         try:
             from app.services.email_service import email_service
             subject = f"SolarPro Alert: New {role_clean.capitalize()} Registration Pending Approval"

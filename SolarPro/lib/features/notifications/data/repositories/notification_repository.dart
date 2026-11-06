@@ -148,6 +148,9 @@ class NotificationRepository {
 
     // 6. Admin
     if (role == 'main_admin' || role == 'co_admin' || role == 'admin') {
+      if (notif.type == 'user_approval' || notif.type == 'approval') {
+        return AppRoutes.adminApprovals;
+      }
       return AppRoutes.vendorDash;
     }
 

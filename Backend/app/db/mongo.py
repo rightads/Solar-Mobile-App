@@ -287,9 +287,30 @@ def mongo_approve_user(user_id: str) -> Optional[Dict[str, Any]]:
         return None
     users_col = db["users"]
     now = datetime.now(timezone.utc)
+
+    # Check if employee_no needs to be generated
+    user = users_col.find_one({"_id": user_id})
+    if not user:
+        return None
+
+    role = str(user.get("role", "employee")).lower()
+    employee_no = user.get("employee_no")
+    if not employee_no and role != "client":
+        prefix = "EMP-SLS" if "sales" in role else ("EMP-KEDL" if "kedl" in role else "EMP-SITE")
+        employee_no = f"{prefix}-{str(user_id)[:4].upper()}"
+
+    update_fields = {
+        "approval_status": "approved",
+        "is_active": True,
+        "approved_at": now,
+        "updated_at": now,
+    }
+    if employee_no:
+        update_fields["employee_no"] = employee_no
+
     res = users_col.find_one_and_update(
         {"_id": user_id},
-        {"$set": {"approval_status": "approved", "is_active": True, "approved_at": now, "updated_at": now}},
+        {"$set": update_fields},
         return_document=ReturnDocument.AFTER,
     )
     if res:
@@ -837,8 +858,8 @@ def mongo_create_employee(employee_data: Dict[str, Any]) -> Dict[str, Any]:
     return _format_mongo_doc(doc)
 
 
-def mongo_get_employees(trade: Optional[str] = None, team: Optional[str] = None) -> List[Dict[str, Any]]:
-    """List labour, electricians, sales, service, and staff with active task counts."""
+def mongo_get_employees(trade: Optional[str] = None, team: Optional[str] = None, status: Optional[str] = None) -> List[Dict[str, Any]]:
+    """List labour, electricians, sales, service, and staff with active task counts. Only approved, active staff are listed unless status is specified."""
     db = get_mongo_db()
     if db is None:
         return []
@@ -858,6 +879,17 @@ def mongo_get_employees(trade: Optional[str] = None, team: Optional[str] = None)
             ]
         }
     }
+    if status and status.lower() == "pending":
+        query["approval_status"] = "pending"
+    elif status and status.lower() == "rejected":
+        query["approval_status"] = "rejected"
+    elif status and status.lower() != "all":
+        query["approval_status"] = status.lower()
+    else:
+        # Default: only approved, non-pending, non-rejected, active staff
+        query["approval_status"] = {"$nin": ["pending", "rejected"]}
+        query["is_active"] = {"$ne": False}
+
     if trade and trade.lower() != "all":
         query["trade"] = trade.lower()
     if team and team.lower() != "all":
@@ -1723,5 +1755,135 @@ def mongo_add_ticket_comment(ticket_id: str, author_name: str, author_role: str,
         return_document=ReturnDocument.AFTER,
     )
     return _format_mongo_doc(res) if res else None
+
+
+# ── Notifications in MongoDB Atlas ──────────────────────────────────────────
+
+def mongo_create_notification(notif_data: Dict[str, Any]) -> Dict[str, Any]:
+    """Insert an in-app notification into MongoDB Atlas."""
+    db = get_mongo_db()
+    if db is None:
+        return notif_data
+    notifs_col = db["notifications"]
+    now = datetime.now(timezone.utc)
+    nid = str(notif_data.get("id") or uuid.uuid4())
+    doc = {
+        "_id": nid,
+        "id": nid,
+        "title": sanitize_input(notif_data.get("title", "")),
+        "body": sanitize_input(notif_data.get("body", "")),
+        "type": str(notif_data.get("type", "system")).lower(),
+        "target_id": str(notif_data.get("target_id", "")) if notif_data.get("target_id") else None,
+        "target_role": str(notif_data.get("target_role", "")).lower() if notif_data.get("target_role") else None,
+        "user_id": str(notif_data.get("user_id", "")) if notif_data.get("user_id") else None,
+        "is_read": False,
+        "read": False,
+        "metadata": notif_data.get("metadata", {}),
+        "created_at": now.isoformat(),
+        "updated_at": now.isoformat(),
+    }
+    notifs_col.insert_one(doc)
+    return _format_mongo_doc(doc)
+
+
+def mongo_get_notifications(
+    user_id: Optional[str] = None,
+    role: Optional[str] = None,
+    limit: int = 50,
+    offset: int = 0,
+) -> List[Dict[str, Any]]:
+    """List in-app notifications for a user or role from MongoDB Atlas."""
+    db = get_mongo_db()
+    if db is None:
+        return []
+    notifs_col = db["notifications"]
+
+    query: Dict[str, Any] = {}
+    or_clauses = []
+    if user_id:
+        or_clauses.append({"user_id": str(user_id)})
+    if role:
+        role_clean = role.lower()
+        or_clauses.append({"target_role": role_clean})
+        if "admin" in role_clean:
+            or_clauses.append({"target_role": "admin"})
+            or_clauses.append({"target_role": "main_admin"})
+            or_clauses.append({"target_role": "super_admin"})
+    if not or_clauses:
+        or_clauses.append({"target_role": {"$in": ["admin", "all", None]}})
+
+    query["$or"] = or_clauses
+
+    cursor = notifs_col.find(query).sort("created_at", -1).skip(offset).limit(limit)
+    return [_format_mongo_doc(doc) for doc in cursor]
+
+
+def mongo_get_unread_notification_count(
+    user_id: Optional[str] = None,
+    role: Optional[str] = None,
+) -> int:
+    """Get count of unread notifications from MongoDB Atlas."""
+    db = get_mongo_db()
+    if db is None:
+        return 0
+    notifs_col = db["notifications"]
+
+    or_clauses = []
+    if user_id:
+        or_clauses.append({"user_id": str(user_id)})
+    if role:
+        role_clean = role.lower()
+        or_clauses.append({"target_role": role_clean})
+        if "admin" in role_clean:
+            or_clauses.append({"target_role": "admin"})
+            or_clauses.append({"target_role": "main_admin"})
+            or_clauses.append({"target_role": "super_admin"})
+    if not or_clauses:
+        or_clauses.append({"target_role": {"$in": ["admin", "all", None]}})
+
+    query: Dict[str, Any] = {
+        "$or": or_clauses,
+        "$and": [{"is_read": False}, {"read": False}],
+    }
+    return notifs_col.count_documents(query)
+
+
+def mongo_mark_notification_read(notification_id: str) -> bool:
+    """Mark a single notification as read."""
+    db = get_mongo_db()
+    if db is None:
+        return False
+    now = datetime.now(timezone.utc)
+    res = db["notifications"].update_one(
+        {"$or": [{"_id": str(notification_id)}, {"id": str(notification_id)}]},
+        {"$set": {"is_read": True, "read": True, "read_at": now.isoformat()}},
+    )
+    return res.modified_count > 0
+
+
+def mongo_mark_all_notifications_read(
+    user_id: Optional[str] = None,
+    role: Optional[str] = None,
+) -> int:
+    """Mark all matching notifications as read."""
+    db = get_mongo_db()
+    if db is None:
+        return 0
+    now = datetime.now(timezone.utc)
+    or_clauses = []
+    if user_id:
+        or_clauses.append({"user_id": str(user_id)})
+    if role:
+        role_clean = role.lower()
+        or_clauses.append({"target_role": role_clean})
+        if "admin" in role_clean:
+            or_clauses.append({"target_role": "admin"})
+    query = {"$or": or_clauses} if or_clauses else {}
+    res = db["notifications"].update_many(
+        query,
+        {"$set": {"is_read": True, "read": True, "read_at": now.isoformat()}},
+    )
+    return res.modified_count
+
 
 
