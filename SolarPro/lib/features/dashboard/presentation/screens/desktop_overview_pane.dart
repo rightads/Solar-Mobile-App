@@ -310,7 +310,6 @@ class _DesktopOverviewPaneState extends State<DesktopOverviewPane> {
       ),
     );
   }
-  }
 
   Widget _buildQuickBtn({
     required String label,

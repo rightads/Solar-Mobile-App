@@ -620,7 +620,6 @@ class _AdminEmployeesScreenState extends State<AdminEmployeesScreen> {
       ),
     );
   }
-  }
 
   Widget _buildMetricTile({
     required String label,
