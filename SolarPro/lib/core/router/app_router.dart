@@ -209,7 +209,10 @@ final routerProvider = Provider<GoRouter>((ref) {
       ),
       GoRoute(
         path: AppRoutes.adminEmployees,
-        builder: (context, state) => const AdminEmployeesScreen(),
+        builder: (context, state) {
+          final tab = state.uri.queryParameters['tab'];
+          return AdminEmployeesScreen(initialTrade: tab);
+        },
       ),
     ],
 

@@ -110,6 +110,20 @@ class NotificationRepository {
 
   static String resolveDeepLinkForRole(String rawRole, NotificationModel notif) {
     final role = rawRole.toLowerCase();
+    final type = notif.type.toLowerCase();
+    final title = notif.title.toLowerCase();
+    final body = notif.body.toLowerCase();
+
+    // 0. Highest Priority: Any user approval / registration request routes directly to Staff Directory Approvals
+    if (type == 'user_approval' ||
+        type == 'approval' ||
+        type.contains('approval') ||
+        title.contains('registration') ||
+        title.contains('applicant') ||
+        body.contains('review and accept') ||
+        body.contains('applied for')) {
+      return '${AppRoutes.adminEmployees}?tab=pending';
+    }
 
     // 1. Sales Executive
     if (role == 'salesman' || role == 'sales') {
@@ -146,16 +160,22 @@ class NotificationRepository {
       return AppRoutes.clientDash;
     }
 
-    // 6. Admin
-    if (role == 'main_admin' || role == 'co_admin' || role == 'admin') {
-      if (notif.type == 'user_approval' || notif.type == 'approval') {
-        return AppRoutes.adminApprovals;
+    // 6. Admin & Operations / Vendor
+    if (role == 'main_admin' || role == 'co_admin' || role == 'admin' || role == 'vendor' || role == 'super_admin' || role.isEmpty) {
+      if (type == 'lead') {
+        return AppRoutes.vendorDash;
+      }
+      if (type == 'payment') {
+        return AppRoutes.payments;
+      }
+      if (type == 'ticket') {
+        return AppRoutes.vendorDash;
       }
       return AppRoutes.vendorDash;
     }
 
     // Default Fallback
-    return AppRoutes.notifications;
+    return AppRoutes.adminEmployees;
   }
 
   // ── Cache & Seed Helpers ───────────────────────────────────────────────────

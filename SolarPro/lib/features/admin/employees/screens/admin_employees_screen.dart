@@ -9,11 +9,13 @@ import 'package:solar_pro/features/admin/employees/widgets/employee_task_sheet.d
 class AdminEmployeesScreen extends StatefulWidget {
   final ApiClient? apiClient;
   final List<AdminEmployee>? initialEmployees;
+  final String? initialTrade;
 
   const AdminEmployeesScreen({
     super.key,
     this.apiClient,
     this.initialEmployees,
+    this.initialTrade,
   });
 
   @override
@@ -31,8 +33,7 @@ class _AdminEmployeesScreenState extends State<AdminEmployeesScreen> {
 
   List<(String, String)> get _tradeFilters => [
     ('all', 'All Staff'),
-    if (_pendingApprovals.isNotEmpty)
-      ('pending', 'Pending Approval (${_pendingApprovals.length})'),
+    ('pending', 'Approval Requests${_pendingApprovals.isNotEmpty ? " (${_pendingApprovals.length})" : ""}'),
     ('sales', 'Sales'),
     ('service', 'Service & Maintenance'),
     ('structure', 'Structure'),
@@ -45,6 +46,9 @@ class _AdminEmployeesScreenState extends State<AdminEmployeesScreen> {
   void initState() {
     super.initState();
     _client = widget.apiClient ?? ApiClient();
+    if (widget.initialTrade != null) {
+      _selectedTrade = widget.initialTrade!;
+    }
     if (widget.initialEmployees != null) {
       _employees = List.from(widget.initialEmployees!);
       _isLoading = false;
@@ -93,7 +97,7 @@ class _AdminEmployeesScreenState extends State<AdminEmployeesScreen> {
   }
 
   Future<void> _handleQuickApprove(Map<String, dynamic> user) async {
-    final userId = user['id']?.toString() ?? '';
+    final userId = (user['id'] ?? user['_id'])?.toString() ?? '';
     final userName = user['name'] ?? 'User';
     if (userId.isEmpty) return;
 
@@ -137,7 +141,7 @@ class _AdminEmployeesScreenState extends State<AdminEmployeesScreen> {
   }
 
   Future<void> _handleQuickReject(Map<String, dynamic> user) async {
-    final userId = user['id']?.toString() ?? '';
+    final userId = (user['id'] ?? user['_id'])?.toString() ?? '';
     final userName = user['name'] ?? 'User';
     if (userId.isEmpty) return;
 
@@ -280,46 +284,194 @@ class _AdminEmployeesScreenState extends State<AdminEmployeesScreen> {
       ),
       body: Column(
         children: [
-          // Top KPI Summary Cards Row
+          // ── Top Primary Tab Bar: Staff Directory vs Approval Requests ──────
           Container(
-            padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
-            color: AppColors.navy800,
-            child: Row(
-              children: [
-                Expanded(
-                  child: _buildMetricTile(
-                    label: 'Total Staff',
-                    value: '$totalStaff',
-                    icon: Icons.groups_rounded,
-                    color: AppColors.gold500,
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+            color: AppColors.navy900,
+            child: Container(
+              height: 46,
+              padding: const EdgeInsets.all(4),
+              decoration: BoxDecoration(
+                color: AppColors.navy800,
+                borderRadius: BorderRadius.circular(AppRadius.lg),
+                border: Border.all(color: AppColors.navy700),
+              ),
+              child: Row(
+                children: [
+                  // Tab 1: Staff Directory
+                  Expanded(
+                    child: GestureDetector(
+                      onTap: () {
+                        if (_selectedTrade == 'pending') {
+                          setState(() => _selectedTrade = 'all');
+                          _loadEmployees();
+                        }
+                      },
+                      child: AnimatedContainer(
+                        duration: const Duration(milliseconds: 200),
+                        decoration: BoxDecoration(
+                          color: _selectedTrade != 'pending' ? AppColors.gold500 : Colors.transparent,
+                          borderRadius: BorderRadius.circular(AppRadius.md),
+                        ),
+                        alignment: Alignment.center,
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(
+                              Icons.groups_rounded,
+                              size: 17,
+                              color: _selectedTrade != 'pending' ? Colors.black : AppColors.grey400,
+                            ),
+                            const SizedBox(width: 8),
+                            Text(
+                              'Staff Directory ($totalStaff)',
+                              style: TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.bold,
+                                color: _selectedTrade != 'pending' ? Colors.black : AppColors.grey400,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
                   ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: _buildMetricTile(
-                    label: 'Active On Duty',
-                    value: '${_employees.where((e) => e.isActive).length}',
-                    icon: Icons.verified_user_rounded,
-                    color: AppColors.teal500,
+                  const SizedBox(width: 4),
+
+                  // Tab 2: Approval Requests
+                  Expanded(
+                    child: GestureDetector(
+                      onTap: () {
+                        if (_selectedTrade != 'pending') {
+                          setState(() => _selectedTrade = 'pending');
+                          _loadEmployees();
+                        }
+                      },
+                      child: AnimatedContainer(
+                        duration: const Duration(milliseconds: 200),
+                        decoration: BoxDecoration(
+                          color: _selectedTrade == 'pending' ? AppColors.orange500 : Colors.transparent,
+                          borderRadius: BorderRadius.circular(AppRadius.md),
+                        ),
+                        alignment: Alignment.center,
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(
+                              Icons.how_to_reg_rounded,
+                              size: 17,
+                              color: _selectedTrade == 'pending' ? Colors.white : AppColors.orange400,
+                            ),
+                            const SizedBox(width: 8),
+                            Text(
+                              'Approval Requests',
+                              style: TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.bold,
+                                color: _selectedTrade == 'pending' ? Colors.white : AppColors.orange400,
+                              ),
+                            ),
+                            const SizedBox(width: 6),
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                              decoration: BoxDecoration(
+                                color: _selectedTrade == 'pending' ? Colors.white : AppColors.orange500,
+                                borderRadius: BorderRadius.circular(AppRadius.pill),
+                              ),
+                              child: Text(
+                                '${_pendingApprovals.length}',
+                                style: TextStyle(
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.w900,
+                                  color: _selectedTrade == 'pending' ? AppColors.orange500 : Colors.white,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
                   ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: _buildMetricTile(
-                    label: 'Allocated Tasks',
-                    value: '$totalTasks',
-                    icon: Icons.assignment_turned_in_rounded,
-                    color: AppColors.info,
-                  ),
-                ),
-              ],
+                ],
+              ),
             ),
           ),
 
-          // Pending Approvals Alert Banner
-          if (_pendingApprovals.isNotEmpty)
+          // Top KPI Summary Cards Row (Adaptive based on active tab)
+          Container(
+            padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
+            color: AppColors.navy800,
+            child: Row(
+              children: _selectedTrade == 'pending'
+                  ? [
+                      Expanded(
+                        child: _buildMetricTile(
+                          label: 'Pending Requests',
+                          value: '${_pendingApprovals.length}',
+                          icon: Icons.how_to_reg_rounded,
+                          color: AppColors.orange400,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: _buildMetricTile(
+                          label: 'Approved Staff',
+                          value: '$totalStaff',
+                          icon: Icons.groups_rounded,
+                          color: AppColors.gold500,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: _buildMetricTile(
+                          label: 'Active On Duty',
+                          value: '${_employees.where((e) => e.isActive).length}',
+                          icon: Icons.verified_user_rounded,
+                          color: AppColors.teal500,
+                        ),
+                      ),
+                    ]
+                  : [
+                      Expanded(
+                        child: _buildMetricTile(
+                          label: 'Total Staff',
+                          value: '$totalStaff',
+                          icon: Icons.groups_rounded,
+                          color: AppColors.gold500,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: _buildMetricTile(
+                          label: 'Active On Duty',
+                          value: '${_employees.where((e) => e.isActive).length}',
+                          icon: Icons.verified_user_rounded,
+                          color: AppColors.teal500,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: GestureDetector(
+                          onTap: () {
+                            setState(() => _selectedTrade = 'pending');
+                            _loadEmployees();
+                          },
+                          child: _buildMetricTile(
+                            label: _pendingApprovals.isNotEmpty ? 'Approval Requests' : 'Allocated Tasks',
+                            value: _pendingApprovals.isNotEmpty ? '${_pendingApprovals.length}' : '$totalTasks',
+                            icon: _pendingApprovals.isNotEmpty ? Icons.person_add_rounded : Icons.assignment_turned_in_rounded,
+                            color: _pendingApprovals.isNotEmpty ? AppColors.orange400 : AppColors.info,
+                          ),
+                        ),
+                      ),
+                    ],
+            ),
+          ),
+
+          // Pending Approvals Alert Banner (shown when in directory tab with pending items)
+          if (_selectedTrade != 'pending' && _pendingApprovals.isNotEmpty)
             Container(
-              margin: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+              margin: const EdgeInsets.fromLTRB(16, 10, 16, 0),
               padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
               decoration: BoxDecoration(
                 gradient: LinearGradient(
@@ -369,6 +521,7 @@ class _AdminEmployeesScreenState extends State<AdminEmployeesScreen> {
                     ),
                     onPressed: () {
                       setState(() => _selectedTrade = 'pending');
+                      _loadEmployees();
                     },
                     child: const Text('Review Now'),
                   ),

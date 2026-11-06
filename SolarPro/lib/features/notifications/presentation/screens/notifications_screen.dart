@@ -78,12 +78,17 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
 
     final targetRoute = NotificationRepository.resolveDeepLinkForRole(_userRole, n);
     if (mounted) {
-      context.go(targetRoute);
+      context.push(targetRoute);
     }
   }
 
-  IconData _getIconForType(String type) {
-    switch (type.toLowerCase()) {
+  IconData _getIconForType(String type, {String? title}) {
+    final t = type.toLowerCase();
+    final ttl = (title ?? '').toLowerCase();
+    if (t == 'user_approval' || t == 'approval' || ttl.contains('registration') || ttl.contains('applicant')) {
+      return Icons.how_to_reg_rounded;
+    }
+    switch (t) {
       case 'lead':
         return Icons.person_add_alt_1_rounded;
       case 'job':
@@ -95,16 +100,18 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
         return Icons.payments_rounded;
       case 'ticket':
         return Icons.confirmation_number_rounded;
-      case 'user_approval':
-      case 'approval':
-        return Icons.how_to_reg_rounded;
       default:
         return Icons.notifications_rounded;
     }
   }
 
-  Color _getColorForType(String type) {
-    switch (type.toLowerCase()) {
+  Color _getColorForType(String type, {String? title}) {
+    final t = type.toLowerCase();
+    final ttl = (title ?? '').toLowerCase();
+    if (t == 'user_approval' || t == 'approval' || ttl.contains('registration') || ttl.contains('applicant')) {
+      return AppColors.orange500;
+    }
+    switch (t) {
       case 'lead':
         return AppColors.gold500;
       case 'job':
@@ -116,9 +123,6 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
         return AppColors.success;
       case 'ticket':
         return AppColors.error;
-      case 'user_approval':
-      case 'approval':
-        return AppColors.orange500;
       default:
         return AppColors.info;
     }
@@ -188,8 +192,8 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                     separatorBuilder: (_, __) => const SizedBox(height: 8),
                     itemBuilder: (context, i) {
                       final n = _notifications[i];
-                      final color = _getColorForType(n.type);
-                      final icon = _getIconForType(n.type);
+                      final color = _getColorForType(n.type, title: n.title);
+                      final icon = _getIconForType(n.type, title: n.title);
                       final timeStr = _formatTime(n.createdAt);
 
                       return GestureDetector(

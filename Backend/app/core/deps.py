@@ -70,11 +70,16 @@ async def _get_user_from_db(db: AsyncSession, user_id_str: str) -> Optional[User
 
 
 def _expand_allowed_roles(*allowed_roles: UserRole | str) -> Set[str]:
-    """Normalize roles and expand aliases (e.g., sales includes salesman/employee)."""
+    """Normalize roles and expand aliases (e.g., sales includes salesman/employee, admin includes vendor/co_admin)."""
     expanded = {
         role.value if isinstance(role, UserRole) else str(role)
         for role in allowed_roles
     }
+    if "admin" in expanded:
+        expanded.add("main_admin")
+        expanded.add("co_admin")
+        expanded.add("super_admin")
+        expanded.add("vendor")
     if "sales" in expanded:
         expanded.add("salesman")
         expanded.add("employee")

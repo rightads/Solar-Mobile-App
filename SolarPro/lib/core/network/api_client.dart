@@ -833,14 +833,23 @@ class ApiClient {
   Future<List<Map<String, dynamic>>> getPendingApprovals({String status = 'pending'}) async {
     try {
       final res = await _dio.get('/users/approvals/list', queryParameters: {'status': status});
+      if (res.data is List && (res.data as List).isNotEmpty) {
+        return (res.data as List).map((e) => Map<String, dynamic>.from(e as Map)).toList();
+      }
+    } catch (e) {
+      dev.log('getPendingApprovals /users/approvals/list: $e');
+    }
+
+    // Fallback: Query /teams/employees with status filter
+    try {
+      final res = await _dio.get('/teams/employees', queryParameters: {'status': status});
       if (res.data is List) {
         return (res.data as List).map((e) => Map<String, dynamic>.from(e as Map)).toList();
       }
-      return [];
     } catch (e) {
-      dev.log('getPendingApprovals error: $e');
-      rethrow;
+      dev.log('getPendingApprovals /teams/employees: $e');
     }
+    return [];
   }
 
   /// Approve employee or admin registration request

@@ -259,7 +259,17 @@ def mongo_get_registration_approvals(status: str = "pending") -> List[Dict[str, 
     users_col = db["users"]
     query: Dict[str, Any] = {"role": {"$ne": "client"}, "is_superadmin": {"$ne": True}}
     if status and status.lower() != "all":
-        query["approval_status"] = status.lower()
+        status_clean = status.lower()
+        query["$or"] = [
+            {"approval_status": status_clean},
+            {"approval_status": status_clean.upper()},
+            {"approval_status": status_clean.capitalize()},
+        ]
+        if status_clean == "pending":
+            query["$or"].extend([
+                {"approval_status": {"$exists": False}, "is_active": False},
+                {"approval_status": None, "is_active": False},
+            ])
 
     cursor = users_col.find(query).sort("created_at", -1)
     results = []
@@ -282,14 +292,17 @@ def mongo_get_registration_approvals(status: str = "pending") -> List[Dict[str, 
 def mongo_approve_user(user_id: str) -> Optional[Dict[str, Any]]:
     """Approve a pending employee/admin registration and activate their account."""
     from pymongo import ReturnDocument
+    from bson import ObjectId
     db = get_mongo_db()
     if db is None:
         return None
     users_col = db["users"]
     now = datetime.now(timezone.utc)
 
-    # Check if employee_no needs to be generated
-    user = users_col.find_one({"_id": user_id})
+    id_conds = [{"_id": user_id}, {"id": user_id}]
+    if ObjectId.is_valid(user_id):
+        id_conds.append({"_id": ObjectId(user_id)})
+    user = users_col.find_one({"$or": id_conds})
     if not user:
         return None
 
@@ -297,7 +310,7 @@ def mongo_approve_user(user_id: str) -> Optional[Dict[str, Any]]:
     employee_no = user.get("employee_no")
     if not employee_no and role != "client":
         prefix = "EMP-SLS" if "sales" in role else ("EMP-KEDL" if "kedl" in role else "EMP-SITE")
-        employee_no = f"{prefix}-{str(user_id)[:4].upper()}"
+        employee_no = f"{prefix}-{str(user['_id'])[:4].upper()}"
 
     update_fields = {
         "approval_status": "approved",
@@ -309,7 +322,7 @@ def mongo_approve_user(user_id: str) -> Optional[Dict[str, Any]]:
         update_fields["employee_no"] = employee_no
 
     res = users_col.find_one_and_update(
-        {"_id": user_id},
+        {"_id": user["_id"]},
         {"$set": update_fields},
         return_document=ReturnDocument.AFTER,
     )
@@ -322,13 +335,22 @@ def mongo_approve_user(user_id: str) -> Optional[Dict[str, Any]]:
 def mongo_reject_user(user_id: str) -> Optional[Dict[str, Any]]:
     """Reject a pending employee/admin registration and disable account."""
     from pymongo import ReturnDocument
+    from bson import ObjectId
     db = get_mongo_db()
     if db is None:
         return None
     users_col = db["users"]
     now = datetime.now(timezone.utc)
+
+    id_conds = [{"_id": user_id}, {"id": user_id}]
+    if ObjectId.is_valid(user_id):
+        id_conds.append({"_id": ObjectId(user_id)})
+    user = users_col.find_one({"$or": id_conds})
+    if not user:
+        return None
+
     res = users_col.find_one_and_update(
-        {"_id": user_id},
+        {"_id": user["_id"]},
         {"$set": {"approval_status": "rejected", "is_active": False, "rejected_at": now, "updated_at": now}},
         return_document=ReturnDocument.AFTER,
     )
@@ -880,14 +902,19 @@ def mongo_get_employees(trade: Optional[str] = None, team: Optional[str] = None,
         }
     }
     if status and status.lower() == "pending":
-        query["approval_status"] = "pending"
+        query["$or"] = [
+            {"approval_status": "pending"},
+            {"approval_status": "PENDING"},
+            {"approval_status": "Pending"},
+            {"is_active": False, "approval_status": {"$ne": "rejected"}},
+        ]
     elif status and status.lower() == "rejected":
-        query["approval_status"] = "rejected"
+        query["approval_status"] = {"$in": ["rejected", "REJECTED"]}
     elif status and status.lower() != "all":
         query["approval_status"] = status.lower()
     else:
         # Default: only approved, non-pending, non-rejected, active staff
-        query["approval_status"] = {"$nin": ["pending", "rejected"]}
+        query["approval_status"] = {"$nin": ["pending", "rejected", "PENDING", "REJECTED"]}
         query["is_active"] = {"$ne": False}
 
     if trade and trade.lower() != "all":
