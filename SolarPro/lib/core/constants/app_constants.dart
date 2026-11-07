@@ -1,6 +1,3 @@
-import 'dart:io' show Platform;
-import 'package:flutter/foundation.dart' show kIsWeb;
-
 // App-wide constants
 
 class AppConstants {
@@ -116,6 +113,7 @@ String resolveRoleHomeRoute(String? role, {String? teamType}) {
     case 'electrician':
     case 'structure':
     case 'civil':
+    case 'site':
       return AppRoutes.employeeSite;
     case 'technician':
     case 'labour':

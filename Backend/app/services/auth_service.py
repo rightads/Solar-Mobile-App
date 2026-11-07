@@ -435,10 +435,20 @@ class AuthService:
         # Non-client roles (employee/vendor/admin) require Super Admin approval
         # 1. Create In-App Notification in MongoDB Atlas for Admin
         try:
+            role_display_map = {
+                "sales": "Sales Executive",
+                "kedl": "KEDL Liaison",
+                "service": "Service Technician",
+                "site": "Site Installation Crew",
+                "admin": "Administrator",
+                "employee": "Employee",
+            }
+            role_display = role_display_map.get(role_clean, role_clean.capitalize())
+
             from app.db.mongo import mongo_create_notification
             mongo_create_notification({
-                "title": f"New {role_clean.capitalize()} Registration",
-                "body": f"{user_doc['name']} has applied for {role_clean.capitalize()} role (+91 {user_doc['phone']}). Tap to review and accept.",
+                "title": f"New {role_display} Registration",
+                "body": f"{user_doc['name']} has applied for {role_display} role (+91 {user_doc['phone']}). Tap to review and accept.",
                 "type": "user_approval",
                 "target_role": "admin",
                 "target_id": user_id,
@@ -447,6 +457,7 @@ class AuthService:
                     "name": user_doc["name"],
                     "phone": user_doc["phone"],
                     "role": role_clean,
+                    "role_display": role_display,
                     "email": user_doc.get("email"),
                 },
             })

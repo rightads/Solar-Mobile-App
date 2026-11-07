@@ -83,6 +83,14 @@ def _expand_allowed_roles(*allowed_roles: UserRole | str) -> Set[str]:
     if "sales" in expanded:
         expanded.add("salesman")
         expanded.add("employee")
+    if "technician" in expanded or "labour" in expanded:
+        expanded.add("site")
+        expanded.add("service")
+        expanded.add("electrician")
+        expanded.add("structure")
+        expanded.add("civil")
+    if "service" in expanded:
+        expanded.add("technician")
     return expanded
 
 

@@ -1430,6 +1430,72 @@ class _LoginScreenState extends State<LoginScreen> {
     );
   }
 
+  Widget _buildRoleSelectorTile({
+    required String label,
+    required String subtitle,
+    required IconData icon,
+    required Color color,
+    required bool isSelected,
+    required VoidCallback onTap,
+  }) {
+    return GestureDetector(
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 180),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+        decoration: BoxDecoration(
+          color: isSelected ? color.withValues(alpha: 0.18) : AppColors.navy800,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: isSelected ? color : AppColors.navy600,
+            width: isSelected ? 1.6 : 1,
+          ),
+        ),
+        child: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(6),
+              decoration: BoxDecoration(
+                color: isSelected ? color.withValues(alpha: 0.25) : AppColors.navy700,
+                shape: BoxShape.circle,
+              ),
+              child: Icon(icon, color: isSelected ? color : AppColors.grey400, size: 16),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    label,
+                    style: TextStyle(
+                      color: isSelected ? Colors.white : AppColors.grey300,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 12,
+                    ),
+                  ),
+                  Text(
+                    subtitle,
+                    style: TextStyle(
+                      color: isSelected ? color : AppColors.grey500,
+                      fontSize: 9,
+                      fontWeight: FontWeight.w500,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ],
+              ),
+            ),
+            if (isSelected)
+              Icon(Icons.check_circle_rounded, color: color, size: 14),
+          ],
+        ),
+      ),
+    );
+  }
+
   InputDecoration _inputDecoration({
     required String hintText,
     String? counterText,
@@ -1825,6 +1891,7 @@ class _LoginScreenState extends State<LoginScreen> {
     final phoneCtrl = TextEditingController();
     final emailCtrl = TextEditingController();
     final passCtrl = TextEditingController();
+    String selectedRole = 'sales';
     bool isSubmitting = false;
     String? modalError;
 
@@ -1935,6 +2002,63 @@ class _LoginScreenState extends State<LoginScreen> {
                             ),
                           ],
                         ),
+                      ),
+                      const SizedBox(height: 14),
+                    ],
+
+                    if (isEmployee) ...[
+                      _buildFieldLabel('Select Role / Department'),
+                      const SizedBox(height: 8),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: _buildRoleSelectorTile(
+                              label: 'Sales',
+                              subtitle: 'Leads & Deals',
+                              icon: Icons.trending_up_rounded,
+                              color: AppColors.gold500,
+                              isSelected: selectedRole == 'sales',
+                              onTap: () => setModalState(() => selectedRole = 'sales'),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: _buildRoleSelectorTile(
+                              label: 'KEDL',
+                              subtitle: 'Net Metering',
+                              icon: Icons.description_rounded,
+                              color: AppColors.purple500,
+                              isSelected: selectedRole == 'kedl',
+                              onTap: () => setModalState(() => selectedRole = 'kedl'),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: _buildRoleSelectorTile(
+                              label: 'Service',
+                              subtitle: 'Maintenance',
+                              icon: Icons.build_rounded,
+                              color: AppColors.teal400,
+                              isSelected: selectedRole == 'service',
+                              onTap: () => setModalState(() => selectedRole = 'service'),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: _buildRoleSelectorTile(
+                              label: 'Site Work',
+                              subtitle: 'Installation',
+                              icon: Icons.construction_rounded,
+                              color: AppColors.orange400,
+                              isSelected: selectedRole == 'site',
+                              onTap: () => setModalState(() => selectedRole = 'site'),
+                            ),
+                          ),
+                        ],
                       ),
                       const SizedBox(height: 14),
                     ],
@@ -2053,7 +2177,7 @@ class _LoginScreenState extends State<LoginScreen> {
                                     phone: phone,
                                     email: email,
                                     password: password,
-                                    role: isEmployee ? 'employee' : 'admin',
+                                    role: isEmployee ? selectedRole : 'admin',
                                   );
 
                                   if (!bottomSheetCtx.mounted) return;

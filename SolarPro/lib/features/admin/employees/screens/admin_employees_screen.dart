@@ -1009,16 +1009,24 @@ class _PendingApprovalCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final name = user['name']?.toString() ?? 'Applicant';
-    final role = (user['role']?.toString() ?? 'employee').toUpperCase();
+    final rawRole = (user['role']?.toString() ?? user['requested_role']?.toString() ?? 'employee').toLowerCase();
     final phone = user['phone']?.toString() ?? 'N/A';
     final email = user['email']?.toString() ?? '';
+
+    final (roleDisplay, roleColor, roleIcon) = switch (rawRole) {
+      'sales' || 'salesman' => ('Sales Executive', AppColors.gold500, Icons.trending_up_rounded),
+      'kedl' => ('KEDL Liaison', AppColors.purple500, Icons.description_rounded),
+      'service' => ('Service Technician', AppColors.teal400, Icons.build_rounded),
+      'site' || 'electrician' || 'structure' || 'civil' || 'labour' => ('Site Installation Crew', AppColors.orange400, Icons.construction_rounded),
+      _ => ('Staff (${rawRole.toUpperCase()})', AppColors.info, Icons.badge_rounded),
+    };
 
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
         color: AppColors.navy800,
         borderRadius: BorderRadius.circular(AppRadius.lg),
-        border: Border.all(color: AppColors.orange500.withValues(alpha: 0.35), width: 1.2),
+        border: Border.all(color: roleColor.withValues(alpha: 0.35), width: 1.2),
         boxShadow: [
           BoxShadow(
             color: Colors.black.withValues(alpha: 0.25),
@@ -1034,8 +1042,8 @@ class _PendingApprovalCard extends StatelessWidget {
             children: [
               CircleAvatar(
                 radius: 20,
-                backgroundColor: AppColors.orange500.withValues(alpha: 0.15),
-                child: const Icon(Icons.person_add_rounded, color: AppColors.orange400, size: 20),
+                backgroundColor: roleColor.withValues(alpha: 0.15),
+                child: Icon(roleIcon, color: roleColor, size: 20),
               ),
               const SizedBox(width: 12),
               Expanded(
@@ -1056,14 +1064,14 @@ class _PendingApprovalCard extends StatelessWidget {
                         Container(
                           padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                           decoration: BoxDecoration(
-                            color: AppColors.orange500.withValues(alpha: 0.15),
+                            color: roleColor.withValues(alpha: 0.15),
                             borderRadius: BorderRadius.circular(4),
-                            border: Border.all(color: AppColors.orange500.withValues(alpha: 0.4)),
+                            border: Border.all(color: roleColor.withValues(alpha: 0.4)),
                           ),
                           child: Text(
-                            role,
-                            style: const TextStyle(
-                              color: AppColors.orange400,
+                            roleDisplay.toUpperCase(),
+                            style: TextStyle(
+                              color: roleColor,
                               fontSize: 10,
                               fontWeight: FontWeight.w700,
                             ),

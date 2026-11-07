@@ -309,7 +309,14 @@ def mongo_approve_user(user_id: str) -> Optional[Dict[str, Any]]:
     role = str(user.get("role", "employee")).lower()
     employee_no = user.get("employee_no")
     if not employee_no and role != "client":
-        prefix = "EMP-SLS" if "sales" in role else ("EMP-KEDL" if "kedl" in role else "EMP-SITE")
+        if "sales" in role:
+            prefix = "EMP-SLS"
+        elif "kedl" in role:
+            prefix = "EMP-KEDL"
+        elif "service" in role or "tech" in role:
+            prefix = "EMP-SRV"
+        else:
+            prefix = "EMP-SITE"
         employee_no = f"{prefix}-{str(user['_id'])[:4].upper()}"
 
     update_fields = {
@@ -898,6 +905,7 @@ def mongo_get_employees(trade: Optional[str] = None, team: Optional[str] = None,
                 "electrician",
                 "civil",
                 "structure",
+                "site",
             ]
         }
     }

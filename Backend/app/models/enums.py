@@ -10,6 +10,9 @@ class UserRole(str, enum.Enum):
     MANAGER = "manager"
     OFFICE_STAFF = "office_staff"
     TECHNICIAN = "technician"
+    SERVICE = "service"
+    SITE = "site"
+    EMPLOYEE = "employee"
 
 
 class TeamType(str, enum.Enum):
