@@ -1211,19 +1211,42 @@ def mongo_get_work_assignments(
 
 
 def mongo_update_work_assignment(assignment_id: str, updates: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-    """Update work assignment status or dates."""
+    """Update work assignment status or dates and sync completed work to client milestones."""
     from pymongo import ReturnDocument
     db = get_mongo_db()
     if db is None:
         return None
     aid = str(assignment_id)
     clean = {k: v for k, v in updates.items() if k not in ["_id", "id"]}
-    clean["updated_at"] = datetime.now(timezone.utc)
+    now = datetime.now(timezone.utc)
+    clean["updated_at"] = now
     res = db["work_assignments"].find_one_and_update(
         {"$or": [{"_id": aid}, {"id": aid}]},
         {"$set": clean},
         return_document=ReturnDocument.AFTER,
     )
+    if res and clean.get("status") == "completed":
+        cust_id = str(res.get("customer_id", ""))
+        work_type = str(res.get("work_type", "")).lower()
+        stage_map = {
+            "structure": "STRUCTURE_WORK",
+            "electrical": "ELECTRICAL_WORK",
+            "civil": "CIVIL_WORK",
+            "installation": "INSTALLATION_COMPLETE",
+        }
+        target_stage = stage_map.get(work_type)
+        if target_stage and cust_id:
+            mongo_update_customer_milestone(
+                cust_id,
+                target_stage,
+                {
+                    "stage": target_stage,
+                    "status": "done",
+                    "completed_by": res.get("assigned_employee_name") or res.get("assigned_staff"),
+                    "completed_by_emp_no": res.get("assigned_employee_no") or res.get("assigned_staff_emp_no"),
+                    "completed_at": now.isoformat(),
+                }
+            )
     return _format_mongo_doc(res) if res else None
 
 
@@ -1403,11 +1426,10 @@ def mongo_get_client_home(user_id_or_phone: str) -> Dict[str, Any]:
                 "email": work_assign.get("assigned_email", ""),
             }
 
-    # 10-Stage Milestone Timeline
+    # 10-Stage Milestone Timeline - Strictly driven by employee/admin completed work
     from app.core.constants import STAGE_ORDER
     stage_keys = [s[0].value if hasattr(s[0], "value") else str(s[0]) for s in STAGE_ORDER]
     cust_stage = customer.get("stage", "REGISTRATION_SUBMITTED")
-    curr_idx = stage_keys.index(cust_stage) if cust_stage in stage_keys else -1
 
     timeline = []
     stage_notes = {
@@ -1423,6 +1445,7 @@ def mongo_get_client_home(user_id_or_phone: str) -> Dict[str, Any]:
         "HANDED_OVER": "Project handed over with 25-year solar warranty kit.",
     }
 
+    # Fetch explicit customer milestones map
     cust_milestones_map = {}
     for m in customer.get("milestones", []):
         if isinstance(m, dict):
@@ -1430,34 +1453,21 @@ def mongo_get_client_home(user_id_or_phone: str) -> Dict[str, Any]:
             if key:
                 cust_milestones_map[str(key).upper()] = m
 
-    for idx, (s_obj, s_title) in enumerate(STAGE_ORDER):
-        s_key = s_obj.value if hasattr(s_obj, "value") else str(s_obj)
-        custom_m = cust_milestones_map.get(s_key)
+    # Fetch work assignments for this customer to reflect actual assigned employee work
+    cid = str(customer.get("_id", customer.get("id", "")))
+    cust_work_assignments = list(db["work_assignments"].find({
+        "$or": [{"customer_id": cid}, {"customer_id": customer.get("id")}]
+    })) if cid else []
 
-        if custom_m and custom_m.get("status"):
-            status_str = custom_m["status"].lower()
-            dt = custom_m.get("updated_at") or custom_m.get("date")
-        elif curr_idx >= 0 and idx < curr_idx:
-            status_str = "done"
-            dt = (now - timedelta(days=(curr_idx - idx) * 3)).isoformat()
-        elif curr_idx >= 0 and idx == curr_idx:
-            status_str = "current"
-            dt = now.isoformat()
-        else:
-            status_str = "upcoming"
-            dt = None
+    work_by_type = {}
+    for wa in cust_work_assignments:
+        wt = str(wa.get("work_type", "")).lower()
+        work_by_type[wt] = wa
 
-        timeline.append({
-            "stage": s_key,
-            "title": s_title,
-            "status": status_str,
-            "date": dt,
-            "note": stage_notes.get(s_key, ""),
-        })
-
-    completed_count = sum(1 for item in timeline if item["status"] == "done")
-    total_stages = len(timeline)
-    progress_pct = int((completed_count / total_stages) * 100) if total_stages > 0 else 0
+    # Check KEDL file status
+    kedl_file = db["kedl_files"].find_one({
+        "$or": [{"customer_id": cid}, {"customer_id": customer.get("id")}]
+    }) if cid else None
 
     # Financials
     final_price_paise = int(customer.get("final_price", 0))
@@ -1465,6 +1475,89 @@ def mongo_get_client_home(user_id_or_phone: str) -> Dict[str, Any]:
     verified_paise = payments_info["summary"]["verified"]
     total_paid_paise = payments_info["summary"]["total_paid"]
     remaining_paise = max(0, final_price_paise - verified_paise)
+
+    stage_work_map = {
+        "STRUCTURE_WORK": "structure",
+        "ELECTRICAL_WORK": "electrical",
+        "CIVIL_WORK": "civil",
+        "INSTALLATION_COMPLETE": "installation",
+    }
+
+    for idx, (s_obj, s_title) in enumerate(STAGE_ORDER):
+        s_key = s_obj.value if hasattr(s_obj, "value") else str(s_obj)
+        custom_m = cust_milestones_map.get(s_key)
+
+        status_str = "upcoming"
+        dt = None
+        assigned_worker = None
+
+        # 1. Explicit milestone status recorded in customer document
+        if custom_m and custom_m.get("status"):
+            m_status = str(custom_m["status"]).lower()
+            if m_status in ["done", "completed", "verified"]:
+                status_str = "done"
+                dt = custom_m.get("completed_at") or custom_m.get("updated_at") or custom_m.get("date")
+            elif m_status in ["current", "in_progress", "active"]:
+                status_str = "current"
+                dt = custom_m.get("updated_at") or custom_m.get("date")
+
+        # 2. Check real employee activity if not explicitly marked done
+        if status_str != "done":
+            if s_key == "SALE_CONFIRMED":
+                if customer.get("sale_confirmed_by") or customer.get("is_sale_confirmed"):
+                    status_str = "done"
+                    dt = customer.get("sale_confirmed_at")
+            elif s_key == "DOCUMENTS_RECEIVED":
+                if customer.get("documents_verified") or customer.get("is_docs_verified"):
+                    status_str = "done"
+                    dt = customer.get("documents_verified_at")
+            elif s_key == "ADVANCE_VERIFIED":
+                if verified_paise > 0:
+                    status_str = "done"
+            elif s_key in stage_work_map:
+                wt = stage_work_map[s_key]
+                wa = work_by_type.get(wt)
+                if wa:
+                    assigned_worker = wa.get("assigned_employee_name") or wa.get("assigned_staff")
+                    if wa.get("status") == "completed":
+                        status_str = "done"
+                        dt = wa.get("completed_at") or wa.get("updated_at")
+                    elif wa.get("status") in ["in_progress", "active", "assigned"]:
+                        status_str = "current"
+                        dt = wa.get("started_at") or wa.get("updated_at")
+            elif s_key == "KEDL_PROCESS":
+                if kedl_file:
+                    if kedl_file.get("status") == "approved":
+                        status_str = "done"
+                        dt = kedl_file.get("approved_at")
+                    elif kedl_file.get("status") in ["submitted", "demand_raised", "demand_paid"]:
+                        status_str = "current"
+            elif s_key == "SYSTEM_LIVE":
+                if customer.get("system_live_certified_by") or customer.get("is_system_live"):
+                    status_str = "done"
+                    dt = customer.get("system_live_at")
+            elif s_key == "HANDED_OVER":
+                if customer.get("handed_over_by") or customer.get("is_handed_over"):
+                    status_str = "done"
+                    dt = customer.get("handed_over_at")
+
+        stage_note = stage_notes.get(s_key, "")
+        if assigned_worker and status_str == "current":
+            stage_note = f"Assigned to {assigned_worker}. Work in progress."
+
+        timeline.append({
+            "stage": s_key,
+            "title": s_title,
+            "status": status_str,
+            "date": dt,
+            "note": stage_note,
+        })
+
+    completed_count = sum(1 for item in timeline if item["status"] == "done")
+    total_stages = len(timeline)
+    progress_pct = int((completed_count / total_stages) * 100) if total_stages > 0 else 0
+
+# Financials already computed above
 
     # Responsible Contact (null if no officer assigned)
     resp_contact = None
@@ -1519,7 +1612,7 @@ def mongo_get_client_home(user_id_or_phone: str) -> Dict[str, Any]:
             "completed_stages": completed_count,
             "total_stages": total_stages,
             "percentage": progress_pct,
-            "current_stage_index": curr_idx + 1 if curr_idx >= 0 else 0,
+            "current_stage_index": (completed_count + 1) if completed_count < total_stages else total_stages,
         },
         "responsible_contact": resp_contact,
         "sales_contact": sales_contact,

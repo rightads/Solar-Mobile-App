@@ -553,7 +553,7 @@ class ClientStatusTab extends StatelessWidget {
                                       color: AppColors.success.withValues(alpha: 0.2),
                                       borderRadius: BorderRadius.circular(4),
                                     ),
-                                    child: const Text('DONE ✓',
+                                    child: Text((item['completed_by'] != null && item['completed_by'].toString().isNotEmpty) ? 'DONE by ${item["completed_by"]} ✓' : 'DONE ✓',
                                         style: TextStyle(fontSize: 10, color: AppColors.success, fontWeight: FontWeight.bold)),
                                   )
                                 else if (isCurrent)
