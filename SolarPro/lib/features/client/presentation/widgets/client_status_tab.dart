@@ -211,9 +211,14 @@ class ClientStatusTab extends StatelessWidget {
                             children: [
                               const Icon(Icons.badge_rounded, color: AppColors.gold500, size: 20),
                               const SizedBox(width: 8),
-                              Text('Assigned Project Officer',
-                                  style: AppTextStyles.labelLarge.copyWith(color: AppColors.white)),
-                              const Spacer(),
+                              Expanded(
+                                child: Text(
+                                  'Assigned Project Officer',
+                                  style: AppTextStyles.labelLarge.copyWith(color: AppColors.white),
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                              const SizedBox(width: 8),
                               // PROMINENT EMPLOYEE NO BADGE
                               GestureDetector(
                                 onTap: () {
@@ -347,18 +352,24 @@ class ClientStatusTab extends StatelessWidget {
                               children: [
                                 Row(
                                   children: [
-                                    Text('Assigned Project Officer', style: AppTextStyles.labelLarge.copyWith(color: AppColors.white)),
-                                    const Spacer(),
+                                    Expanded(
+                                      child: Text(
+                                        'Assigned Project Officer',
+                                        style: AppTextStyles.labelLarge.copyWith(color: AppColors.white),
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                    ),
+                                    const SizedBox(width: 8),
                                     Container(
-                                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2.5),
                                       decoration: BoxDecoration(
                                         color: AppColors.orange500.withValues(alpha: 0.15),
                                         borderRadius: BorderRadius.circular(AppRadius.pill),
                                         border: Border.all(color: AppColors.orange500.withValues(alpha: 0.4)),
                                       ),
                                       child: const Text(
-                                        'AWAITING ALLOCATION',
-                                        style: TextStyle(color: AppColors.orange400, fontSize: 9, fontWeight: FontWeight.w700),
+                                        'PENDING',
+                                        style: TextStyle(color: AppColors.orange400, fontSize: 9, fontWeight: FontWeight.w700, letterSpacing: 0.3),
                                       ),
                                     ),
                                   ],
