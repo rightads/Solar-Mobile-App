@@ -1,0 +1,76 @@
+name: Build Windows Desktop
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'SolarPro/**'
+      - '.github/workflows/build_windows.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-windows:
+    name: Build Windows Desktop Release
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+          cache: true
+
+      - name: Enable Windows desktop support
+        run: flutter config --enable-windows-desktop
+        working-directory: ./SolarPro
+
+      - name: Install dependencies
+        run: flutter pub get
+        working-directory: ./SolarPro
+
+      - name: Build Windows Desktop App
+        run: |
+          flutter build windows --release `
+            --dart-define=API_BASE_URL=http://82.29.165.43:8000/api/v1 `
+            --dart-define=API_LIVE_HOST=http://82.29.165.43:8000
+        working-directory: ./SolarPro
+
+      - name: Package Windows Release (ZIP)
+        shell: pwsh
+        run: |
+          if (Test-Path "SolarPro/build/windows/x64/runner/Release") {
+            $releaseDir = "SolarPro/build/windows/x64/runner/Release"
+          } elseif (Test-Path "SolarPro/build/windows/runner/Release") {
+            $releaseDir = "SolarPro/build/windows/runner/Release"
+          } else {
+            Write-Error "Windows Release build directory not found!"
+            exit 1
+          }
+          Write-Host "Found Windows Release build at: $releaseDir"
+          Compress-Archive -Path "$releaseDir/*" -DestinationPath "SolarPro-Windows-Release.zip" -Force
+          Write-Host "Compressed successfully to SolarPro-Windows-Release.zip"
+
+      - name: Upload Windows Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: SolarPro-Windows-Release
+          path: SolarPro-Windows-Release.zip
+
+      - name: Publish Windows App to GitHub Release
+        uses: softprops/action-gh-release@v2
+        if: github.ref == 'refs/heads/main'
+        with:
+          tag_name: Windows
+          name: "SolarPro Windows Desktop Release"
+          draft: false
+          prerelease: false
+          files: SolarPro-Windows-Release.zip
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
