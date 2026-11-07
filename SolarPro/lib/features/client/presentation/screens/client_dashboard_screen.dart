@@ -144,7 +144,8 @@ class _ClientDashboardScreenState extends State<ClientDashboardScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final empNo = _assignedEmployee?.employeeNo ?? 'EMP-SLS-042';
+    final hasOfficer = _assignedEmployee != null && _assignedEmployee!.employeeNo.isNotEmpty;
+    final empNo = hasOfficer ? _assignedEmployee!.employeeNo : '';
 
     return Scaffold(
       backgroundColor: AppColors.navy900,
@@ -192,16 +193,26 @@ class _ClientDashboardScreenState extends State<ClientDashboardScreen> {
             decoration: BoxDecoration(
               color: AppColors.navy800,
               borderRadius: BorderRadius.circular(AppRadius.pill),
-              border: Border.all(color: AppColors.gold500.withValues(alpha: 0.3)),
+              border: Border.all(
+                color: hasOfficer ? AppColors.gold500.withValues(alpha: 0.4) : AppColors.grey700,
+              ),
             ),
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                const Icon(Icons.badge_outlined, color: AppColors.gold500, size: 14),
+                Icon(
+                  hasOfficer ? Icons.badge_outlined : Icons.person_outline_rounded,
+                  color: hasOfficer ? AppColors.gold500 : AppColors.grey400,
+                  size: 14,
+                ),
                 const SizedBox(width: 4),
                 Text(
-                  empNo,
-                  style: const TextStyle(color: AppColors.gold400, fontSize: 11, fontWeight: FontWeight.bold),
+                  hasOfficer ? empNo : 'Awaiting Officer',
+                  style: TextStyle(
+                    color: hasOfficer ? AppColors.gold400 : AppColors.grey400,
+                    fontSize: 11,
+                    fontWeight: FontWeight.bold,
+                  ),
                 ),
               ],
             ),
@@ -229,6 +240,7 @@ class _ClientDashboardScreenState extends State<ClientDashboardScreen> {
                 ClientStatusTab(
                   homeData: _homeData,
                   assignedEmployee: _assignedEmployee,
+                  onRefresh: _loadDashboardData,
                   onOpenPayment: () => setState(() => _selectedIndex = 1),
                   onOpenTicket: () => setState(() => _selectedIndex = 2),
                 ),

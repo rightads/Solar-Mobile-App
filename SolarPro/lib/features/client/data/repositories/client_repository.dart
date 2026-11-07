@@ -10,67 +10,9 @@ class ClientRepository {
   ClientRepository({ApiClient? apiClient}) : _apiClient = apiClient ?? ApiClient();
 
   // In-memory / cached fallback state for seamless offline & demo experience
-  static final List<ClientPaymentRecord> _cachedPayments = [
-    ClientPaymentRecord(
-      id: 'pay-001',
-      stageNo: 1,
-      stageName: 'Token Advance (Booking Confirmed)',
-      amount: 25000.0,
-      mode: 'UPI',
-      referenceNo: 'UPI/4891238910',
-      paidOn: DateTime.now().subtract(const Duration(days: 12)),
-      proofUrl: 'assets/images/receipt_sample.png',
-      status: 'verified',
-      salesApprovedBy: 'Rajesh Sharma',
-      salesApproverEmpNo: 'EMP-SLS-042',
-      verifiedBy: 'Accounts Admin',
-      remarks: 'Booking token payment received and verified',
-    ),
-    ClientPaymentRecord(
-      id: 'pay-002',
-      stageNo: 2,
-      stageName: 'Structure Work Advance (Milestone 2)',
-      amount: 50000.0,
-      mode: 'IMPS',
-      referenceNo: 'IMPS/9812481023',
-      paidOn: DateTime.now().subtract(const Duration(days: 4)),
-      proofUrl: 'assets/images/receipt_sample.png',
-      status: 'sales_approved',
-      salesApprovedBy: 'Rajesh Sharma',
-      salesApproverEmpNo: 'EMP-SLS-042',
-      remarks: 'Payment proof verified by Salesman Rajesh Sharma. Pending Admin verification.',
-    ),
-  ];
+  static final List<ClientPaymentRecord> _cachedPayments = [];
 
-  static final List<ClientTicketRecord> _cachedTickets = [
-    ClientTicketRecord(
-      id: 'tic-001',
-      ticketNo: 'TIC-892104',
-      type: ClientTicketType.structure,
-      title: 'Mounting Bracket Vibration on West Roof Panel',
-      description: 'The aluminum mounting bracket on the southwest frame makes a rattling noise during high winds. 3 photos attached showing foundation anchor and bracket.',
-      status: 'in_progress',
-      priority: 'high',
-      images: ['photo1.jpg', 'photo2.jpg', 'photo3.jpg'],
-      assignedStaff: 'Vikram Singh',
-      assignedStaffEmpNo: 'EMP-SRV-104',
-      createdAt: DateTime.now().subtract(const Duration(days: 2)),
-    ),
-    ClientTicketRecord(
-      id: 'tic-002',
-      ticketNo: 'TIC-842109',
-      type: ClientTicketType.inverter,
-      title: 'Inverter Error Code E04 Grid Voltage High',
-      description: 'The inverter tripped at 1:30 PM displaying error code E04 (Grid Overvoltage). Solar generation halted.',
-      errorCode: 'E04 - Grid Voltage High',
-      status: 'open',
-      priority: 'high',
-      images: ['inverter_display.jpg'],
-      assignedStaff: 'Rajesh Sharma',
-      assignedStaffEmpNo: 'EMP-SLS-042',
-      createdAt: DateTime.now().subtract(const Duration(hours: 5)),
-    ),
-  ];
+  static final List<ClientTicketRecord> _cachedTickets = [];
 
   /// Fetch 10-stage milestones, assigned employee with Employee No, specs, and financials
   Future<Map<String, dynamic>> getClientHomeData() async {
@@ -84,59 +26,54 @@ class ClientRepository {
     }
 
     final prefs = await SharedPreferences.getInstance();
-    final clientName = prefs.getString('user_name') ?? 'Aryan Jadaun';
-    final clientPhone = prefs.getString('user_phone') ?? '+91 98765 00001';
+    final clientName = prefs.getString('user_name') ?? 'Solar Client';
+    final clientPhone = prefs.getString('user_phone') ?? '';
 
     return {
       'customer': {
         'name': clientName,
         'mobile': clientPhone,
-        'address': 'Plot 42, Sunrise Enclave, Sector 14, Jaipur, Rajasthan',
-        'capacity_kw': 5.5,
-        'final_price': 25000000, // 2,50,000 in paise
-        'stage': 'STRUCTURE_WORK',
+        'address': '',
+        'capacity_kw': 0.0,
+        'final_price': 0,
+        'stage': 'REGISTRATION_SUBMITTED',
       },
-      'stage': 'STRUCTURE_WORK',
+      'stage': 'REGISTRATION_SUBMITTED',
       'timeline': [
-        {'stage': 'SALE_CONFIRMED', 'title': 'Sale Confirmed', 'status': 'done', 'date': DateTime.now().subtract(const Duration(days: 14)).toIso8601String(), 'note': 'Sales agreement signed and advance token verified.'},
-        {'stage': 'DOCUMENTS_RECEIVED', 'title': 'Documents Received', 'status': 'done', 'date': DateTime.now().subtract(const Duration(days: 10)).toIso8601String(), 'note': 'Aadhaar, Electricity Bill and rooftop pictures verified.'},
-        {'stage': 'ADVANCE_VERIFIED', 'title': 'Advance Verified', 'status': 'done', 'date': DateTime.now().subtract(const Duration(days: 8)).toIso8601String(), 'note': 'Payment approved by salesman & verified by admin.'},
-        {'stage': 'STRUCTURE_WORK', 'title': 'Structure Work', 'status': 'current', 'date': DateTime.now().subtract(const Duration(days: 2)).toIso8601String(), 'note': 'Hot-dip galvanized mounting structure installation ongoing.'},
-        {'stage': 'ELECTRICAL_WORK', 'title': 'Electrical Work', 'status': 'upcoming', 'note': 'DC cabling, conduits and earthing connection.'},
-        {'stage': 'CIVIL_WORK', 'title': 'Civil Work', 'status': 'upcoming', 'note': 'Grouting and rooftop water-proofing inspection.'},
-        {'stage': 'INSTALLATION_COMPLETE', 'title': 'Installation Done', 'status': 'upcoming', 'note': 'Solar panels and inverter physically mounted.'},
-        {'stage': 'KEDL_PROCESS', 'title': 'KEDL Process', 'status': 'upcoming', 'note': 'Discom paperwork and inspection liaison.'},
-        {'stage': 'NET_METER_INSTALLED', 'title': 'Net Meter Installed', 'status': 'upcoming', 'note': 'Bi-directional net meter sync with grid.'},
-        {'stage': 'HANDED_OVER', 'title': 'Handed Over 🎉', 'status': 'upcoming', 'note': 'Project handed over with 25-year solar warranty kit.'},
+        {'stage': 'SALE_CONFIRMED', 'title': 'Sale Confirmed', 'status': 'upcoming', 'note': 'Sales agreement signed and advance token verified.'},
+        {'stage': 'DOCUMENTS_RECEIVED', 'title': 'Documents Received', 'status': 'upcoming', 'note': 'Aadhaar, Electricity Bill and rooftop pictures verified.'},
+        {'stage': 'ADVANCE_VERIFIED', 'title': 'Advance Verified', 'status': 'upcoming', 'note': 'Payment approved by salesman & verified by admin.'},
+        {'stage': 'STRUCTURE_WORK', 'title': 'Structure Installation', 'status': 'upcoming', 'note': 'Hot-dip galvanized mounting structure installation ongoing.'},
+        {'stage': 'ELECTRICAL_WORK', 'title': 'Electrical Wiring & Inverter', 'status': 'upcoming', 'note': 'DC cabling, conduits and earthing connection.'},
+        {'stage': 'CIVIL_WORK', 'title': 'Civil Works', 'status': 'upcoming', 'note': 'Grouting and rooftop water-proofing inspection.'},
+        {'stage': 'INSTALLATION_COMPLETE', 'title': 'Installation Complete', 'status': 'upcoming', 'note': 'Solar panels and inverter physically mounted.'},
+        {'stage': 'KEDL_PROCESS', 'title': 'KEDL Discom Paperwork', 'status': 'upcoming', 'note': 'Discom paperwork and inspection liaison.'},
+        {'stage': 'SYSTEM_LIVE', 'title': 'System Live & Net Metering', 'status': 'upcoming', 'note': 'Bi-directional net meter sync with grid.'},
+        {'stage': 'HANDED_OVER', 'title': 'Project Handed Over 🎉', 'status': 'upcoming', 'note': 'Project handed over with 25-year solar warranty kit.'},
       ],
-      'responsible_contact': {
-        'name': 'Rajesh Sharma',
-        'phone': '+91 98290 12345',
-        'role_title': 'Senior Sales Representative',
-        'employee_no': 'EMP-SLS-042',
-        'email': 'rajesh.sharma@solarpro.in',
+      'progress': {
+        'completed_stages': 0,
+        'total_stages': 10,
+        'percentage': 0,
+        'current_stage_index': 0,
       },
-      'sales_contact': {
-        'name': 'Rajesh Sharma',
-        'phone': '+91 98290 12345',
-        'role_title': 'Sales Executive',
-        'employee_no': 'EMP-SLS-042',
-        'email': 'rajesh.sharma@solarpro.in',
-      },
+      'responsible_contact': null,
+      'sales_contact': null,
       'payment_summary': {
-        'total_amount': 250000.0,
-        'total_paid': 75000.0,
-        'remaining_balance': 175000.0,
-        'next_milestone': 'Structure Work Completion (₹50,000)',
+        'total_amount': 0.0,
+        'total_paid': 0.0,
+        'remaining_balance': 0.0,
+        'next_milestone': 'Awaiting Project Quote & Feasibility',
       },
       'system_specs': {
-        'capacity_kw': 5.5,
-        'phase': 'Three Phase',
-        'panel_brand': 'Tata Power Solar / Waaree Bifacial',
-        'panel_watt': 550,
-        'panel_count': 10,
-        'inverter_brand': 'Growatt 6kW Hybrid Inverter',
-        'structure_type': 'High-Rise Heavy Duty Galvanized Structure',
+        'capacity_kw': 0.0,
+        'phase': 'Single Phase',
+        'panel_brand': 'Pending Survey',
+        'panel_watt': 0,
+        'panel_count': 0,
+        'inverter_brand': 'Pending Survey',
+        'structure_type': 'Pending Survey',
+        'is_configured': false,
       },
     };
   }

@@ -348,7 +348,7 @@ class _ClientTicketsTabState extends State<ClientTicketsTab> {
               const Spacer(),
               if (t.assignedStaff != null)
                 Text(
-                  'Staff: ${t.assignedStaff} (${t.assignedStaffEmpNo ?? 'EMP-SRV'})',
+                  (t.assignedStaff != null && t.assignedStaff!.isNotEmpty) ? 'Staff: ${t.assignedStaff}${t.assignedStaffEmpNo != null ? " (${t.assignedStaffEmpNo})" : ""}' : 'Awaiting Staff Assignment',
                   style: AppTextStyles.caption.copyWith(color: AppColors.teal400, fontSize: 11),
                 ),
             ],

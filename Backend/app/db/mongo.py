@@ -1330,12 +1330,19 @@ def mongo_get_client_home(user_id_or_phone: str) -> Dict[str, Any]:
     user = db["users"].find_one({
         "$or": [{"id": user_id_or_phone}, {"_id": user_id_or_phone}, {"phone": user_id_or_phone}]
     })
-    user_name = user.get("name", "Aryan Singh Jadaun") if user else "Aryan Singh Jadaun"
-    user_phone = user.get("phone", "9837039028") if user else "9837039028"
+    user_name = user.get("name", "Solar Client") if user else "Solar Client"
+    user_phone = user.get("phone", "") if user else ""
 
-    customer = db["customers"].find_one({
-        "$or": [{"phone": user_phone}, {"mobile": user_phone}, {"user_id": str(user.get("_id") if user else "")}]
-    })
+    id_conds = []
+    if user_phone:
+        id_conds.extend([{"phone": user_phone}, {"mobile": user_phone}])
+    if user:
+        id_conds.append({"user_id": str(user.get("_id"))})
+        id_conds.append({"user_id": str(user.get("id"))})
+        if user.get("email"):
+            id_conds.append({"email": user.get("email")})
+
+    customer = db["customers"].find_one({"$or": id_conds}) if id_conds else None
 
     now = datetime.now(timezone.utc)
     if not customer:
@@ -1347,47 +1354,60 @@ def mongo_get_client_home(user_id_or_phone: str) -> Dict[str, Any]:
             "name": user_name,
             "phone": user_phone,
             "mobile": user_phone,
-            "address": "Plot 42, Sunrise Enclave, Sector 14, Jaipur, Rajasthan",
-            "capacity_kw": 5.5,
-            "final_price": 25000000,  # ₹2,50,000 in paise
+            "email": user.get("email", "") if user else "",
+            "address": user.get("address", "") if user else "",
+            "capacity_kw": 0.0,
+            "final_price": 0,
             "phase": "single",
-            "panel_brand": "Tata Power Solar 550W Mono PERC",
-            "panel_watt": 550,
-            "panel_count": 10,
-            "inverter_brand": "Growatt 6kW Hybrid Inverter",
-            "structure_type": "High-Rise Heavy Duty Galvanized Structure",
-            "stage": "STRUCTURE_WORK",
+            "panel_brand": "",
+            "panel_watt": 0,
+            "panel_count": 0,
+            "inverter_brand": "",
+            "structure_type": "",
+            "stage": "REGISTRATION_SUBMITTED",
+            "assigned_to": None,
+            "sales_id": None,
+            "milestones": [],
             "created_at": now,
             "updated_at": now,
         }
         db["customers"].insert_one(customer)
 
-    # Assigned Sales Rep from real DB users
-    sales_rep = db["users"].find_one({"role": {"$in": ["sales", "salesman"]}})
-    if not sales_rep:
-        sales_rep = {
-            "name": "Rajesh Sharma",
-            "phone": "+91 98290 12345",
-            "email": "rajesh.sharma@solarpro.in",
-            "employee_no": "EMP-SLS-042",
-        }
+    # Assigned Sales Rep only if explicitly linked to customer
+    sales_rep = None
+    sales_id = customer.get("sales_id") or customer.get("assigned_sales_id")
+    if sales_id:
+        sales_rep = db["users"].find_one({"$or": [{"id": str(sales_id)}, {"_id": str(sales_id)}]})
+    elif customer.get("sales_name"):
+        sales_rep = db["users"].find_one({"name": customer["sales_name"]})
 
-    # Assigned Site / Technician lead from real DB users
-    site_emp = db["users"].find_one({"role": {"$in": ["labour", "structure", "technician", "electrician"]}})
-    if not site_emp:
-        site_emp = {
-            "name": "Sunil Kumar",
-            "phone": "+91 98290 98765",
-            "email": "sunil.kumar@solarpro.in",
-            "employee_no": "EMP-SITE-015",
-            "trade": "structure",
-        }
+    # Assigned Site / Technical officer only if explicitly assigned
+    site_emp = None
+    officer_id = customer.get("assigned_to") or customer.get("assigned_officer_id")
+    if officer_id:
+        site_emp = db["users"].find_one({"$or": [{"id": str(officer_id)}, {"_id": str(officer_id)}]})
+    else:
+        # Check active work assignments for this customer
+        cid = str(customer.get("_id", customer.get("id", "")))
+        work_assign = db["work_assignments"].find_one({
+            "$or": [{"customer_id": cid}, {"customer_id": customer.get("id")}],
+            "status": {"$in": ["assigned", "in_progress", "active"]}
+        })
+        if work_assign and work_assign.get("assigned_to"):
+            wid = str(work_assign["assigned_to"])
+            site_emp = db["users"].find_one({"$or": [{"id": wid}, {"_id": wid}]}) or {
+                "name": work_assign.get("assigned_employee_name") or work_assign.get("assigned_staff") or "Assigned Lead",
+                "phone": work_assign.get("assigned_phone", ""),
+                "employee_no": work_assign.get("assigned_employee_no") or work_assign.get("assigned_staff_emp_no") or "",
+                "role_title": f"{work_assign.get('work_type', 'Installation').capitalize()} Lead",
+                "email": work_assign.get("assigned_email", ""),
+            }
 
     # 10-Stage Milestone Timeline
     from app.core.constants import STAGE_ORDER
-    stage_keys = [s[0] for s in STAGE_ORDER]
-    cust_stage = customer.get("stage", "STRUCTURE_WORK")
-    curr_idx = stage_keys.index(cust_stage) if cust_stage in stage_keys else 3
+    stage_keys = [s[0].value if hasattr(s[0], "value") else str(s[0]) for s in STAGE_ORDER]
+    cust_stage = customer.get("stage", "REGISTRATION_SUBMITTED")
+    curr_idx = stage_keys.index(cust_stage) if cust_stage in stage_keys else -1
 
     timeline = []
     stage_notes = {
@@ -1403,11 +1423,24 @@ def mongo_get_client_home(user_id_or_phone: str) -> Dict[str, Any]:
         "HANDED_OVER": "Project handed over with 25-year solar warranty kit.",
     }
 
-    for idx, (s_key, s_title) in enumerate(STAGE_ORDER):
-        if idx < curr_idx:
+    cust_milestones_map = {}
+    for m in customer.get("milestones", []):
+        if isinstance(m, dict):
+            key = m.get("stage") or m.get("title") or m.get("id")
+            if key:
+                cust_milestones_map[str(key).upper()] = m
+
+    for idx, (s_obj, s_title) in enumerate(STAGE_ORDER):
+        s_key = s_obj.value if hasattr(s_obj, "value") else str(s_obj)
+        custom_m = cust_milestones_map.get(s_key)
+
+        if custom_m and custom_m.get("status"):
+            status_str = custom_m["status"].lower()
+            dt = custom_m.get("updated_at") or custom_m.get("date")
+        elif curr_idx >= 0 and idx < curr_idx:
             status_str = "done"
             dt = (now - timedelta(days=(curr_idx - idx) * 3)).isoformat()
-        elif idx == curr_idx:
+        elif curr_idx >= 0 and idx == curr_idx:
             status_str = "current"
             dt = now.isoformat()
         else:
@@ -1422,69 +1455,90 @@ def mongo_get_client_home(user_id_or_phone: str) -> Dict[str, Any]:
             "note": stage_notes.get(s_key, ""),
         })
 
+    completed_count = sum(1 for item in timeline if item["status"] == "done")
+    total_stages = len(timeline)
+    progress_pct = int((completed_count / total_stages) * 100) if total_stages > 0 else 0
+
     # Financials
+    final_price_paise = int(customer.get("final_price", 0))
     payments_info = mongo_get_customer_payments(str(customer["_id"]))
     verified_paise = payments_info["summary"]["verified"]
     total_paid_paise = payments_info["summary"]["total_paid"]
-    final_price_paise = int(customer.get("final_price", 25000000))
     remaining_paise = max(0, final_price_paise - verified_paise)
 
-    # Responsible Contact
-    if cust_stage in ["STRUCTURE_WORK", "ELECTRICAL_WORK", "CIVIL_WORK", "INSTALLATION_COMPLETE"]:
+    # Responsible Contact (null if no officer assigned)
+    resp_contact = None
+    if site_emp:
         trade_name = site_emp.get("trade", "Structure").capitalize()
         resp_contact = {
-            "name": f"{site_emp.get('name', 'Sunil Kumar')}",
-            "phone": site_emp.get("phone", "+91 98290 98765"),
-            "role_title": f"{trade_name} Installation Lead",
-            "employee_no": site_emp.get("employee_no", "EMP-SITE-015"),
-            "email": site_emp.get("email", "site@solarpro.in"),
+            "name": site_emp.get("name", "Project Lead"),
+            "phone": site_emp.get("phone", ""),
+            "role_title": site_emp.get("role_title") or f"{trade_name} Installation Lead",
+            "employee_no": site_emp.get("employee_no", ""),
+            "email": site_emp.get("email", ""),
         }
-    else:
+    elif sales_rep:
         resp_contact = {
-            "name": sales_rep.get("name", "Rajesh Sharma"),
-            "phone": sales_rep.get("phone", "+91 98290 12345"),
-            "role_title": "Senior Sales Representative",
-            "employee_no": sales_rep.get("employee_no", "EMP-SLS-042"),
-            "email": sales_rep.get("email", "rajesh.sharma@solarpro.in"),
+            "name": sales_rep.get("name", "Sales Representative"),
+            "phone": sales_rep.get("phone", ""),
+            "role_title": "Assigned Sales Representative",
+            "employee_no": sales_rep.get("employee_no", ""),
+            "email": sales_rep.get("email", ""),
         }
 
-    sales_contact = {
-        "name": sales_rep.get("name", "Rajesh Sharma"),
-        "phone": sales_rep.get("phone", "+91 98290 12345"),
-        "role_title": "Sales Executive",
-        "employee_no": sales_rep.get("employee_no", "EMP-SLS-042"),
-        "email": sales_rep.get("email", "rajesh.sharma@solarpro.in"),
-    }
+    # Sales Contact (null if no salesman assigned)
+    sales_contact = None
+    if sales_rep:
+        sales_contact = {
+            "name": sales_rep.get("name", "Sales Representative"),
+            "phone": sales_rep.get("phone", ""),
+            "role_title": "Sales Executive",
+            "employee_no": sales_rep.get("employee_no", ""),
+            "email": sales_rep.get("email", ""),
+        }
+
+    has_specs = bool(
+        float(customer.get("capacity_kw", 0)) > 0 and
+        customer.get("panel_brand") and
+        customer.get("panel_brand") != "Pending Survey"
+    )
 
     return {
         "customer": {
             "id": str(customer["_id"]),
-            "name": customer["name"],
-            "mobile": customer["phone"],
+            "name": customer.get("name", user_name),
+            "mobile": customer.get("phone", user_phone),
             "address": customer.get("address", ""),
-            "capacity_kw": float(customer.get("capacity_kw", 5.5)),
+            "capacity_kw": float(customer.get("capacity_kw", 0.0)),
             "final_price": final_price_paise,
             "stage": cust_stage,
         },
         "stage": cust_stage,
         "timeline": timeline,
+        "progress": {
+            "completed_stages": completed_count,
+            "total_stages": total_stages,
+            "percentage": progress_pct,
+            "current_stage_index": curr_idx + 1 if curr_idx >= 0 else 0,
+        },
         "responsible_contact": resp_contact,
         "sales_contact": sales_contact,
         "payment_summary": {
             "final_price": final_price_paise,
             "total_amount": final_price_paise / 100.0,
-            "total_paid": total_paid_paise / 100.0 if total_paid_paise > 0 else 75000.0,
-            "remaining_balance": remaining_paise / 100.0 if total_paid_paise > 0 else 175000.0,
-            "next_milestone": "Structure Work Completion (₹50,000)",
+            "total_paid": total_paid_paise / 100.0,
+            "remaining_balance": remaining_paise / 100.0,
+            "next_milestone": "Awaiting Project Quote" if final_price_paise == 0 else "Milestone Payment",
         },
         "system_specs": {
-            "capacity_kw": float(customer.get("capacity_kw", 5.5)),
-            "phase": customer.get("phase", "single"),
-            "panel_brand": customer.get("panel_brand", "Tata Power Solar 550W Mono PERC"),
-            "panel_watt": int(customer.get("panel_watt", 550)),
-            "panel_count": int(customer.get("panel_count", 10)),
-            "inverter_brand": customer.get("inverter_brand", "Growatt 6kW Hybrid Inverter"),
-            "structure_type": customer.get("structure_type", "High-Rise Heavy Duty Galvanized Structure"),
+            "capacity_kw": float(customer.get("capacity_kw", 0.0)),
+            "phase": customer.get("phase", "Single Phase"),
+            "panel_brand": customer.get("panel_brand") or "Pending Survey",
+            "panel_watt": int(customer.get("panel_watt", 0)),
+            "panel_count": int(customer.get("panel_count", 0)),
+            "inverter_brand": customer.get("inverter_brand") or "Pending Survey",
+            "structure_type": customer.get("structure_type") or "Pending Survey",
+            "is_configured": has_specs,
         },
     }
 
@@ -1733,8 +1787,8 @@ def mongo_create_ticket(data: Dict[str, Any]) -> Dict[str, Any]:
         "status": data.get("status", "open").lower(),
         "priority": data.get("priority", "normal").lower(),
         "assigned_to": data.get("assigned_to"),
-        "assigned_staff": data.get("assigned_staff", "Vikram Singh"),
-        "assigned_staff_emp_no": data.get("assigned_staff_emp_no", "EMP-SRV-104"),
+        "assigned_staff": data.get("assigned_staff"),
+        "assigned_staff_emp_no": data.get("assigned_staff_emp_no"),
         "images": data.get("images", []),
         "comments": data.get("comments", []),
         "created_at": now,

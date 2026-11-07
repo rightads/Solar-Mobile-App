@@ -20,13 +20,14 @@ class ClientPaymentsTab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final totalAmount = (paymentSummary?['total_amount'] as num?)?.toDouble() ?? 250000.0;
-    final totalPaid = (paymentSummary?['total_paid'] as num?)?.toDouble() ?? 75000.0;
+    final totalAmount = (paymentSummary?['total_amount'] as num?)?.toDouble() ?? 0.0;
+    final totalPaid = (paymentSummary?['total_paid'] as num?)?.toDouble() ?? 0.0;
     final remaining = (paymentSummary?['remaining_balance'] as num?)?.toDouble() ?? (totalAmount - totalPaid);
-    final nextMilestone = paymentSummary?['next_milestone']?.toString() ?? 'Structure Work Completion (₹50,000)';
+    final nextMilestone = paymentSummary?['next_milestone']?.toString() ?? 'Awaiting Project Quote';
 
-    final salesName = salesRep?.name ?? 'Rajesh Sharma';
-    final salesEmpNo = salesRep?.employeeNo ?? 'EMP-SLS-042';
+    final hasSalesRep = salesRep != null && salesRep!.name.isNotEmpty;
+    final salesName = hasSalesRep ? salesRep!.name : 'Sales Representative';
+    final salesEmpNo = hasSalesRep ? salesRep!.employeeNo : '';
 
     return RefreshIndicator(
       onRefresh: () async {},
@@ -149,7 +150,7 @@ class ClientPaymentsTab extends StatelessWidget {
                     const SizedBox(height: 8),
                     Text(
                       '1. You submit payment with photo receipt.\n'
-                      '2. Approved by assigned salesman: $salesName ($salesEmpNo).\n'
+                      '${hasSalesRep ? "2. Approved by assigned salesman: $salesName ($salesEmpNo).\n" : "2. Approved by assigned salesman.\n"}'
                       '3. Final verification & official receipt by Accounts Admin.',
                       style: AppTextStyles.caption.copyWith(color: AppColors.grey300, height: 1.45),
                     ),
@@ -237,6 +238,7 @@ class ClientPaymentsTab extends StatelessWidget {
   }
 
   Widget _buildPaymentCard(BuildContext context, ClientPaymentRecord p, String salesName, String salesEmpNo) {
+    final hasSalesRep = salesEmpNo.isNotEmpty;
     Color statusColor;
     IconData statusIcon;
     String statusTitle;
@@ -384,7 +386,7 @@ class ClientPaymentsTab extends StatelessWidget {
               if (p.isSalesApproved || p.isVerified)
                 Expanded(
                   child: Text(
-                    'Approved by: ${p.salesApprovedBy ?? salesName} (${p.salesApproverEmpNo ?? salesEmpNo})',
+                    p.salesApprovedBy != null ? 'Approved by: ${p.salesApprovedBy}${p.salesApproverEmpNo != null ? " (${p.salesApproverEmpNo})" : ""}' : (hasSalesRep ? 'Approved by: $salesName ($salesEmpNo)' : 'Approved by Sales'),
                     textAlign: TextAlign.end,
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
@@ -394,7 +396,7 @@ class ClientPaymentsTab extends StatelessWidget {
               else if (p.isPendingSalesApproval)
                 Expanded(
                   child: Text(
-                    'Awaiting $salesName ($salesEmpNo)',
+                    hasSalesRep ? 'Awaiting $salesName ($salesEmpNo)' : 'Awaiting Sales Approval',
                     textAlign: TextAlign.end,
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
