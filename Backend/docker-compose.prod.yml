@@ -40,6 +40,8 @@ services:
     environment:
       - ENV=prod
       - DEBUG=false
+      # Explicit browser origins (overrides any legacy "*" in .env.prod)
+      - CORS_ORIGINS=["https://solarpro-app.in","https://www.solarpro-app.in"]
       - TRUST_PROXY_HEADERS=true
       - UPLOAD_DIR=/data/uploads
     volumes:
