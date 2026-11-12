@@ -64,7 +64,7 @@ class DocumentUploadTile extends StatelessWidget {
             Text(
               'Attach $title',
               style: const TextStyle(
-                color: Colors.white,
+                color: AppColors.fg,
                 fontSize: 18,
                 fontWeight: FontWeight.w700,
               ),
@@ -84,7 +84,7 @@ class DocumentUploadTile extends StatelessWidget {
                 ),
                 child: const Icon(Icons.camera_alt_rounded, color: AppColors.teal500),
               ),
-              title: const Text('Capture with Camera', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600)),
+              title: const Text('Capture with Camera', style: TextStyle(color: AppColors.fg, fontWeight: FontWeight.w600)),
               subtitle: const Text('Direct photo capture with auto-compression', style: TextStyle(color: AppColors.grey500, fontSize: 12)),
               onTap: () {
                 Navigator.of(ctx).pop();
@@ -101,7 +101,7 @@ class DocumentUploadTile extends StatelessWidget {
                 ),
                 child: const Icon(Icons.photo_library_rounded, color: AppColors.gold500),
               ),
-              title: const Text('Select from Gallery / Storage', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600)),
+              title: const Text('Select from Gallery / Storage', style: TextStyle(color: AppColors.fg, fontWeight: FontWeight.w600)),
               subtitle: const Text('JPG, PNG, or PDF file (up to 10 MB)', style: TextStyle(color: AppColors.grey500, fontSize: 12)),
               onTap: () {
                 Navigator.of(ctx).pop();
@@ -171,7 +171,7 @@ class DocumentUploadTile extends StatelessWidget {
                           child: Text(
                             title,
                             style: const TextStyle(
-                              color: Colors.white,
+                              color: AppColors.fg,
                               fontSize: 14,
                               fontWeight: FontWeight.w700,
                             ),
@@ -259,7 +259,7 @@ class DocumentUploadTile extends StatelessWidget {
                             child: Text(
                               attachedFileName!,
                               style: const TextStyle(
-                                color: Colors.white70,
+                                color: AppColors.fg70,
                                 fontSize: 12,
                                 fontWeight: FontWeight.w500,
                               ),
@@ -358,7 +358,7 @@ class DocumentUploadTile extends StatelessWidget {
                   ),
                   label: Text(
                     isAttached ? 'Replace File' : 'Attach File',
-                    style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w600),
+                    style: const TextStyle(color: AppColors.fg, fontSize: 12, fontWeight: FontWeight.w600),
                   ),
                   style: OutlinedButton.styleFrom(
                     visualDensity: VisualDensity.compact,

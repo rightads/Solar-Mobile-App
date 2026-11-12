@@ -95,7 +95,7 @@ class _ClientTicketsTabState extends State<ClientTicketsTab> {
                     child: ElevatedButton(
                       style: ElevatedButton.styleFrom(
                         backgroundColor: AppColors.orange500,
-                        foregroundColor: Colors.white,
+                        foregroundColor: AppColors.fg,
                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.md)),
                       ),
                       onPressed: () => RaiseTicketModal.show(
@@ -108,7 +108,7 @@ class _ClientTicketsTabState extends State<ClientTicketsTab> {
                           const Icon(Icons.add_rounded, size: 20),
                           const SizedBox(width: 6),
                           Text('Raise New Service Ticket',
-                              style: AppTextStyles.labelLarge.copyWith(color: Colors.white, fontWeight: FontWeight.bold)),
+                              style: AppTextStyles.labelLarge.copyWith(color: AppColors.fg, fontWeight: FontWeight.bold)),
                         ],
                       ),
                     ),
@@ -205,7 +205,7 @@ class _ClientTicketsTabState extends State<ClientTicketsTab> {
       selectedColor: AppColors.orange500,
       backgroundColor: AppColors.navy800,
       labelStyle: TextStyle(
-        color: isSelected ? Colors.white : AppColors.grey400,
+        color: isSelected ? AppColors.fg : AppColors.grey400,
         fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
         fontSize: 12,
       ),
@@ -292,7 +292,7 @@ class _ClientTicketsTabState extends State<ClientTicketsTab> {
           const SizedBox(height: 10),
 
           // Title & Description
-          Text(t.title, style: AppTextStyles.headlineSmall.copyWith(color: AppColors.white)),
+          Text(t.title, style: AppTextStyles.headlineSmall.copyWith(color: AppColors.fg)),
           const SizedBox(height: 6),
           Text(
             t.description,

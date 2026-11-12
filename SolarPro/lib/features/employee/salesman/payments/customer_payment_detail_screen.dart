@@ -124,7 +124,7 @@ class _CustomerPaymentDetailScreenState extends State<CustomerPaymentDetailScree
           children: [
             Text(
               widget.customerName,
-              style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w700),
+              style: const TextStyle(color: AppColors.fg, fontSize: 16, fontWeight: FontWeight.w700),
             ),
             const Text(
               'Payments & Financing Management',
@@ -153,7 +153,7 @@ class _CustomerPaymentDetailScreenState extends State<CustomerPaymentDetailScree
       floatingActionButton: FloatingActionButton.extended(
         onPressed: _openRecordPayment,
         backgroundColor: AppColors.teal500,
-        foregroundColor: Colors.white,
+        foregroundColor: AppColors.fg,
         icon: const Icon(Icons.add_rounded),
         label: const Text('Record Payment', style: TextStyle(fontWeight: FontWeight.bold)),
       ),
@@ -203,7 +203,7 @@ class _CustomerPaymentDetailScreenState extends State<CustomerPaymentDetailScree
                   const Text('Total Contract Price', style: TextStyle(color: AppColors.grey400, fontSize: 11)),
                   Text(
                     _summary.formattedFinalPrice,
-                    style: const TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.w800),
+                    style: const TextStyle(color: AppColors.fg, fontSize: 20, fontWeight: FontWeight.w800),
                   ),
                 ],
               ),
@@ -250,7 +250,7 @@ class _CustomerPaymentDetailScreenState extends State<CustomerPaymentDetailScree
               _FinancialStat(
                 label: 'Verified %',
                 value: '${(_summary.verifiedProgress * 100).toInt()}%',
-                color: Colors.white,
+                color: AppColors.fg,
               ),
             ],
           ),
@@ -287,7 +287,7 @@ class _CustomerPaymentDetailScreenState extends State<CustomerPaymentDetailScree
             children: [
               Icon(Icons.receipt_long_outlined, color: AppColors.grey600, size: 48),
               SizedBox(height: 12),
-              Text('No Payments Recorded Yet', style: TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.bold)),
+              Text('No Payments Recorded Yet', style: TextStyle(color: AppColors.fg, fontSize: 15, fontWeight: FontWeight.bold)),
               SizedBox(height: 6),
               Text(
                 'Tap "Record Payment" below to record booking advance or milestones.',
@@ -341,7 +341,7 @@ class _CustomerPaymentDetailScreenState extends State<CustomerPaymentDetailScree
                 children: [
                   Icon(p.modeIcon, color: AppColors.teal500, size: 14),
                   const SizedBox(width: 4),
-                  Text(p.modeLabel, style: const TextStyle(color: Colors.white, fontSize: 12)),
+                  Text(p.modeLabel, style: const TextStyle(color: AppColors.fg, fontSize: 12)),
                   const Spacer(),
                   Text(p.formattedPaidDate, style: const TextStyle(color: AppColors.grey400, fontSize: 11)),
                 ],

@@ -1,3 +1,4 @@
+import re
 import time
 import uuid
 from contextlib import asynccontextmanager
@@ -28,28 +29,33 @@ async def lifespan(app: FastAPI):
 
 
 def create_application() -> FastAPI:
+    show_docs = not settings.is_prod
     app = FastAPI(
         title=settings.APP_NAME,
         version=settings.APP_VERSION,
-        docs_url="/docs",
-        redoc_url="/redoc",
-        openapi_url="/openapi.json",
+        docs_url="/docs" if show_docs else None,
+        redoc_url="/redoc" if show_docs else None,
+        openapi_url="/openapi.json" if show_docs else None,
         lifespan=lifespan,
     )
 
-    # CORS Middleware
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=settings.CORS_ORIGINS,
-        allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
-    )
+    # CORS: explicit browser origins only. Auth uses bearer tokens (no cookies),
+    # so credentials are never needed cross-origin.
+    if settings.CORS_ORIGINS:
+        app.add_middleware(
+            CORSMiddleware,
+            allow_origins=[o for o in settings.CORS_ORIGINS if o != "*"] if settings.is_prod else settings.CORS_ORIGINS,
+            allow_credentials=False,
+            allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE"],
+            allow_headers=["Authorization", "Content-Type", "X-Request-ID"],
+            max_age=600,
+        )
 
     # Request ID and Logging Middleware
     @app.middleware("http")
     async def request_id_and_logging_middleware(request: Request, call_next):
-        request_id = request.headers.get("X-Request-ID", str(uuid.uuid4()))
+        incoming = request.headers.get("X-Request-ID", "")
+        request_id = incoming if re.fullmatch(r"[A-Za-z0-9-]{8,64}", incoming) else str(uuid.uuid4())
         structlog.contextvars.clear_contextvars()
         structlog.contextvars.bind_contextvars(request_id=request_id)
 
@@ -64,7 +70,14 @@ def create_application() -> FastAPI:
             response = await call_next(request)
             process_time = time.time() - start_time
             response.headers["X-Request-ID"] = request_id
-            response.headers["X-Process-Time"] = f"{process_time:.4f}s"
+            response.headers.setdefault("X-Content-Type-Options", "nosniff")
+            response.headers.setdefault("X-Frame-Options", "DENY")
+            response.headers.setdefault("Referrer-Policy", "no-referrer")
+            response.headers.setdefault("Cache-Control", "no-store")
+            response.headers.setdefault("Content-Security-Policy", "default-src 'none'; frame-ancestors 'none'")
+            response.headers.setdefault("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+            if settings.is_prod:
+                response.headers.setdefault("Strict-Transport-Security", "max-age=63072000; includeSubDomains")
             logger.info(
                 "HTTP request completed",
                 method=request.method,
@@ -89,6 +102,7 @@ def create_application() -> FastAPI:
     @app.exception_handler(AppException)
     async def app_exception_handler(request: Request, exc: AppException):
         return JSONResponse(
+            headers=getattr(exc, "headers", None),
             status_code=exc.status_code,
             content={
                 "error": {
@@ -107,7 +121,10 @@ def create_application() -> FastAPI:
                 "error": {
                     "code": "VALIDATION_ERROR",
                     "message": "Request validation failed.",
-                    "details": {"errors": exc.errors()},
+                    "details": {"errors": [
+                        {"loc": list(e.get("loc", [])), "msg": e.get("msg"), "type": e.get("type")}
+                        for e in exc.errors()
+                    ]},
                 }
             },
         )

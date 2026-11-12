@@ -114,7 +114,7 @@ class _AdminEmployeesScreenState extends State<AdminEmployeesScreen> {
                 Expanded(
                   child: Text(
                     '$userName accepted! Official employee record created.',
-                    style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
+                    style: const TextStyle(color: AppColors.fg, fontWeight: FontWeight.w600),
                   ),
                 ),
               ],
@@ -150,7 +150,7 @@ class _AdminEmployeesScreenState extends State<AdminEmployeesScreen> {
       builder: (ctx) => AlertDialog(
         backgroundColor: AppColors.navy800,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: const Text('Reject Application?', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+        title: const Text('Reject Application?', style: TextStyle(color: AppColors.fg, fontWeight: FontWeight.bold)),
         content: Text(
           'Are you sure you want to decline registration request for $userName?',
           style: const TextStyle(color: AppColors.grey300),
@@ -161,7 +161,7 @@ class _AdminEmployeesScreenState extends State<AdminEmployeesScreen> {
             child: const Text('Cancel', style: TextStyle(color: AppColors.grey400)),
           ),
           ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: AppColors.error, foregroundColor: Colors.white),
+            style: ElevatedButton.styleFrom(backgroundColor: AppColors.error, foregroundColor: AppColors.fg),
             onPressed: () => Navigator.pop(ctx, true),
             child: const Text('Reject Request'),
           ),
@@ -268,7 +268,7 @@ class _AdminEmployeesScreenState extends State<AdminEmployeesScreen> {
                     constraints: const BoxConstraints(minWidth: 16, minHeight: 16),
                     child: Text(
                       '${_pendingApprovals.length}',
-                      style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold),
+                      style: const TextStyle(color: AppColors.fg, fontSize: 10, fontWeight: FontWeight.bold),
                       textAlign: TextAlign.center,
                     ),
                   ),
@@ -320,7 +320,7 @@ class _AdminEmployeesScreenState extends State<AdminEmployeesScreen> {
                             Icon(
                               Icons.groups_rounded,
                               size: 17,
-                              color: _selectedTrade != 'pending' ? Colors.black : AppColors.grey400,
+                              color: _selectedTrade != 'pending' ? AppColors.shadow : AppColors.grey400,
                             ),
                             const SizedBox(width: 8),
                             Text(
@@ -328,7 +328,7 @@ class _AdminEmployeesScreenState extends State<AdminEmployeesScreen> {
                               style: TextStyle(
                                 fontSize: 13,
                                 fontWeight: FontWeight.bold,
-                                color: _selectedTrade != 'pending' ? Colors.black : AppColors.grey400,
+                                color: _selectedTrade != 'pending' ? AppColors.shadow : AppColors.grey400,
                               ),
                             ),
                           ],
@@ -360,7 +360,7 @@ class _AdminEmployeesScreenState extends State<AdminEmployeesScreen> {
                             Icon(
                               Icons.how_to_reg_rounded,
                               size: 17,
-                              color: _selectedTrade == 'pending' ? Colors.white : AppColors.orange400,
+                              color: _selectedTrade == 'pending' ? AppColors.fg : AppColors.orange400,
                             ),
                             const SizedBox(width: 8),
                             Text(
@@ -368,14 +368,14 @@ class _AdminEmployeesScreenState extends State<AdminEmployeesScreen> {
                               style: TextStyle(
                                 fontSize: 13,
                                 fontWeight: FontWeight.bold,
-                                color: _selectedTrade == 'pending' ? Colors.white : AppColors.orange400,
+                                color: _selectedTrade == 'pending' ? AppColors.fg : AppColors.orange400,
                               ),
                             ),
                             const SizedBox(width: 6),
                             Container(
                               padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
                               decoration: BoxDecoration(
-                                color: _selectedTrade == 'pending' ? Colors.white : AppColors.orange500,
+                                color: _selectedTrade == 'pending' ? AppColors.fg : AppColors.orange500,
                                 borderRadius: BorderRadius.circular(AppRadius.pill),
                               ),
                               child: Text(
@@ -383,7 +383,7 @@ class _AdminEmployeesScreenState extends State<AdminEmployeesScreen> {
                                 style: TextStyle(
                                   fontSize: 10,
                                   fontWeight: FontWeight.w900,
-                                  color: _selectedTrade == 'pending' ? AppColors.orange500 : Colors.white,
+                                  color: _selectedTrade == 'pending' ? AppColors.orange500 : AppColors.fg,
                                 ),
                               ),
                             ),
@@ -500,7 +500,7 @@ class _AdminEmployeesScreenState extends State<AdminEmployeesScreen> {
                       children: [
                         Text(
                           '${_pendingApprovals.length} Employee Registration${_pendingApprovals.length > 1 ? "s" : ""} Pending',
-                          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13),
+                          style: const TextStyle(color: AppColors.fg, fontWeight: FontWeight.bold, fontSize: 13),
                         ),
                         const SizedBox(height: 2),
                         const Text(
@@ -514,7 +514,7 @@ class _AdminEmployeesScreenState extends State<AdminEmployeesScreen> {
                   ElevatedButton(
                     style: ElevatedButton.styleFrom(
                       backgroundColor: AppColors.orange500,
-                      foregroundColor: Colors.white,
+                      foregroundColor: AppColors.fg,
                       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                       textStyle: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
@@ -542,7 +542,7 @@ class _AdminEmployeesScreenState extends State<AdminEmployeesScreen> {
                 TextField(
                   controller: _searchController,
                   onChanged: (_) => setState(() {}),
-                  style: const TextStyle(color: Colors.white, fontSize: 14),
+                  style: const TextStyle(color: AppColors.fg, fontSize: 14),
                   decoration: InputDecoration(
                     hintText: 'Search by employee name, ID, phone, role...',
                     hintStyle: const TextStyle(color: AppColors.grey500, fontSize: 13),
@@ -590,7 +590,7 @@ class _AdminEmployeesScreenState extends State<AdminEmployeesScreen> {
                             style: TextStyle(
                               fontSize: 12,
                               fontWeight: isSel ? FontWeight.bold : FontWeight.w500,
-                              color: isSel ? Colors.black : AppColors.grey400,
+                              color: isSel ? AppColors.shadow : AppColors.grey400,
                             ),
                           ),
                           selected: isSel,
@@ -653,7 +653,7 @@ class _AdminEmployeesScreenState extends State<AdminEmployeesScreen> {
               const Text(
                 'No Pending Registration Requests',
                 style: TextStyle(
-                  color: Colors.white,
+                  color: AppColors.fg,
                   fontSize: 16,
                   fontWeight: FontWeight.bold,
                 ),
@@ -724,7 +724,7 @@ class _AdminEmployeesScreenState extends State<AdminEmployeesScreen> {
               const Text(
                 'No Employees Found',
                 style: TextStyle(
-                  color: Colors.white,
+                  color: AppColors.fg,
                   fontSize: 16,
                   fontWeight: FontWeight.bold,
                 ),
@@ -872,7 +872,7 @@ class _EmployeeListCard extends StatelessWidget {
                           child: Text(
                             employee.name,
                             style: const TextStyle(
-                              color: Colors.white,
+                              color: AppColors.fg,
                               fontSize: 15,
                               fontWeight: FontWeight.bold,
                             ),
@@ -1029,7 +1029,7 @@ class _PendingApprovalCard extends StatelessWidget {
         border: Border.all(color: roleColor.withValues(alpha: 0.35), width: 1.2),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: 0.25),
+            color: AppColors.shadow.withValues(alpha: 0.25),
             blurRadius: 10,
             offset: const Offset(0, 4),
           ),
@@ -1053,7 +1053,7 @@ class _PendingApprovalCard extends StatelessWidget {
                     Text(
                       name,
                       style: const TextStyle(
-                        color: Colors.white,
+                        color: AppColors.fg,
                         fontSize: 15,
                         fontWeight: FontWeight.bold,
                       ),
@@ -1146,7 +1146,7 @@ class _PendingApprovalCard extends StatelessWidget {
                 child: ElevatedButton.icon(
                   style: ElevatedButton.styleFrom(
                     backgroundColor: AppColors.green500,
-                    foregroundColor: Colors.white,
+                    foregroundColor: AppColors.fg,
                     padding: const EdgeInsets.symmetric(vertical: 10),
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                   ),
@@ -1155,7 +1155,7 @@ class _PendingApprovalCard extends StatelessWidget {
                       ? const SizedBox(
                           width: 14,
                           height: 14,
-                          child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                          child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.fg),
                         )
                       : const Icon(Icons.check_circle_rounded, size: 16),
                   label: Text(

@@ -70,7 +70,7 @@ class _KedlFilesTabState extends State<KedlFilesTab> {
                 children: [
                   const Text(
                     'Discom Files',
-                    style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.w800),
+                    style: TextStyle(color: AppColors.fg, fontSize: 20, fontWeight: FontWeight.w800),
                   ),
                   const Spacer(),
                   Container(
@@ -97,7 +97,7 @@ class _KedlFilesTabState extends State<KedlFilesTab> {
                   _searchQuery = val;
                   _loadFiles();
                 },
-                style: const TextStyle(color: Colors.white, fontSize: 13),
+                style: const TextStyle(color: AppColors.fg, fontSize: 13),
                 decoration: InputDecoration(
                   hintText: 'Search customer name, app #, or area...',
                   hintStyle: const TextStyle(color: AppColors.grey500, fontSize: 13),
@@ -274,7 +274,7 @@ class _KedlFilesTabState extends State<KedlFilesTab> {
               Expanded(
                 child: Text(
                   group.customerName,
-                  style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
+                  style: const TextStyle(color: AppColors.fg, fontSize: 16, fontWeight: FontWeight.bold),
                 ),
               ),
               if (group.hasOverdueDemand)

@@ -189,7 +189,7 @@ class _WorkAssignmentScreenState extends State<WorkAssignmentScreen>
                       child: Center(
                         child: Text('Mark Done ✓',
                             style: AppTextStyles.labelMedium
-                                .copyWith(color: AppColors.navy900)),
+                                .copyWith(color: AppColors.ink900)),
                       ),
                     ),
                   ),
@@ -373,7 +373,7 @@ class _WorkAssignmentScreenState extends State<WorkAssignmentScreen>
                               value: cid,
                               child: Text('$cname ($ckw kW)',
                                   style: AppTextStyles.bodyMedium
-                                      .copyWith(color: AppColors.white)),
+                                      .copyWith(color: AppColors.fg)),
                             );
                           }).toList(),
                           onChanged: (val) {
@@ -399,7 +399,7 @@ class _WorkAssignmentScreenState extends State<WorkAssignmentScreen>
                         hintText: 'Customer Name',
                         prefixIcon: Icon(Icons.person_outline_rounded),
                       ),
-                      style: AppTextStyles.bodyMedium.copyWith(color: AppColors.white),
+                      style: AppTextStyles.bodyMedium.copyWith(color: AppColors.fg),
                     ),
                   ],
 
@@ -410,7 +410,7 @@ class _WorkAssignmentScreenState extends State<WorkAssignmentScreen>
                       hintText: 'Site Location / Area',
                       prefixIcon: Icon(Icons.location_on_outlined),
                     ),
-                    style: AppTextStyles.bodyMedium.copyWith(color: AppColors.white),
+                    style: AppTextStyles.bodyMedium.copyWith(color: AppColors.fg),
                   ),
 
                   const SizedBox(height: 16),
@@ -457,7 +457,7 @@ class _WorkAssignmentScreenState extends State<WorkAssignmentScreen>
                         hintText: 'Enter Custom Team Name (e.g. Team C)',
                         prefixIcon: Icon(Icons.group_add_rounded),
                       ),
-                      style: AppTextStyles.bodyMedium.copyWith(color: AppColors.white),
+                      style: AppTextStyles.bodyMedium.copyWith(color: AppColors.fg),
                     ),
                   ],
 
@@ -504,7 +504,7 @@ class _WorkAssignmentScreenState extends State<WorkAssignmentScreen>
                                 Text(
                                   startDate.toIso8601String().split('T').first,
                                   style: AppTextStyles.bodyMedium
-                                      .copyWith(color: AppColors.white),
+                                      .copyWith(color: AppColors.fg),
                                 ),
                               ],
                             ),
@@ -541,7 +541,7 @@ class _WorkAssignmentScreenState extends State<WorkAssignmentScreen>
                                 Text(
                                   endDate.toIso8601String().split('T').first,
                                   style: AppTextStyles.bodyMedium
-                                      .copyWith(color: AppColors.white),
+                                      .copyWith(color: AppColors.fg),
                                 ),
                               ],
                             ),
@@ -558,7 +558,7 @@ class _WorkAssignmentScreenState extends State<WorkAssignmentScreen>
                       hintText: 'Scope / Technical Instructions (Optional)',
                       prefixIcon: Icon(Icons.notes_rounded),
                     ),
-                    style: AppTextStyles.bodyMedium.copyWith(color: AppColors.white),
+                    style: AppTextStyles.bodyMedium.copyWith(color: AppColors.fg),
                   ),
 
                   const SizedBox(height: 24),
@@ -673,7 +673,7 @@ class _WorkAssignmentScreenState extends State<WorkAssignmentScreen>
                             : Text(
                                 'Confirm & Dispatch Work Team',
                                 style: AppTextStyles.labelLarge
-                                    .copyWith(color: AppColors.navy900),
+                                    .copyWith(color: AppColors.ink900),
                               ),
                       ),
                     ),
@@ -703,7 +703,7 @@ class _WorkAssignmentScreenState extends State<WorkAssignmentScreen>
                 borderRadius: BorderRadius.circular(AppRadius.sm),
               ),
               child: const Icon(Icons.add_rounded,
-                  color: Color(0xFF0A1628), size: 18),
+                  color: Color(0xFFF6F4FD), size: 18),
             ),
             onPressed: () => _showAssignSheet(context),
           ),

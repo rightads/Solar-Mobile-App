@@ -1,5 +1,6 @@
 from datetime import datetime, timezone, timedelta
 import uuid
+import re
 from typing import Any, Dict, List, Optional
 import structlog
 from pymongo import ASCENDING, MongoClient
@@ -20,6 +21,7 @@ def get_mongo_client() -> Optional[MongoClient]:
         try:
             _client = MongoClient(
                 settings.MONGODB_URI,
+                tz_aware=True,
                 serverSelectionTimeoutMS=15000,
                 connectTimeoutMS=15000,
                 socketTimeoutMS=20000,
@@ -36,8 +38,7 @@ def get_mongo_db() -> Optional[Database]:
         client = get_mongo_client()
         if client:
             try:
-                # Use solar_app_db or portfolio_db
-                _db = client["solar_app_db"]
+                _db = client[settings.MONGODB_DB_NAME]
             except Exception as e:
                 logger.error("Failed to access MongoDB database", error=str(e))
     return _db
@@ -45,131 +46,82 @@ def get_mongo_db() -> Optional[Database]:
 
 
 def init_mongo() -> bool:
-    """Initialize collections, indexes, and seed demo accounts with salted bcrypt hashes."""
+    """Create indexes and seed the Super Admin from the environment (first run only)."""
     db = get_mongo_db()
     if db is None:
         logger.warning("MongoDB not connected. Skipping MongoDB initialization.")
         return False
 
     try:
-        # Check connection
         db.command("ping")
-        logger.info("Successfully connected to MongoDB Atlas!")
-
-        # Collections
         users_col: Collection = db["users"]
-        leads_col: Collection = db["leads"]
-        customers_col: Collection = db["customers"]
 
-        # Ensure indexes (defends against race conditions & duplicates)
+        # Uniqueness (also defends against duplicate-registration races)
         users_col.create_index([("phone", ASCENDING)], unique=True)
         users_col.create_index([("email", ASCENDING)], unique=True, sparse=True)
-        leads_col.create_index([("phone", ASCENDING)])
-        customers_col.create_index([("phone", ASCENDING)])
-
-        now = datetime.now(timezone.utc)
-
-        # Seed or sync Super Admin account directly from environment variables
-        super_admin_email = (settings.SUPER_ADMIN_EMAIL or "admin@solarpro.com").strip().lower()
-        super_admin_phone = normalize_phone(settings.SUPER_ADMIN_PHONE or "9876543210")
-        if super_admin_phone in ("9837039028", "+919837039028"):
-            # 9837039028 is reserved for the primary mobile client (Aryan Singh Jadaun)
-            super_admin_phone = "9876543210"
-        super_admin_name = settings.SUPER_ADMIN_NAME or "Super Admin"
-        super_admin_pwd = settings.SUPER_ADMIN_PASSWORD
-
-        # 1. Locate primary admin account by email or is_superadmin
-        existing_admin = users_col.find_one({"$or": [{"email": super_admin_email}, {"is_superadmin": True}]})
-        admin_id = str(existing_admin["_id"]) if existing_admin else str(uuid.uuid4())
-
-        if not existing_admin and not super_admin_pwd:
-            logger.warning("SUPER_ADMIN_PASSWORD not set; skipping Super Admin creation")
-        else:
-            # 2. Check if another document holds super_admin_phone
-            conflicting_phone_user = users_col.find_one({"phone": super_admin_phone, "_id": {"$ne": admin_id}})
-            if conflicting_phone_user:
-                if conflicting_phone_user.get("role") == "admin" or conflicting_phone_user.get("is_superadmin"):
-                    users_col.delete_one({"_id": conflicting_phone_user["_id"]})
-                else:
-                    users_col.update_one(
-                        {"_id": conflicting_phone_user["_id"]},
-                        {"$set": {"phone": f"{conflicting_phone_user['phone']}_old_{int(now.timestamp())}"}}
-                    )
-
-            set_on_insert = {
-                "created_at": now,
-                "last_login_at": None,
-            }
-            if not existing_admin:
-                # Password is only ever written when the admin is first created; existing hashes are never touched
-                set_on_insert["password_hash"] = hash_password(super_admin_pwd)
-
-            users_col.update_one(
-                {"_id": admin_id},
-                {
-                    "$set": {
-                        "id": admin_id,
-                        "name": super_admin_name,
-                        "email": super_admin_email,
-                        "phone": super_admin_phone,
-                        "role": "admin",
-                        "is_superadmin": True,
-                        "is_active": True,
-                        "approval_status": "approved",
-                        "is_email_verified": True,
-                        "updated_at": now,
-                    },
-                    "$setOnInsert": set_on_insert,
-                },
-                upsert=True
-            )
-            logger.info("Synchronized Super Admin account from environment", email=super_admin_email, phone=super_admin_phone)
-
-        # Email verification indexes
-        db["email_verifications"].create_index([("email", ASCENDING)])
         users_col.create_index([("approval_status", ASCENDING)])
+        db["leads"].create_index([("phone", ASCENDING)])
+        db["customers"].create_index([("phone", ASCENDING)])
+        db["customers"].create_index([("user_id", ASCENDING)], sparse=True)
+        db["files"].create_index([("customer_id", ASCENDING)])
+
+        # Auth artefacts expire automatically
+        db["otp_codes"].create_index([("phone", ASCENDING), ("created_at", ASCENDING)])
+        db["otp_codes"].create_index("expires_at", expireAfterSeconds=3600)
+        db["email_verifications"].create_index([("email", ASCENDING), ("created_at", ASCENDING)])
+        db["email_verifications"].create_index("expires_at", expireAfterSeconds=3600)
+        db["refresh_tokens"].create_index([("user_id", ASCENDING)])
+        db["refresh_tokens"].create_index([("family_id", ASCENDING)])
+        db["refresh_tokens"].create_index("expires_at", expireAfterSeconds=0)
+        db["rate_limits"].create_index("expires_at", expireAfterSeconds=0)
+
+        _seed_super_admin(users_col)
         return True
     except Exception as e:
         logger.error("MongoDB initialization error", error=str(e))
         return False
 
 
-def mongo_find_user_by_identifier(identifier: str) -> Optional[Dict[str, Any]]:
-    """
-    Find user by phone or email with strict injection protection.
-    Guarantees no raw query evaluation or operator injection.
-    """
-    global _client, _db
-    clean_id = str(identifier).strip()
-    phone_clean = None
+def _seed_super_admin(users_col: Collection) -> None:
+    """Create the Super Admin once. Existing accounts and passwords are never modified."""
+    if users_col.find_one({"is_superadmin": True}):
+        return
+    email, phone, pwd = settings.SUPER_ADMIN_EMAIL, settings.SUPER_ADMIN_PHONE, settings.SUPER_ADMIN_PASSWORD
+    if not (email and phone and pwd):
+        logger.warning("SUPER_ADMIN_EMAIL / SUPER_ADMIN_PHONE / SUPER_ADMIN_PASSWORD not set; skipping Super Admin creation")
+        return
     try:
-        phone_clean = normalize_phone(clean_id)
-    except Exception:
-        phone_clean = None
-
-    query_conditions = [{"email": clean_id.lower()}]
-    if phone_clean:
-        query_conditions.append({"phone": phone_clean})
-    else:
-        query_conditions.append({"phone": clean_id})
-
-    # Try up to 2 times with auto-reconnect
-    for attempt in range(2):
-        db = get_mongo_db()
-        if db is None:
-            return None
-        try:
-            users_col = db["users"]
-            user = users_col.find_one({"$or": query_conditions, "is_active": True})
-            return user
-        except Exception as e:
-            logger.warning("MongoDB query attempt failed, reconnecting", attempt=attempt, error=str(e))
-            _client = None
-            _db = None
-            if attempt == 1:
-                return None
-    return None
-
+        from app.core.security import normalize_email, validate_password_strength
+        email = normalize_email(email)
+        phone = normalize_phone(phone)
+        validate_password_strength(pwd)
+    except ValueError as e:
+        logger.error("Invalid Super Admin configuration; not created", error=str(e))
+        return
+    if users_col.find_one({"$or": [{"email": email}, {"phone": phone}]}):
+        logger.error("Super Admin email/phone already belongs to another account; not created")
+        return
+    now = datetime.now(timezone.utc)
+    admin_id = str(uuid.uuid4())
+    users_col.insert_one({
+        "_id": admin_id,
+        "id": admin_id,
+        "name": settings.SUPER_ADMIN_NAME or "Super Admin",
+        "email": email,
+        "phone": phone,
+        "role": "admin",
+        "is_superadmin": True,
+        "is_active": True,
+        "approval_status": "approved",
+        "is_email_verified": True,
+        "is_phone_verified": False,
+        "token_version": 0,
+        "password_hash": hash_password(pwd),
+        "created_at": now,
+        "updated_at": now,
+        "last_login_at": None,
+    })
+    logger.info("Super Admin account created")
 
 
 def mongo_create_user(
@@ -180,55 +132,24 @@ def mongo_create_user(
     email: Optional[str] = None,
     is_email_verified: Optional[bool] = None,
 ) -> Dict[str, Any]:
-    """Create or update unverified user with salted bcrypt password in MongoDB Atlas."""
+    """Insert a new user (used by admin seed scripts). Never overwrites an existing account."""
     db = get_mongo_db()
     if db is None:
         raise RuntimeError("MongoDB is not available.")
-
+    from app.core.security import normalize_email, validate_password_strength
     users_col = db["users"]
     now = datetime.now(timezone.utc)
     phone_normalized = normalize_phone(phone)
-    clean_email = email.strip().lower() if email else None
+    clean_email = normalize_email(email) if email else None
+    validate_password_strength(password)
 
-    # Check existence
-    existing_phone = users_col.find_one({"phone": phone_normalized})
-    existing_email = users_col.find_one({"email": clean_email}) if clean_email else None
+    conds: List[Dict[str, Any]] = [{"phone": phone_normalized}]
+    if clean_email:
+        conds.append({"email": clean_email})
+    if users_col.find_one({"$or": conds}):
+        raise ValueError("An account with this mobile number or email already exists.")
 
-    # 1. If an ALREADY VERIFIED user exists with this phone or email, reject with clear instructions
-    if existing_phone and existing_phone.get("is_email_verified") is True:
-        raise ValueError("An active, verified account already exists with this mobile number. Please log in directly.")
-
-    if existing_email and existing_email.get("is_email_verified") is True:
-        raise ValueError("An active, verified account already exists with this email address. Please log in directly.")
-
-    pwd_hash = hash_password(password)
     is_client = role.lower() == "client"
-    approval_status = "approved" if is_client else "pending"
-    is_active = True if is_client else False
-    if is_email_verified is None:
-        is_email_verified = False if is_client else True
-
-    # 2. If an UNVERIFIED user exists, allow them to re-register/update their details & finish verification
-    existing_unverified = existing_phone or existing_email
-    if existing_unverified:
-        user_id = str(existing_unverified["_id"])
-        updated_doc = {
-            "name": sanitize_input(name),
-            "phone": phone_normalized,
-            "email": clean_email,
-            "role": role.lower(),
-            "requested_role": role.lower(),
-            "password_hash": pwd_hash,
-            "is_active": is_active,
-            "approval_status": approval_status,
-            "is_email_verified": is_email_verified,
-            "updated_at": now,
-        }
-        users_col.update_one({"_id": existing_unverified["_id"]}, {"$set": updated_doc})
-        doc = {**existing_unverified, **updated_doc}
-        return doc
-
-    # 3. Completely new user insertion
     user_id = str(uuid.uuid4())
     doc = {
         "_id": user_id,
@@ -238,15 +159,16 @@ def mongo_create_user(
         "email": clean_email,
         "role": role.lower(),
         "requested_role": role.lower(),
-        "password_hash": pwd_hash,
-        "is_active": is_active,
-        "approval_status": approval_status,
-        "is_email_verified": is_email_verified,
+        "password_hash": hash_password(password),
+        "is_active": is_client,
+        "approval_status": "approved" if is_client else "pending",
+        "is_email_verified": bool(is_email_verified),
+        "is_phone_verified": False,
+        "token_version": 0,
         "created_at": now,
         "updated_at": now,
         "last_login_at": None,
     }
-
     users_col.insert_one(doc)
     return doc
 
@@ -358,20 +280,14 @@ def mongo_reject_user(user_id: str) -> Optional[Dict[str, Any]]:
 
     res = users_col.find_one_and_update(
         {"_id": user["_id"]},
-        {"$set": {"approval_status": "rejected", "is_active": False, "rejected_at": now, "updated_at": now}},
+        {"$set": {"approval_status": "rejected", "is_active": False, "rejected_at": now, "updated_at": now},
+         "$inc": {"token_version": 1}},
         return_document=ReturnDocument.AFTER,
     )
     if res:
         res["id"] = str(res["_id"])
         res.pop("password_hash", None)
     return res
-
-
-def mongo_update_login_timestamp(user_id: str) -> None:
-    db = get_mongo_db()
-    if db is not None:
-        now = datetime.now(timezone.utc)
-        db["users"].update_one({"_id": user_id}, {"$set": {"last_login_at": now}})
 
 
 def mongo_create_lead(lead_data: Dict[str, Any]) -> Dict[str, Any]:
@@ -397,6 +313,12 @@ def mongo_create_lead(lead_data: Dict[str, Any]) -> Dict[str, Any]:
     return doc
 
 
+_SENSITIVE_FIELDS = (
+    "password_hash", "hashed_password", "otp_hash", "code_hash",
+    "token_version", "fcm_token", "phone_verified_at",
+)
+
+
 def _format_mongo_doc(doc: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
     if not doc:
         return doc
@@ -404,6 +326,9 @@ def _format_mongo_doc(doc: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]
     doc_id = str(res.get("id") or res.get("_id"))
     res["id"] = doc_id
     res["_id"] = str(res["_id"])
+    # Security: never leak credential material in API responses
+    for field in _SENSITIVE_FIELDS:
+        res.pop(field, None)
     for k, v in list(res.items()):
         if isinstance(v, datetime):
             res[k] = v.isoformat()
@@ -425,7 +350,7 @@ def mongo_get_leads(status: Optional[str] = None, search: Optional[str] = None, 
             {"assigned_sales_id": None},
         ]
     if search:
-        s = sanitize_input(search)
+        s = re.escape(sanitize_input(search))
         query["$or"] = [
             {"name": {"$regex": s, "$options": "i"}},
             {"phone": {"$regex": s, "$options": "i"}},
@@ -443,7 +368,7 @@ def mongo_create_customer(customer_data: Dict[str, Any]) -> Dict[str, Any]:
     customers_col = db["customers"]
     now = datetime.now(timezone.utc)
     cust_id = str(customer_data.get("id") or uuid.uuid4())
-    final_price_val = int(customer_data.get("final_price") or customer_data.get("total_amount") or 250000)
+    final_price_val = int(customer_data.get("final_price") or customer_data.get("total_amount") or 0)
     doc = {
         "_id": cust_id,
         "id": cust_id,
@@ -453,17 +378,17 @@ def mongo_create_customer(customer_data: Dict[str, Any]) -> Dict[str, Any]:
         "email": sanitize_input(customer_data.get("email", "")),
         "address": sanitize_input(customer_data.get("address", "")),
         "location_gps": customer_data.get("location_gps") or customer_data.get("gps") or "",
-        "kw": float(customer_data.get("kw", customer_data.get("capacity_kw", 5.0))),
-        "capacity_kw": float(customer_data.get("capacity_kw", customer_data.get("kw", 5.0))),
+        "kw": float(customer_data.get("kw") or customer_data.get("capacity_kw") or 0),
+        "capacity_kw": float(customer_data.get("capacity_kw") or customer_data.get("kw") or 0),
         "final_price": final_price_val,
         "total_amount": final_price_val,
         "paid_amount": int(customer_data.get("paid_amount", 0)),
         "phase": customer_data.get("phase", "single"),
-        "panel_brand": customer_data.get("panel_brand", "Waaree"),
-        "panel_watt": int(customer_data.get("panel_watt", 540)),
-        "panel_count": int(customer_data.get("panel_count", 10)),
-        "inverter_brand": customer_data.get("inverter_brand", "Growatt"),
-        "structure_type": customer_data.get("structure_type", "Rooftop GI"),
+        "panel_brand": sanitize_input(customer_data.get("panel_brand") or ""),
+        "panel_watt": int(customer_data.get("panel_watt") or 0),
+        "panel_count": int(customer_data.get("panel_count") or 0),
+        "inverter_brand": sanitize_input(customer_data.get("inverter_brand") or ""),
+        "structure_type": sanitize_input(customer_data.get("structure_type") or ""),
         "stage": customer_data.get("stage", "SALE_CONFIRMED"),
         "sales_id": customer_data.get("sales_id"),
         "sales_name": customer_data.get("sales_name"),
@@ -500,7 +425,7 @@ def mongo_get_customers(stage: Optional[str] = None, search: Optional[str] = Non
             {"sales_id": None},
         ]
     if search:
-        s = sanitize_input(search)
+        s = re.escape(sanitize_input(search))
         query["$or"] = [
             {"name": {"$regex": s, "$options": "i"}},
             {"phone": {"$regex": s, "$options": "i"}},
@@ -552,7 +477,7 @@ def mongo_get_customer_payments(customer_id: str) -> Dict[str, Any]:
 
 def mongo_sales_approve_payment(
     payment_id: str,
-    approver_email: str = "rajesh.sharma@solarpro.in",
+    approver_email: str = "",
     approver_name: Optional[str] = None,
     approver_emp_no: Optional[str] = None,
 ) -> Optional[Dict[str, Any]]:
@@ -563,7 +488,7 @@ def mongo_sales_approve_payment(
     payments_col = db["payments"]
     now = datetime.now(timezone.utc)
 
-    if not approver_name:
+    if not approver_name and approver_email:
         u = db["users"].find_one({"$or": [{"email": approver_email.lower()}, {"phone": approver_email}]})
         if u:
             approver_name = u.get("name")
@@ -574,125 +499,14 @@ def mongo_sales_approve_payment(
         {"$set": {
             "status": "sales_approved",
             "sales_approved_by": approver_email,
-            "sales_approved_by_name": approver_name or "Rajesh Sharma",
-            "sales_approver_emp_no": approver_emp_no or "EMP-SLS-042",
+            "sales_approved_by_name": approver_name or "Sales Staff",
+            "sales_approver_emp_no": approver_emp_no or "",
             "sales_approved_at": now,
             "updated_at": now,
         }},
         return_document=ReturnDocument.AFTER,
     )
     return _format_mongo_doc(res) if res else None
-
-
-def mongo_store_otp(phone: str, code_hash: str, expires_at: datetime) -> None:
-    db = get_mongo_db()
-    if db is None:
-        return
-    db["otp_codes"].insert_one({
-        "_id": str(uuid.uuid4()),
-        "phone": phone,
-        "code_hash": code_hash,
-        "expires_at": expires_at,
-        "attempts": 0,
-        "consumed_at": None,
-        "created_at": datetime.now(timezone.utc),
-    })
-
-
-def mongo_verify_otp(phone: str, otp: str) -> bool:
-    from app.core.security import verify_token_hash, normalize_phone
-    db = get_mongo_db()
-    if db is None:
-        return False
-    now = datetime.now(timezone.utc)
-    phone_clean = phone.strip()
-    try:
-        norm = normalize_phone(phone_clean)
-    except Exception:
-        norm = phone_clean
-
-    rec = db["otp_codes"].find_one({
-        "phone": {"$in": [phone_clean, norm]},
-        "consumed_at": None,
-        "expires_at": {"$gt": now},
-    }, sort=[("created_at", -1)])
-    if not rec:
-        return False
-    if rec.get("attempts", 0) >= 5:
-        return False
-    valid = verify_token_hash(otp.strip(), rec["code_hash"])
-    if valid:
-        db["otp_codes"].update_one({"_id": rec["_id"]}, {"$set": {"consumed_at": now}})
-        return True
-    else:
-        db["otp_codes"].update_one({"_id": rec["_id"]}, {"$inc": {"attempts": 1}})
-        return False
-
-
-def mongo_find_user_by_email(email: str) -> Optional[Dict[str, Any]]:
-    """Look up user by email directly."""
-    db = get_mongo_db()
-    if db is None:
-        return None
-    return db["users"].find_one({"email": email.strip().lower(), "is_active": True})
-
-
-def mongo_store_email_verification(email: str, code_hash: str, expires_at: datetime) -> None:
-    """Store email verification token record in MongoDB Atlas."""
-    db = get_mongo_db()
-    if db is None:
-        return
-    db["email_verifications"].insert_one({
-        "_id": str(uuid.uuid4()),
-        "email": email.strip().lower(),
-        "code_hash": code_hash,
-        "expires_at": expires_at,
-        "attempts": 0,
-        "consumed_at": None,
-        "created_at": datetime.now(timezone.utc),
-    })
-
-
-def mongo_verify_email_code(email: str, code: str) -> bool:
-    """Verify email code against Mongo records with attempts limit and expiry."""
-    from app.core.security import verify_token_hash
-    db = get_mongo_db()
-    if db is None:
-        return False
-    now = datetime.now(timezone.utc)
-    rec = db["email_verifications"].find_one({
-        "email": email.strip().lower(),
-        "consumed_at": None,
-        "expires_at": {"$gt": now},
-    }, sort=[("created_at", -1)])
-
-    if not rec:
-        return False
-
-    if rec.get("attempts", 0) >= 5:
-        return False
-
-    valid = verify_token_hash(code.strip(), rec["code_hash"])
-
-    if valid:
-        db["email_verifications"].update_one({"_id": rec["_id"]}, {"$set": {"consumed_at": now}})
-        return True
-    else:
-        db["email_verifications"].update_one({"_id": rec["_id"]}, {"$inc": {"attempts": 1}})
-        return False
-
-
-def mongo_mark_email_verified(email: str) -> bool:
-    """Mark user as verified in MongoDB Atlas."""
-    db = get_mongo_db()
-    if db is None:
-        return False
-    now = datetime.now(timezone.utc)
-    res = db["users"].update_one(
-        {"email": email.strip().lower()},
-        {"$set": {"is_email_verified": True, "email_verified_at": now, "updated_at": now}},
-    )
-    return res.modified_count > 0 or res.matched_count > 0
 
 
 def mongo_get_customer_by_id(customer_id: str) -> Optional[Dict[str, Any]]:
@@ -833,57 +647,60 @@ def mongo_get_salespersons() -> List[Dict[str, Any]]:
 # ── Page 1 & 2: Employees Add Like Labour & Labour Teams ─────────────────────
 
 def mongo_create_employee(employee_data: Dict[str, Any]) -> Dict[str, Any]:
-    """Add a new employee / labour / electrician / civil / sales team member with credentials."""
+    """Create a new staff account (admin only). Never modifies an existing account."""
+    from app.core.access import ASSIGNABLE_STAFF_ROLES
+    from app.core.security import normalize_email, validate_password_strength
     db = get_mongo_db()
     if db is None:
         raise RuntimeError("MongoDB is not available.")
     users_col = db["users"]
     now = datetime.now(timezone.utc)
-    emp_id = str(employee_data.get("id") or uuid.uuid4())
-    name = sanitize_input(employee_data.get("name", ""))
+
+    role = str(employee_data.get("role") or "labour").strip().lower()
+    if role not in ASSIGNABLE_STAFF_ROLES:
+        raise ValueError("Invalid employee role.")
+    name = " ".join(str(employee_data.get("name") or "").split())[:100]
+    if len(name) < 2:
+        raise ValueError("Employee name is required.")
     phone = normalize_phone(employee_data.get("phone", ""))
-    trade = employee_data.get("trade", "labour").lower()
-    team = sanitize_input(employee_data.get("team", "Team A"))
-    role = employee_data.get("role", "employee").lower()
-    email = employee_data.get("email")
+    email = normalize_email(employee_data["email"]) if employee_data.get("email") else None
+    trade = re.sub(r"[^a-z_]", "", str(employee_data.get("trade") or role).lower())[:30]
+    team = sanitize_input(str(employee_data.get("team") or ""))[:60]
+
+    conds: List[Dict[str, Any]] = [{"phone": phone}]
     if email:
-        email = email.strip().lower()
+        conds.append({"email": email})
+    if users_col.find_one({"$or": conds}):
+        raise ValueError("An account with this mobile number or email already exists.")
 
-    employee_no = employee_data.get("employee_no")
-    if not employee_no:
-        prefix = "EMP-SLS" if "sales" in role else ("EMP-KEDL" if "kedl" in role else "EMP-SITE")
-        employee_no = f"{prefix}-{emp_id[:4].upper()}"
-
+    emp_id = str(uuid.uuid4())
+    prefix = "EMP-SLS" if "sales" in role else ("EMP-KEDL" if role == "kedl" else ("EMP-SRV" if role == "service" else "EMP-SITE"))
     doc = {
         "_id": emp_id,
         "id": emp_id,
         "name": name,
         "phone": phone,
+        "email": email,
         "role": role,
         "trade": trade,
         "team": team,
-        "employee_no": employee_no,
+        "employee_no": f"{prefix}-{emp_id[:6].upper()}",
         "is_active": True,
         "approval_status": "approved",
-        "is_email_verified": True,
+        "is_email_verified": False,
+        "is_phone_verified": False,
+        "token_version": 0,
+        "created_at": now,
         "updated_at": now,
+        "last_login_at": None,
     }
-    if email:
-        doc["email"] = email
-
     raw_password = employee_data.get("password")
     if raw_password:
-        doc["password_hash"] = hash_password(raw_password)
-
-    query_or = [{"_id": emp_id}, {"phone": phone}]
-    if email:
-        query_or.append({"email": email})
-
-    users_col.update_one(
-        {"$or": query_or},
-        {"$set": doc, "$setOnInsert": {"created_at": now, "last_login_at": None}},
-        upsert=True,
-    )
+        validate_password_strength(str(raw_password))
+        doc["password_hash"] = hash_password(str(raw_password))
+    if not email:
+        doc.pop("email")
+    users_col.insert_one(doc)
     return _format_mongo_doc(doc)
 
 
@@ -1124,7 +941,7 @@ def mongo_create_team(team_data: Dict[str, Any]) -> Dict[str, Any]:
         "name": sanitize_input(team_data.get("name", "Team A")),
         "trade_type": team_data.get("trade_type", "structure").lower(),  # structure, electrical, civil
         "lead_name": sanitize_input(team_data.get("lead_name", "")),
-        "lead_phone": normalize_phone(team_data.get("lead_phone", "")),
+        "lead_phone": normalize_phone(team_data["lead_phone"]) if team_data.get("lead_phone") else "",
         "member_count": int(team_data.get("member_count", 3)),
         "is_active": True,
         "created_at": now,
@@ -1145,19 +962,6 @@ def mongo_get_teams(trade_type: Optional[str] = None) -> List[Dict[str, Any]]:
         query["trade_type"] = trade_type.lower()
     cursor = teams_col.find(query).sort("name", 1)
     items = [_format_mongo_doc(doc) for doc in cursor]
-    # If no custom teams saved yet, provide standard base teams
-    if not items:
-        defaults = [
-            {"id": "t1", "name": "Team A", "trade_type": "structure", "lead_name": "Sunil Kumar", "lead_phone": "9811223344", "member_count": 4},
-            {"id": "t2", "name": "Team B", "trade_type": "structure", "lead_name": "Ramesh Singh", "lead_phone": "9822334455", "member_count": 3},
-            {"id": "t3", "name": "Team A", "trade_type": "electrical", "lead_name": "Mohit Sharma (Electrician)", "lead_phone": "9833445566", "member_count": 3},
-            {"id": "t4", "name": "Team B", "trade_type": "electrical", "lead_name": "Vikram Wireman", "lead_phone": "9844556677", "member_count": 2},
-            {"id": "t5", "name": "Team A", "trade_type": "civil", "lead_name": "Deepak Mistry", "lead_phone": "9855667788", "member_count": 4},
-            {"id": "t6", "name": "Team B", "trade_type": "civil", "lead_name": "Suresh Foundation", "lead_phone": "9866778899", "member_count": 3},
-        ]
-        if trade_type and trade_type.lower() != "all":
-            return [d for d in defaults if d["trade_type"] == trade_type.lower()]
-        return defaults
     return items
 
 
@@ -1344,41 +1148,30 @@ def mongo_update_kedl_demand(
 
 # ── Client Mobile Experience (Home & Payments) ───────────────────────────────
 
-def mongo_get_client_home(user_id_or_phone: str) -> Dict[str, Any]:
-    """Fetch aggregated dynamic home data for client mobile dashboard."""
+def mongo_get_client_home(user: Dict[str, Any], customer: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    """Aggregate dashboard data for a client.
+
+    ``customer`` must already be resolved through ``access.client_customer`` (which
+    only links by user id or a verified phone). When the client has no project yet
+    a registration-stage placeholder is returned without touching the database.
+    """
     db = get_mongo_db()
     if db is None:
         raise RuntimeError("MongoDB is not available.")
 
-    user = db["users"].find_one({
-        "$or": [{"id": user_id_or_phone}, {"_id": user_id_or_phone}, {"phone": user_id_or_phone}]
-    })
-    user_name = user.get("name", "Solar Client") if user else "Solar Client"
-    user_phone = user.get("phone", "") if user else ""
-
-    id_conds = []
-    if user_phone:
-        id_conds.extend([{"phone": user_phone}, {"mobile": user_phone}])
-    if user:
-        id_conds.append({"user_id": str(user.get("_id"))})
-        id_conds.append({"user_id": str(user.get("id"))})
-        if user.get("email"):
-            id_conds.append({"email": user.get("email")})
-
-    customer = db["customers"].find_one({"$or": id_conds}) if id_conds else None
+    user_name = user.get("name") or "Solar Client"
+    user_phone = user.get("phone") or ""
 
     now = datetime.now(timezone.utc)
     if not customer:
-        cust_id = str(uuid.uuid4())
         customer = {
-            "_id": cust_id,
-            "id": cust_id,
-            "user_id": str(user["_id"]) if user else cust_id,
+            "_id": "",
+            "id": "",
             "name": user_name,
             "phone": user_phone,
             "mobile": user_phone,
-            "email": user.get("email", "") if user else "",
-            "address": user.get("address", "") if user else "",
+            "email": user.get("email") or "",
+            "address": "",
             "capacity_kw": 0.0,
             "final_price": 0,
             "phase": "single",
@@ -1394,7 +1187,6 @@ def mongo_get_client_home(user_id_or_phone: str) -> Dict[str, Any]:
             "created_at": now,
             "updated_at": now,
         }
-        db["customers"].insert_one(customer)
 
     # Assigned Sales Rep only if explicitly linked to customer
     sales_rep = None
@@ -1553,6 +1345,10 @@ def mongo_get_client_home(user_id_or_phone: str) -> Dict[str, Any]:
             "note": stage_note,
         })
 
+    if customer.get("stage_status"):
+        from app.services.workflow import build_timeline
+        timeline = build_timeline(customer)["stages"]
+
     completed_count = sum(1 for item in timeline if item["status"] == "done")
     total_stages = len(timeline)
     progress_pct = int((completed_count / total_stages) * 100) if total_stages > 0 else 0
@@ -1636,122 +1432,59 @@ def mongo_get_client_home(user_id_or_phone: str) -> Dict[str, Any]:
     }
 
 
-def mongo_get_client_payments(user_id_or_phone: str) -> List[Dict[str, Any]]:
-    """Retrieve payments list for client payments tab."""
+def mongo_get_client_payments(customer_id: str) -> List[Dict[str, Any]]:
+    """Payments for one (already authorised) customer."""
     db = get_mongo_db()
-    if db is None:
+    if db is None or not customer_id:
         return []
-    payments_col = db["payments"]
-
-    cursor = payments_col.find({
-        "$or": [
-            {"client_phone": user_id_or_phone},
-            {"customer_id": user_id_or_phone},
-            {"submitted_by": user_id_or_phone},
-        ]
-    }).sort("created_at", -1)
-    items = [_format_mongo_doc(doc) for doc in cursor]
-
-    if not items:
-        # Seed the initial 2 verified/approved payments in Mongo
-        cust = db["customers"].find_one({"$or": [{"phone": user_id_or_phone}, {"mobile": user_id_or_phone}]})
-        cust_id = str(cust["_id"]) if cust else str(uuid.uuid4())
-        sales_rep = db["users"].find_one({"role": {"$in": ["sales", "salesman"]}})
-        sales_name = sales_rep.get("name", "Rajesh Sharma") if sales_rep else "Rajesh Sharma"
-        sales_emp_no = sales_rep.get("employee_no", "EMP-SLS-042") if sales_rep else "EMP-SLS-042"
-
-        now = datetime.now(timezone.utc)
-        p1 = {
-            "_id": "pay-001",
-            "id": "pay-001",
-            "customer_id": cust_id,
-            "client_phone": user_id_or_phone,
-            "stage_no": 1,
-            "stage_name": "Token Advance (Booking Confirmed)",
-            "amount": 2500000,
-            "amount_paise": 2500000,
-            "amount_rupees": 25000.0,
-            "mode": "UPI",
-            "reference_no": "UPI/4891238910",
-            "paid_on": now - timedelta(days=12),
-            "proof_url": "assets/images/receipt_sample.png",
-            "status": "verified",
-            "sales_approved_by": sales_name,
-            "sales_approved_by_name": sales_name,
-            "sales_approver_emp_no": sales_emp_no,
-            "verified_by_name": "Accounts Admin",
-            "remarks": "Booking token payment received and verified",
-            "created_at": now - timedelta(days=12),
-            "updated_at": now - timedelta(days=12),
-        }
-        p2 = {
-            "_id": "pay-002",
-            "id": "pay-002",
-            "customer_id": cust_id,
-            "client_phone": user_id_or_phone,
-            "stage_no": 2,
-            "stage_name": "Structure Work Advance (Milestone 2)",
-            "amount": 5000000,
-            "amount_paise": 5000000,
-            "amount_rupees": 50000.0,
-            "mode": "IMPS",
-            "reference_no": "IMPS/9812481023",
-            "paid_on": now - timedelta(days=4),
-            "proof_url": "assets/images/receipt_sample.png",
-            "status": "sales_approved",
-            "sales_approved_by": sales_name,
-            "sales_approved_by_name": sales_name,
-            "sales_approver_emp_no": sales_emp_no,
-            "remarks": f"Payment proof verified by Salesman {sales_name}. Pending Admin verification.",
-            "created_at": now - timedelta(days=4),
-            "updated_at": now - timedelta(days=4),
-        }
-        payments_col.insert_many([p1, p2])
-        items = [_format_mongo_doc(p2), _format_mongo_doc(p1)]
-
-    return items
+    cursor = db["payments"].find({"customer_id": str(customer_id)}).sort("created_at", -1)
+    return [_format_mongo_doc(doc) for doc in cursor]
 
 
 def mongo_record_client_payment(
-    client_phone: str,
+    customer: Dict[str, Any],
+    submitted_by: str,
     amount_paise: int,
     mode: str,
     reference_no: Optional[str] = None,
     paid_on: Optional[datetime] = None,
     remarks: Optional[str] = None,
-    proof_filename: Optional[str] = None,
+    proof: Optional[Dict[str, Any]] = None,
+    submitted_by_role: str = "client",
 ) -> Dict[str, Any]:
-    """Store new client submitted payment in MongoDB."""
+    """Record a payment submission for an authorised customer (status: pending)."""
     db = get_mongo_db()
     if db is None:
         raise RuntimeError("MongoDB is not available.")
     payments_col = db["payments"]
     now = datetime.now(timezone.utc)
-
-    cust = db["customers"].find_one({"$or": [{"phone": client_phone}, {"mobile": client_phone}]})
-    cust_id = str(cust["_id"]) if cust else str(uuid.uuid4())
+    cust_id = str(customer["_id"])
     count = payments_col.count_documents({"customer_id": cust_id})
 
-    pay_id = f"pay-{int(now.timestamp())}"
+    pay_id = f"pay-{uuid.uuid4().hex[:16]}"
     doc = {
         "_id": pay_id,
         "id": pay_id,
         "customer_id": cust_id,
-        "client_phone": client_phone,
+        "customer_name": customer.get("name"),
+        "client_phone": customer.get("phone"),
+        "submitted_by": str(submitted_by),
+        "submitted_by_role": submitted_by_role,
         "stage_no": count + 1,
         "stage_name": "Rooftop Solar Milestone Payment",
         "amount": int(amount_paise),
         "amount_paise": int(amount_paise),
         "amount_rupees": float(amount_paise) / 100.0,
         "mode": str(mode).upper(),
-        "reference_no": reference_no or f"TXN-{int(now.timestamp())}",
+        "reference_no": sanitize_input(reference_no) or None,
         "paid_on": paid_on or now,
-        "proof_url": proof_filename or "assets/images/receipt_sample.png",
+        "proof": proof,
+        "proof_url": proof["url"] if proof else None,
         "status": "pending",
         "sales_approved_by": None,
         "sales_approved_by_name": None,
         "sales_approver_emp_no": None,
-        "remarks": remarks or "Submitted by customer with photo receipt for salesman approval.",
+        "remarks": sanitize_input(remarks) or None,
         "created_at": now,
         "updated_at": now,
     }
@@ -1824,22 +1557,21 @@ def mongo_get_tickets(
     db = get_mongo_db()
     if db is None:
         return []
-    query: Dict[str, Any] = {}
+    clauses: List[Dict[str, Any]] = []
     if customer_id:
-        query["$or"] = [{"customer_id": str(customer_id)}, {"customer_phone": str(customer_id)}]
+        clauses.append({"customer_id": str(customer_id)})
     if status and status.lower() != "all":
-        query["status"] = status.lower()
+        clauses.append({"status": status.lower()})
     if ticket_type and ticket_type.lower() != "all":
-        query["type"] = ticket_type.lower()
+        clauses.append({"type": ticket_type.lower()})
     if assigned_to:
-        query["$or"] = [
+        clauses.append({"$or": [
             {"assigned_to": str(assigned_to)},
-            {"assigned_staff": str(assigned_to)},
-            {"assigned_staff_emp_no": str(assigned_to)},
             {"assigned_to": None},
             {"assigned_to": ""},
             {"assigned_to": {"$exists": False}},
-        ]
+        ]})
+    query: Dict[str, Any] = {"$and": clauses} if clauses else {}
 
     cursor = db["tickets"].find(query).sort("created_at", -1)
     return [_format_mongo_doc(doc) for doc in cursor]
@@ -1968,6 +1700,20 @@ def mongo_create_notification(notif_data: Dict[str, Any]) -> Dict[str, Any]:
     return _format_mongo_doc(doc)
 
 
+def _notification_visibility(user_id: Optional[str], role: Optional[str]) -> List[Dict[str, Any]]:
+    """Notifications a user may see: addressed to them, or broadcast to their role."""
+    clauses: List[Dict[str, Any]] = []
+    if user_id:
+        clauses.append({"user_id": str(user_id)})
+    if role:
+        role_clean = role.lower()
+        role_targets = {role_clean}
+        if role_clean in ("admin", "main_admin", "super_admin", "co_admin", "vendor"):
+            role_targets |= {"admin", "main_admin", "super_admin"}
+        clauses.append({"target_role": {"$in": sorted(role_targets)}, "$or": [{"user_id": None}, {"user_id": {"$exists": False}}]})
+    return clauses
+
+
 def mongo_get_notifications(
     user_id: Optional[str] = None,
     role: Optional[str] = None,
@@ -1980,21 +1726,10 @@ def mongo_get_notifications(
         return []
     notifs_col = db["notifications"]
 
-    query: Dict[str, Any] = {}
-    or_clauses = []
-    if user_id:
-        or_clauses.append({"user_id": str(user_id)})
-    if role:
-        role_clean = role.lower()
-        or_clauses.append({"target_role": role_clean})
-        if "admin" in role_clean:
-            or_clauses.append({"target_role": "admin"})
-            or_clauses.append({"target_role": "main_admin"})
-            or_clauses.append({"target_role": "super_admin"})
+    or_clauses = _notification_visibility(user_id, role)
     if not or_clauses:
-        or_clauses.append({"target_role": {"$in": ["admin", "all", None]}})
-
-    query["$or"] = or_clauses
+        return []
+    query: Dict[str, Any] = {"$or": or_clauses}
 
     cursor = notifs_col.find(query).sort("created_at", -1).skip(offset).limit(limit)
     return [_format_mongo_doc(doc) for doc in cursor]
@@ -2008,39 +1743,28 @@ def mongo_get_unread_notification_count(
     db = get_mongo_db()
     if db is None:
         return 0
-    notifs_col = db["notifications"]
-
-    or_clauses = []
-    if user_id:
-        or_clauses.append({"user_id": str(user_id)})
-    if role:
-        role_clean = role.lower()
-        or_clauses.append({"target_role": role_clean})
-        if "admin" in role_clean:
-            or_clauses.append({"target_role": "admin"})
-            or_clauses.append({"target_role": "main_admin"})
-            or_clauses.append({"target_role": "super_admin"})
+    or_clauses = _notification_visibility(user_id, role)
     if not or_clauses:
-        or_clauses.append({"target_role": {"$in": ["admin", "all", None]}})
-
-    query: Dict[str, Any] = {
-        "$or": or_clauses,
-        "$and": [{"is_read": False}, {"read": False}],
-    }
-    return notifs_col.count_documents(query)
+        return 0
+    query: Dict[str, Any] = {"$or": or_clauses, "is_read": False}
+    return db["notifications"].count_documents(query)
 
 
-def mongo_mark_notification_read(notification_id: str) -> bool:
-    """Mark a single notification as read."""
+def mongo_mark_notification_read(notification_id: str, user_id: str, role: str) -> bool:
+    """Mark one notification read, only if it is visible to the caller."""
     db = get_mongo_db()
     if db is None:
         return False
+    visibility = _notification_visibility(user_id, role)
+    if not visibility:
+        return False
+    nid = str(notification_id)
     now = datetime.now(timezone.utc)
     res = db["notifications"].update_one(
-        {"$or": [{"_id": str(notification_id)}, {"id": str(notification_id)}]},
+        {"$and": [{"$or": [{"_id": nid}, {"id": nid}]}, {"$or": visibility}]},
         {"$set": {"is_read": True, "read": True, "read_at": now.isoformat()}},
     )
-    return res.modified_count > 0
+    return res.matched_count > 0
 
 
 def mongo_mark_all_notifications_read(
@@ -2052,15 +1776,10 @@ def mongo_mark_all_notifications_read(
     if db is None:
         return 0
     now = datetime.now(timezone.utc)
-    or_clauses = []
-    if user_id:
-        or_clauses.append({"user_id": str(user_id)})
-    if role:
-        role_clean = role.lower()
-        or_clauses.append({"target_role": role_clean})
-        if "admin" in role_clean:
-            or_clauses.append({"target_role": "admin"})
-    query = {"$or": or_clauses} if or_clauses else {}
+    or_clauses = _notification_visibility(user_id, role)
+    if not or_clauses:
+        return 0
+    query = {"$or": or_clauses, "is_read": False}
     res = db["notifications"].update_many(
         query,
         {"$set": {"is_read": True, "read": True, "read_at": now.isoformat()}},

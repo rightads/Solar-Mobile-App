@@ -92,7 +92,7 @@ class _SalesmanLeadDetailScreenState extends State<SalesmanLeadDetailScreen> {
                       Text(
                         'Schedule Follow-up',
                         style: AppTextStyles.headlineSmall.copyWith(
-                          color: Colors.white,
+                          color: AppColors.fg,
                           fontWeight: FontWeight.w700,
                         ),
                       ),
@@ -113,9 +113,9 @@ class _SalesmanLeadDetailScreenState extends State<SalesmanLeadDetailScreen> {
                     title: const Text('Follow-up Date', style: TextStyle(color: AppColors.grey400, fontSize: 12)),
                     subtitle: Text(
                       DateFormat('EEE, dd MMM yyyy').format(selectedDate),
-                      style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
+                      style: const TextStyle(color: AppColors.fg, fontWeight: FontWeight.w600),
                     ),
-                    trailing: const Icon(Icons.arrow_drop_down, color: Colors.white),
+                    trailing: const Icon(Icons.arrow_drop_down, color: AppColors.fg),
                     onTap: () async {
                       final picked = await showDatePicker(
                         context: ctx,
@@ -139,9 +139,9 @@ class _SalesmanLeadDetailScreenState extends State<SalesmanLeadDetailScreen> {
                     title: const Text('Time', style: TextStyle(color: AppColors.grey400, fontSize: 12)),
                     subtitle: Text(
                       selectedTime.format(ctx),
-                      style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
+                      style: const TextStyle(color: AppColors.fg, fontWeight: FontWeight.w600),
                     ),
-                    trailing: const Icon(Icons.arrow_drop_down, color: Colors.white),
+                    trailing: const Icon(Icons.arrow_drop_down, color: AppColors.fg),
                     onTap: () async {
                       final picked = await showTimePicker(
                         context: ctx,
@@ -156,7 +156,7 @@ class _SalesmanLeadDetailScreenState extends State<SalesmanLeadDetailScreen> {
                   TextField(
                     controller: noteController,
                     maxLines: 2,
-                    style: const TextStyle(color: Colors.white),
+                    style: const TextStyle(color: AppColors.fg),
                     decoration: const InputDecoration(
                       labelText: 'Follow-up Agenda / Note',
                       hintText: 'Discuss roof measurement & financing quote',
@@ -169,7 +169,7 @@ class _SalesmanLeadDetailScreenState extends State<SalesmanLeadDetailScreen> {
                       onPressed: () => Navigator.of(ctx).pop(true),
                       style: ElevatedButton.styleFrom(
                         backgroundColor: AppColors.gold500,
-                        foregroundColor: AppColors.navy900,
+                        foregroundColor: AppColors.ink900,
                         padding: const EdgeInsets.symmetric(vertical: 14),
 
                         shape: RoundedRectangleBorder(
@@ -234,7 +234,7 @@ class _SalesmanLeadDetailScreenState extends State<SalesmanLeadDetailScreen> {
       builder: (ctx) => AlertDialog(
         backgroundColor: AppColors.navy800,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.lg)),
-        title: const Text('Return Lead', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700)),
+        title: const Text('Return Lead', style: TextStyle(color: AppColors.fg, fontWeight: FontWeight.w700)),
         content: Form(
           key: formKey,
           child: Column(
@@ -249,7 +249,7 @@ class _SalesmanLeadDetailScreenState extends State<SalesmanLeadDetailScreen> {
               TextFormField(
                 controller: reasonController,
                 maxLines: 3,
-                style: const TextStyle(color: Colors.white),
+                style: const TextStyle(color: AppColors.fg),
                 decoration: const InputDecoration(
                   hintText: 'e.g. Roof shadow issue, Budget constraints, Relocated',
                 ),
@@ -276,7 +276,7 @@ class _SalesmanLeadDetailScreenState extends State<SalesmanLeadDetailScreen> {
             },
             style: ElevatedButton.styleFrom(
               backgroundColor: AppColors.error,
-              foregroundColor: Colors.white,
+              foregroundColor: AppColors.fg,
             ),
             child: const Text('Confirm Return'),
           ),
@@ -378,7 +378,7 @@ class _SalesmanLeadDetailScreenState extends State<SalesmanLeadDetailScreen> {
                                   Text(
                                     _lead.name,
                                     style: AppTextStyles.headlineSmall.copyWith(
-                                      color: Colors.white,
+                                      color: AppColors.fg,
                                       fontWeight: FontWeight.w700,
                                     ),
                                   ),
@@ -419,7 +419,7 @@ class _SalesmanLeadDetailScreenState extends State<SalesmanLeadDetailScreen> {
                               child: OutlinedButton.icon(
                                 onPressed: () => _copyToClipboard(_lead.phone, 'Phone number'),
                                 icon: const Icon(Icons.call_rounded, size: 18, color: AppColors.teal500),
-                                label: const Text('Call', style: TextStyle(color: Colors.white, fontSize: 13)),
+                                label: const Text('Call', style: TextStyle(color: AppColors.fg, fontSize: 13)),
                                 style: OutlinedButton.styleFrom(
                                   side: const BorderSide(color: AppColors.navy600),
                                   padding: const EdgeInsets.symmetric(vertical: 10),
@@ -431,7 +431,7 @@ class _SalesmanLeadDetailScreenState extends State<SalesmanLeadDetailScreen> {
                               child: OutlinedButton.icon(
                                 onPressed: () => _copyToClipboard('https://wa.me/91${_lead.phone}', 'WhatsApp Link'),
                                 icon: const Icon(Icons.chat_bubble_outline_rounded, size: 18, color: AppColors.green400),
-                                label: const Text('WhatsApp', style: TextStyle(color: Colors.white, fontSize: 13)),
+                                label: const Text('WhatsApp', style: TextStyle(color: AppColors.fg, fontSize: 13)),
                                 style: OutlinedButton.styleFrom(
                                   side: const BorderSide(color: AppColors.navy600),
                                   padding: const EdgeInsets.symmetric(vertical: 10),
@@ -443,7 +443,7 @@ class _SalesmanLeadDetailScreenState extends State<SalesmanLeadDetailScreen> {
                               child: OutlinedButton.icon(
                                 onPressed: () => _copyToClipboard(_lead.address ?? 'Delhi NCR', 'Location query'),
                                 icon: const Icon(Icons.map_outlined, size: 18, color: AppColors.gold500),
-                                label: const Text('Map', style: TextStyle(color: Colors.white, fontSize: 13)),
+                                label: const Text('Map', style: TextStyle(color: AppColors.fg, fontSize: 13)),
                                 style: OutlinedButton.styleFrom(
                                   side: const BorderSide(color: AppColors.navy600),
                                   padding: const EdgeInsets.symmetric(vertical: 10),
@@ -522,7 +522,7 @@ class _SalesmanLeadDetailScreenState extends State<SalesmanLeadDetailScreen> {
                                 const SizedBox(height: 2),
                                 Text(
                                   DateFormat('EEEE, dd MMM yyyy - hh:mm a').format(_lead.followUpDate!),
-                                  style: const TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.w600),
+                                  style: const TextStyle(color: AppColors.fg, fontSize: 14, fontWeight: FontWeight.w600),
                                 ),
                               ],
                             ),
@@ -544,7 +544,7 @@ class _SalesmanLeadDetailScreenState extends State<SalesmanLeadDetailScreen> {
                           label: const Text('Follow-up'),
                           style: ElevatedButton.styleFrom(
                             backgroundColor: AppColors.gold500,
-                            foregroundColor: AppColors.navy900,
+                            foregroundColor: AppColors.ink900,
                             padding: const EdgeInsets.symmetric(vertical: 12),
 
                             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.md)),
@@ -575,7 +575,7 @@ class _SalesmanLeadDetailScreenState extends State<SalesmanLeadDetailScreen> {
                       label: const Text('Close & Convert to Customer'),
                       style: ElevatedButton.styleFrom(
                         backgroundColor: AppColors.teal500,
-                        foregroundColor: Colors.white,
+                        foregroundColor: AppColors.fg,
                         padding: const EdgeInsets.symmetric(vertical: 14),
                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.md)),
                       ),
@@ -604,7 +604,7 @@ class _SalesmanLeadDetailScreenState extends State<SalesmanLeadDetailScreen> {
                 Text(
                   value,
                   style: TextStyle(
-                    color: isAlert ? AppColors.error : Colors.white,
+                    color: isAlert ? AppColors.error : AppColors.fg,
                     fontSize: 13,
                     fontWeight: FontWeight.w500,
                   ),

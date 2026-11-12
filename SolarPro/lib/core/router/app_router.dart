@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:solar_pro/core/theme/app_theme.dart';
 import 'package:go_router/go_router.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:solar_pro/core/constants/app_constants.dart';
@@ -21,12 +22,17 @@ import 'package:solar_pro/features/admin/presentation/screens/admin_approvals_sc
 import 'package:solar_pro/features/admin/employees/screens/admin_employees_screen.dart';
 
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:solar_pro/core/services/session_store.dart';
+import 'package:solar_pro/core/network/api_client.dart';
 import 'package:solar_pro/features/employee/common/employee_shell.dart';
 import 'package:solar_pro/features/employee/common/unsupported_role_screen.dart';
 
 final routerProvider = Provider<GoRouter>((ref) {
-  return GoRouter(
-    initialLocation: AppRoutes.login,
+  late final GoRouter router;
+  // When a session can no longer be refreshed, send the user back to sign in.
+  ApiClient.onSessionExpired = () => router.go(AppRoutes.login);
+  router = GoRouter(
+    initialLocation: AppRoutes.splash,
     debugLogDiagnostics: false,
     redirect: (BuildContext context, GoRouterState state) async {
       final path = state.uri.path;
@@ -40,12 +46,12 @@ final routerProvider = Provider<GoRouter>((ref) {
       }
 
       final prefs = await SharedPreferences.getInstance();
-      final token = prefs.getString(AppConstants.kAccessToken);
+      final hasSession = await SessionStore.hasSession();
       final role = prefs.getString(AppConstants.kUserRole)?.toLowerCase();
       final team = prefs.getString('user_team_type') ?? prefs.getString('user_team');
 
       // If not authenticated, force login
-      if (token == null || token.isEmpty) {
+      if (!hasSession) {
         return AppRoutes.login;
       }
 
@@ -218,33 +224,34 @@ final routerProvider = Provider<GoRouter>((ref) {
 
 
     errorBuilder: (context, state) => Scaffold(
-      backgroundColor: const Color(0xFF0A1628),
+      backgroundColor: const Color(0xFFF6F4FD),
       body: Center(
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
             const Icon(Icons.error_outline_rounded,
-                color: Color(0xFFF5A623), size: 48),
+                color: Color(0xFFF7A21B), size: 48),
             const SizedBox(height: 16),
             const Text(
               'Page not found',
               style: TextStyle(
-                  color: Colors.white, fontSize: 18, fontWeight: FontWeight.w600),
+                  color: AppColors.fg, fontSize: 18, fontWeight: FontWeight.w600),
             ),
             const SizedBox(height: 8),
             Text(
               state.error?.message ?? '',
-              style: const TextStyle(color: Color(0xFF64748B), fontSize: 12),
+              style: const TextStyle(color: Color(0xFF8A84AE), fontSize: 12),
             ),
             const SizedBox(height: 24),
             TextButton(
               onPressed: () => context.go(AppRoutes.vendorDash),
               child: const Text('Go to Dashboard',
-                  style: TextStyle(color: Color(0xFFF5A623))),
+                  style: TextStyle(color: Color(0xFFF7A21B))),
             ),
           ],
         ),
       ),
     ),
   );
+  return router;
 });

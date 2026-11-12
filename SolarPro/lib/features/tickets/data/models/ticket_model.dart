@@ -56,7 +56,7 @@ enum TicketType {
       case TicketType.structure:
         return const Color(0xFF38BDF8); // Sky
       case TicketType.wiring:
-        return const Color(0xFFF5A623); // Amber
+        return const Color(0xFFF7A21B); // Amber
       case TicketType.inverter:
         return const Color(0xFFEF4444); // Red
     }
@@ -128,7 +128,7 @@ enum TicketStatus {
   Color get color {
     switch (this) {
       case TicketStatus.open:
-        return const Color(0xFFF5A623); // Amber
+        return const Color(0xFFF7A21B); // Amber
       case TicketStatus.assigned:
         return const Color(0xFF38BDF8); // Sky
       case TicketStatus.inProgress:
@@ -136,7 +136,7 @@ enum TicketStatus {
       case TicketStatus.resolved:
         return const Color(0xFF10B981); // Emerald
       case TicketStatus.closed:
-        return const Color(0xFF64748B); // Slate
+        return const Color(0xFF8A84AE); // Slate
       case TicketStatus.reopened:
         return const Color(0xFFEF4444); // Red
     }
@@ -193,11 +193,11 @@ enum TicketPriority {
   Color get color {
     switch (this) {
       case TicketPriority.low:
-        return const Color(0xFF94A3B8);
+        return const Color(0xFF6C6596);
       case TicketPriority.normal:
         return const Color(0xFF38BDF8);
       case TicketPriority.high:
-        return const Color(0xFFF5A623);
+        return const Color(0xFFF7A21B);
       case TicketPriority.urgent:
         return const Color(0xFFEF4444);
     }

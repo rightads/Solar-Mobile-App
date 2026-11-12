@@ -195,7 +195,7 @@ class _SalesmanHomeTabState extends State<SalesmanHomeTab> {
                     Text(
                       "Today's Follow-ups",
                       style: AppTextStyles.headlineSmall.copyWith(
-                        color: Colors.white,
+                        color: AppColors.fg,
                         fontWeight: FontWeight.w700,
                         fontSize: 16,
                       ),
@@ -211,7 +211,7 @@ class _SalesmanHomeTabState extends State<SalesmanHomeTab> {
                     ),
                     child: Text(
                       '${todayFollowUps.length} DUE',
-                      style: const TextStyle(color: AppColors.navy900, fontWeight: FontWeight.w800, fontSize: 10),
+                      style: const TextStyle(color: AppColors.ink900, fontWeight: FontWeight.w800, fontSize: 10),
                     ),
                   ),
               ],
@@ -240,7 +240,7 @@ class _SalesmanHomeTabState extends State<SalesmanHomeTab> {
                     SizedBox(height: 10),
                     Text(
                       'All caught up for today!',
-                      style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 14),
+                      style: TextStyle(color: AppColors.fg, fontWeight: FontWeight.w600, fontSize: 14),
                     ),
                     SizedBox(height: 4),
                     Text(
@@ -281,7 +281,7 @@ class _SalesmanHomeTabState extends State<SalesmanHomeTab> {
                             children: [
                               Text(
                                 lead.name,
-                                style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 14),
+                                style: const TextStyle(color: AppColors.fg, fontWeight: FontWeight.w700, fontSize: 14),
                               ),
                               const SizedBox(height: 2),
                               Text(
@@ -339,7 +339,7 @@ class _SalesmanHomeTabState extends State<SalesmanHomeTab> {
                 icon: const Icon(Icons.view_list_rounded, size: 18),
                 label: const Text('View Full Leads Pipeline'),
                 style: OutlinedButton.styleFrom(
-                  foregroundColor: Colors.white,
+                  foregroundColor: AppColors.fg,
                   side: const BorderSide(color: AppColors.navy600),
                   padding: const EdgeInsets.symmetric(vertical: 12),
                 ),

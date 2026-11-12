@@ -105,7 +105,7 @@ class _PaymentPlanBuilderCardState extends State<PaymentPlanBuilderCard> {
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.lg)),
           title: Text(
             isNew ? 'Add Payment Milestone' : 'Edit Milestone',
-            style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+            style: const TextStyle(color: AppColors.fg, fontWeight: FontWeight.bold),
           ),
           content: Form(
             key: formKey,
@@ -118,7 +118,7 @@ class _PaymentPlanBuilderCardState extends State<PaymentPlanBuilderCard> {
                   const SizedBox(height: 6),
                   TextFormField(
                     controller: titleController,
-                    style: const TextStyle(color: Colors.white, fontSize: 14),
+                    style: const TextStyle(color: AppColors.fg, fontSize: 14),
                     decoration: InputDecoration(
                       hintText: 'e.g. Booking Advance, Structure Delivery',
                       hintStyle: const TextStyle(color: AppColors.grey500),
@@ -149,7 +149,7 @@ class _PaymentPlanBuilderCardState extends State<PaymentPlanBuilderCard> {
                               child: Text(
                                 'Percentage (%)',
                                 style: TextStyle(
-                                  color: isPercent ? Colors.white : AppColors.grey400,
+                                  color: isPercent ? AppColors.fg : AppColors.grey400,
                                   fontWeight: FontWeight.bold,
                                   fontSize: 12,
                                 ),
@@ -173,7 +173,7 @@ class _PaymentPlanBuilderCardState extends State<PaymentPlanBuilderCard> {
                               child: Text(
                                 'Fixed Amount (₹)',
                                 style: TextStyle(
-                                  color: !isPercent ? Colors.white : AppColors.grey400,
+                                  color: !isPercent ? AppColors.fg : AppColors.grey400,
                                   fontWeight: FontWeight.bold,
                                   fontSize: 12,
                                 ),
@@ -197,7 +197,7 @@ class _PaymentPlanBuilderCardState extends State<PaymentPlanBuilderCard> {
                     keyboardType: isPercent
                         ? const TextInputType.numberWithOptions(decimal: true)
                         : TextInputType.number,
-                    style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
+                    style: const TextStyle(color: AppColors.fg, fontSize: 16, fontWeight: FontWeight.bold),
                     decoration: InputDecoration(
                       prefixIcon: Icon(
                         isPercent ? Icons.percent_rounded : Icons.currency_rupee_rounded,
@@ -224,7 +224,7 @@ class _PaymentPlanBuilderCardState extends State<PaymentPlanBuilderCard> {
                   const SizedBox(height: 6),
                   TextFormField(
                     controller: conditionController,
-                    style: const TextStyle(color: Colors.white, fontSize: 13),
+                    style: const TextStyle(color: AppColors.fg, fontSize: 13),
                     decoration: InputDecoration(
                       hintText: 'e.g. Due before module delivery, on completion',
                       hintStyle: const TextStyle(color: AppColors.grey500, fontSize: 12),
@@ -271,7 +271,7 @@ class _PaymentPlanBuilderCardState extends State<PaymentPlanBuilderCard> {
               },
               style: ElevatedButton.styleFrom(
                 backgroundColor: AppColors.teal500,
-                foregroundColor: Colors.white,
+                foregroundColor: AppColors.fg,
               ),
               child: Text(isNew ? 'Add Milestone' : 'Save Changes'),
             ),
@@ -297,7 +297,7 @@ class _PaymentPlanBuilderCardState extends State<PaymentPlanBuilderCard> {
             children: [
               Icon(Icons.warning_amber_rounded, color: AppColors.warning, size: 24),
               SizedBox(width: 8),
-              Text('Unbalanced Plan', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+              Text('Unbalanced Plan', style: TextStyle(color: AppColors.fg, fontWeight: FontWeight.bold)),
             ],
           ),
           content: Text(
@@ -316,7 +316,7 @@ class _PaymentPlanBuilderCardState extends State<PaymentPlanBuilderCard> {
                 Navigator.of(ctx).pop();
                 _doSave();
               },
-              style: ElevatedButton.styleFrom(backgroundColor: AppColors.warning, foregroundColor: Colors.black),
+              style: ElevatedButton.styleFrom(backgroundColor: AppColors.warning, foregroundColor: AppColors.shadow),
               child: const Text('Confirm & Save'),
             ),
           ],
@@ -365,7 +365,7 @@ class _PaymentPlanBuilderCardState extends State<PaymentPlanBuilderCard> {
                   children: [
                     Text(
                       'Bespoke Payment Plan',
-                      style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 15),
+                      style: TextStyle(color: AppColors.fg, fontWeight: FontWeight.bold, fontSize: 15),
                     ),
                     Text(
                       'Salesman-defined milestones with live validation',
@@ -477,7 +477,7 @@ class _PaymentPlanBuilderCardState extends State<PaymentPlanBuilderCard> {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text(m.title, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 13)),
+                            Text(m.title, style: const TextStyle(color: AppColors.fg, fontWeight: FontWeight.w600, fontSize: 13)),
                             if (m.dueCondition != null)
                               Text(m.dueCondition!, style: const TextStyle(color: AppColors.grey500, fontSize: 11)),
                           ],
@@ -538,7 +538,7 @@ class _PaymentPlanBuilderCardState extends State<PaymentPlanBuilderCard> {
                   style: ElevatedButton.styleFrom(
                     visualDensity: VisualDensity.compact,
                     backgroundColor: AppColors.teal500,
-                    foregroundColor: Colors.white,
+                    foregroundColor: AppColors.fg,
                   ),
                   child: const Text('Save Plan', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
                 ),

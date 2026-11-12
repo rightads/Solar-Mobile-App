@@ -93,16 +93,9 @@ class KedlRepository {
         return updated;
       }
     } catch (e) {
-      dev.log('Error updating KEDL file $id: $e. Updating locally.');
+      throw ApiClient.toFriendly(e);
     }
-
-    final current = await getKedlFileById(id);
-    final updated = current.copyWith(
-      applicationNo: applicationNo ?? current.applicationNo,
-      remarks: remarks ?? current.remarks,
-    );
-    await _updateCachedFile(updated);
-    return updated;
+    throw Exception('Unexpected response from server.');
   }
 
   // ── Update File Status ─────────────────────────────────────────────────────
@@ -126,29 +119,9 @@ class KedlRepository {
         return updated;
       }
     } catch (e) {
-      dev.log('Error updating file status $id: $e. Updating locally.');
+      throw ApiClient.toFriendly(e);
     }
-
-    final current = await getKedlFileById(id);
-    final now = DateTime.now();
-    final updated = current.copyWith(
-      status: newStatus,
-      submittedOn: newStatus == KedlFileStatus.submitted ? now : current.submittedOn,
-      approvedOn: newStatus == KedlFileStatus.approved ? now : current.approvedOn,
-      statusLogs: [
-        ...current.statusLogs,
-        KedlStatusLogModel(
-          id: 'log_${now.millisecondsSinceEpoch}',
-          kedlFileId: id,
-          fromStatus: current.status,
-          toStatus: newStatus,
-          note: note ?? 'Status transitioned to ${newStatus.displayName}',
-          createdAt: now,
-        ),
-      ],
-    );
-    await _updateCachedFile(updated);
-    return updated;
+    throw Exception('Unexpected response from server.');
   }
 
   // ── Raise Demand ───────────────────────────────────────────────────────────
@@ -182,29 +155,9 @@ class KedlRepository {
         return demand;
       }
     } catch (e) {
-      dev.log('Error raising demand for file $fileId: $e. Creating locally.');
+      throw ApiClient.toFriendly(e);
     }
-
-    // Local fallback:
-    final currentFile = await getKedlFileById(fileId);
-    final demand = KedlDemandModel(
-      id: 'demand_${DateTime.now().millisecondsSinceEpoch}',
-      kedlFileId: fileId,
-      customerName: currentFile.customerName,
-      description: description,
-      amountPaise: amountPaise,
-      dueDate: dueDate,
-      status: KedlDemandStatus.open,
-      raisedOn: DateTime.now(),
-    );
-
-    // Raising a demand automatically sets status to demandRaised
-    final updatedFile = currentFile.copyWith(
-      status: KedlFileStatus.demandRaised,
-      demands: [...currentFile.demands, demand],
-    );
-    await _updateCachedFile(updatedFile);
-    return demand;
+    throw Exception('Unexpected response from server.');
   }
 
   // ── Mark Demand Paid / Waived ──────────────────────────────────────────────
@@ -237,43 +190,9 @@ class KedlRepository {
         return KedlDemandModel.fromJson(response.data as Map<String, dynamic>);
       }
     } catch (e) {
-      dev.log('Error updating demand $demandId: $e. Updating locally.');
+      throw ApiClient.toFriendly(e);
     }
-
-    // Local update
-    final allFiles = await _loadCachedOrMockFiles();
-    KedlDemandModel? updatedDemand;
-
-    for (final file in allFiles) {
-      final dIdx = file.demands.indexWhere((d) => d.id == demandId);
-      if (dIdx != -1) {
-        final currentDemand = file.demands[dIdx];
-        updatedDemand = currentDemand.copyWith(
-          status: status,
-          paidOn: status == KedlDemandStatus.paid ? (paidOn ?? DateTime.now()) : null,
-          receiptKey: receiptFilePath != null ? receiptFilePath.split('/').last : currentDemand.receiptKey,
-        );
-
-        final updatedDemands = List<KedlDemandModel>.from(file.demands);
-        updatedDemands[dIdx] = updatedDemand;
-
-        // Backend rule: if all demands are paid, file moves to demand_paid
-        final allDemandsPaid = updatedDemands.every(
-          (d) => d.status == KedlDemandStatus.paid || d.status == KedlDemandStatus.waived,
-        );
-
-        final newFileStatus = allDemandsPaid ? KedlFileStatus.demandPaid : file.status;
-        final updatedFile = file.copyWith(
-          demands: updatedDemands,
-          status: newFileStatus,
-        );
-        await _updateCachedFile(updatedFile);
-        break;
-      }
-    }
-
-    if (updatedDemand != null) return updatedDemand;
-    throw Exception('Demand not found ($demandId)');
+    throw Exception('Unexpected response from server.');
   }
 
   // ── Upload Document ────────────────────────────────────────────────────────
@@ -303,21 +222,9 @@ class KedlRepository {
         return doc;
       }
     } catch (e) {
-      dev.log('Error uploading KEDL document: $e. Creating locally.');
+      throw ApiClient.toFriendly(e);
     }
-
-    final localDoc = KedlDocumentModel(
-      id: 'doc_${DateTime.now().millisecondsSinceEpoch}',
-      kedlFileId: fileId,
-      docType: docType,
-      fileKey: fileName,
-      originalName: fileName,
-      createdAt: DateTime.now(),
-    );
-
-    final current = await getKedlFileById(fileId);
-    await _updateCachedFile(current.copyWith(documents: [...current.documents, localDoc]));
-    return localDoc;
+    throw Exception('Unexpected response from server.');
   }
 
   // ── Dashboard Metrics ──────────────────────────────────────────────────────
@@ -421,9 +328,7 @@ class KedlRepository {
       }
     } catch (_) {}
 
-    final seed = _generateSeedFiles();
-    await _cacheFiles(seed);
-    return _applyFilters(seed, customerId, fileType, status, hasOpenDemand, search);
+    return [];
   }
 
   List<KedlFileModel> _applyFilters(
@@ -450,121 +355,4 @@ class KedlRepository {
     }).toList();
   }
 
-  List<KedlFileModel> _generateSeedFiles() {
-    final now = DateTime.now();
-    final pastDue = now.subtract(const Duration(days: 3));
-    final futureDue = now.add(const Duration(days: 7));
-
-    return [
-      // Customer 1: Sunil Verma
-      KedlFileModel(
-        id: 'kedl_file_101_name',
-        customerId: 'cust_101',
-        customerName: 'Sunil Verma',
-        customerPhone: '9829012345',
-        customerAddress: 'Plot 42, Malviya Nagar, Jaipur, Rajasthan',
-        fileType: KedlFileType.nameChange,
-        status: KedlFileStatus.approved,
-        applicationNo: 'NC-JPR-2026-8812',
-        submittedOn: now.subtract(const Duration(days: 15)),
-        approvedOn: now.subtract(const Duration(days: 5)),
-        remarks: 'Name change updated in Discom ledger to Sunil Verma.',
-      ),
-      KedlFileModel(
-        id: 'kedl_file_101_load',
-        customerId: 'cust_101',
-        customerName: 'Sunil Verma',
-        customerPhone: '9829012345',
-        customerAddress: 'Plot 42, Malviya Nagar, Jaipur, Rajasthan',
-        fileType: KedlFileType.loadIncrease,
-        status: KedlFileStatus.demandPaid,
-        applicationNo: 'LI-JPR-2026-9043',
-        submittedOn: now.subtract(const Duration(days: 10)),
-        remarks: 'Load enhancement from 3kW to 6kW.',
-        demands: [
-          KedlDemandModel(
-            id: 'demand_101_1',
-            kedlFileId: 'kedl_file_101_load',
-            customerName: 'Sunil Verma',
-            description: 'Load extension processing fee and security deposit',
-            amountPaise: 450000, // Rs. 4,500
-            dueDate: now.subtract(const Duration(days: 2)),
-            status: KedlDemandStatus.paid,
-            paidOn: now.subtract(const Duration(days: 1)),
-            raisedOn: now.subtract(const Duration(days: 8)),
-          ),
-        ],
-      ),
-      KedlFileModel(
-        id: 'kedl_file_101_net',
-        customerId: 'cust_101',
-        customerName: 'Sunil Verma',
-        customerPhone: '9829012345',
-        customerAddress: 'Plot 42, Malviya Nagar, Jaipur, Rajasthan',
-        fileType: KedlFileType.net,
-        status: KedlFileStatus.demandRaised,
-        applicationNo: 'NET-JPR-2026-1120',
-        submittedOn: now.subtract(const Duration(days: 6)),
-        remarks: 'Net metering synchronization application in review.',
-        demands: [
-          KedlDemandModel(
-            id: 'demand_101_2',
-            kedlFileId: 'kedl_file_101_net',
-            customerName: 'Sunil Verma',
-            description: 'Bi-directional net meter testing and inspection fee',
-            amountPaise: 250000, // Rs. 2,500
-            dueDate: pastDue, // Overdue!
-            status: KedlDemandStatus.open,
-            raisedOn: now.subtract(const Duration(days: 6)),
-          ),
-        ],
-      ),
-
-      // Customer 2: Rajesh Sharma
-      KedlFileModel(
-        id: 'kedl_file_102_name',
-        customerId: 'cust_102',
-        customerName: 'Rajesh Sharma',
-        customerPhone: '9829098765',
-        customerAddress: 'Shop 12, Industrial Area, Kota, Rajasthan',
-        fileType: KedlFileType.nameChange,
-        status: KedlFileStatus.notStarted,
-        remarks: 'Waiting for Registry property papers.',
-      ),
-      KedlFileModel(
-        id: 'kedl_file_102_load',
-        customerId: 'cust_102',
-        customerName: 'Rajesh Sharma',
-        customerPhone: '9829098765',
-        customerAddress: 'Shop 12, Industrial Area, Kota, Rajasthan',
-        fileType: KedlFileType.loadIncrease,
-        status: KedlFileStatus.submitted,
-        applicationNo: 'LI-KOT-2026-3341',
-        submittedOn: now.subtract(const Duration(days: 3)),
-      ),
-      KedlFileModel(
-        id: 'kedl_file_102_net',
-        customerId: 'cust_102',
-        customerName: 'Rajesh Sharma',
-        customerPhone: '9829098765',
-        customerAddress: 'Shop 12, Industrial Area, Kota, Rajasthan',
-        fileType: KedlFileType.net,
-        status: KedlFileStatus.demandRaised,
-        applicationNo: 'NET-KOT-2026-7782',
-        submittedOn: now.subtract(const Duration(days: 4)),
-        demands: [
-          KedlDemandModel(
-            id: 'demand_102_1',
-            kedlFileId: 'kedl_file_102_net',
-            customerName: 'Rajesh Sharma',
-            description: 'Solar grid connectivity feasibility assessment fee',
-            amountPaise: 180000, // Rs. 1,800
-            dueDate: futureDue,
-            status: KedlDemandStatus.open,
-            raisedOn: now.subtract(const Duration(days: 2)),
-          ),
-        ],
-      ),
-    ];
-  }
 }

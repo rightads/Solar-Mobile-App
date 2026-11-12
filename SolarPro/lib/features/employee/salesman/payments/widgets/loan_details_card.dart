@@ -68,7 +68,7 @@ class _LoanDetailsCardState extends State<LoanDetailsCard> {
         builder: (ctx, setDlgState) => AlertDialog(
           backgroundColor: AppColors.navy800,
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.lg)),
-          title: const Text('Add Loan Installment', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+          title: const Text('Add Loan Installment', style: TextStyle(color: AppColors.fg, fontWeight: FontWeight.bold)),
           content: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -78,7 +78,7 @@ class _LoanDetailsCardState extends State<LoanDetailsCard> {
               TextField(
                 controller: amountController,
                 keyboardType: TextInputType.number,
-                style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
+                style: const TextStyle(color: AppColors.fg, fontSize: 16, fontWeight: FontWeight.bold),
                 decoration: InputDecoration(
                   prefixIcon: const Icon(Icons.currency_rupee_rounded, color: AppColors.gold500),
                   hintText: 'e.g. 25000',
@@ -114,7 +114,7 @@ class _LoanDetailsCardState extends State<LoanDetailsCard> {
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      Text(DateFormat('dd MMM yyyy').format(selectedDate), style: const TextStyle(color: Colors.white)),
+                      Text(DateFormat('dd MMM yyyy').format(selectedDate), style: const TextStyle(color: AppColors.fg)),
                       const Icon(Icons.calendar_month_rounded, color: AppColors.teal500, size: 18),
                     ],
                   ),
@@ -158,7 +158,7 @@ class _LoanDetailsCardState extends State<LoanDetailsCard> {
                   Navigator.of(ctx).pop();
                 }
               },
-              style: ElevatedButton.styleFrom(backgroundColor: AppColors.teal500, foregroundColor: Colors.white),
+              style: ElevatedButton.styleFrom(backgroundColor: AppColors.teal500, foregroundColor: AppColors.fg),
               child: const Text('Add Installment'),
             ),
           ],
@@ -219,7 +219,7 @@ class _LoanDetailsCardState extends State<LoanDetailsCard> {
                   SizedBox(width: 8),
                   Text(
                     'Bank Solar Loan Details',
-                    style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 15),
+                    style: TextStyle(color: AppColors.fg, fontWeight: FontWeight.bold, fontSize: 15),
                   ),
                 ],
               ),
@@ -239,7 +239,7 @@ class _LoanDetailsCardState extends State<LoanDetailsCard> {
             const SizedBox(height: 6),
             TextField(
               controller: _bankNameController,
-              style: const TextStyle(color: Colors.white, fontSize: 14),
+              style: const TextStyle(color: AppColors.fg, fontSize: 14),
               decoration: InputDecoration(
                 hintText: 'e.g. SBI Solar Loan, HDFC Bank, PNB, Tata Capital',
                 hintStyle: const TextStyle(color: AppColors.grey500),
@@ -256,7 +256,7 @@ class _LoanDetailsCardState extends State<LoanDetailsCard> {
             TextField(
               controller: _loanAmountController,
               keyboardType: TextInputType.number,
-              style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
+              style: const TextStyle(color: AppColors.fg, fontSize: 16, fontWeight: FontWeight.bold),
               decoration: InputDecoration(
                 prefixIcon: const Icon(Icons.currency_rupee_rounded, color: AppColors.gold500),
                 hintText: 'e.g. 200000',
@@ -344,7 +344,7 @@ class _LoanDetailsCardState extends State<LoanDetailsCard> {
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Text(inst.formattedAmount, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13)),
+                              Text(inst.formattedAmount, style: const TextStyle(color: AppColors.fg, fontWeight: FontWeight.bold, fontSize: 13)),
                               Text('Expected: ${inst.formattedExpectedDate}', style: const TextStyle(color: AppColors.grey400, fontSize: 11)),
                             ],
                           ),
@@ -396,7 +396,7 @@ class _LoanDetailsCardState extends State<LoanDetailsCard> {
                   style: ElevatedButton.styleFrom(
                     visualDensity: VisualDensity.compact,
                     backgroundColor: AppColors.teal500,
-                    foregroundColor: Colors.white,
+                    foregroundColor: AppColors.fg,
                   ),
                   child: const Text('Save Loan Details', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
                 ),

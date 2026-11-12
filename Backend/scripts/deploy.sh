@@ -24,21 +24,7 @@ fi
 
 echo "📋 Verifying production environment configurations in .env.prod..."
 
-# Ensure TWO_FACTOR_API_KEY is active in .env.prod
-if ! grep -q "^TWO_FACTOR_API_KEY=" .env.prod; then
-    echo "TWO_FACTOR_API_KEY=8a431cc1-d959-11f1-ac3e-0200cd936042" >> .env.prod
-elif [ -z "$(grep "^TWO_FACTOR_API_KEY=" .env.prod | cut -d'=' -f2-)" ]; then
-    sed -i 's/^TWO_FACTOR_API_KEY=.*/TWO_FACTOR_API_KEY=8a431cc1-d959-11f1-ac3e-0200cd936042/' .env.prod
-fi
-
-# Ensure FAST2SMS_API_KEY is active in .env.prod
-if ! grep -q "^FAST2SMS_API_KEY=" .env.prod; then
-    echo "FAST2SMS_API_KEY=A4ro1fdjOs34VukhRrXMaOUw6kBSYBkvWnqVc4EhCNak6Fg7ucfBuCH6Y9fYT4FNNcG8S2Q4KOoJEbxQ" >> .env.prod
-elif [ -z "$(grep "^FAST2SMS_API_KEY=" .env.prod | cut -d'=' -f2-)" ]; then
-    sed -i 's/^FAST2SMS_API_KEY=.*/FAST2SMS_API_KEY=A4ro1fdjOs34VukhRrXMaOUw6kBSYBkvWnqVc4EhCNak6Fg7ucfBuCH6Y9fYT4FNNcG8S2Q4KOoJEbxQ/' .env.prod
-fi
-
-for VAR in MONGODB_URI SMTP_USER RESEND_API_KEY TWO_FACTOR_API_KEY FAST2SMS_API_KEY SUPER_ADMIN_EMAIL JWT_SECRET; do
+for VAR in MONGODB_URI JWT_SECRET CORS_ORIGINS SUPER_ADMIN_EMAIL SUPER_ADMIN_PHONE RESEND_API_KEY TWO_FACTOR_API_KEY FAST2SMS_API_KEY; do
     if grep -qE "^${VAR}=" .env.prod && [ -n "$(grep -E "^${VAR}=" .env.prod | cut -d'=' -f2-)" ]; then
         echo "  ✅ $VAR is configured."
     else
@@ -46,50 +32,17 @@ for VAR in MONGODB_URI SMTP_USER RESEND_API_KEY TWO_FACTOR_API_KEY FAST2SMS_API_
     fi
 done
 
+# Refuse to deploy with a weak signing secret (the API would also refuse to start).
+JWT_VALUE="$(grep -E '^JWT_SECRET=' .env.prod | cut -d'=' -f2- | tr -d '"')"
+if [ "${#JWT_VALUE}" -lt 32 ]; then
+    echo "❌ JWT_SECRET in .env.prod must be at least 32 random characters (generate: openssl rand -hex 32)."
+    exit 1
+fi
+chmod 600 .env.prod
+
 # 2. Launch containers via Docker Compose
 echo "📦 Building and restarting website and backend Docker containers..."
 docker compose -f docker-compose.prod.yml up -d --build --remove-orphans
-
-# 3. Wait for PostgreSQL to become healthy and sync credentials
-echo "⏳ Waiting for PostgreSQL database container to be ready..."
-RETRIES=10
-until docker compose -f docker-compose.prod.yml exec -T -u postgres postgres pg_isready > /dev/null 2>&1 || [ $RETRIES -eq 0 ]; do
-    echo "Waiting for postgres... ($RETRIES attempts remaining)"
-    sleep 3
-    RETRIES=$((RETRIES - 1))
-done
-
-echo "🔑 Synchronizing PostgreSQL credentials and database..."
-# 1. If cluster was initialized with solar_prod_user, use it to create postgres superuser
-docker compose -f docker-compose.prod.yml exec -T -u postgres postgres psql -U solar_prod_user -d template1 -c "
-DO \$\$
-BEGIN
-  IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'postgres') THEN
-    CREATE ROLE postgres WITH SUPERUSER LOGIN PASSWORD 'postgres';
-  ELSE
-    ALTER USER postgres WITH SUPERUSER PASSWORD 'postgres';
-  END IF;
-END
-\$\$;
-" 2>/dev/null || true
-
-# 2. If cluster was initialized with postgres, ensure postgres password is set
-docker compose -f docker-compose.prod.yml exec -T -u postgres postgres psql -U postgres -d template1 -c "
-ALTER USER postgres WITH SUPERUSER PASSWORD 'postgres';
-" 2>/dev/null || true
-
-# 3. Ensure solar_db database exists and is owned by postgres
-docker compose -f docker-compose.prod.yml exec -T -u postgres postgres psql -U solar_prod_user -d template1 -c "CREATE DATABASE solar_db OWNER postgres;" 2>/dev/null || \
-docker compose -f docker-compose.prod.yml exec -T -u postgres postgres psql -U postgres -d template1 -c "CREATE DATABASE solar_db OWNER postgres;" 2>/dev/null || true
-
-# 4. Grant full privileges on existing databases
-docker compose -f docker-compose.prod.yml exec -T -u postgres postgres psql -U solar_prod_user -d template1 -c "GRANT ALL PRIVILEGES ON DATABASE solar_prod_db TO postgres;" 2>/dev/null || true
-docker compose -f docker-compose.prod.yml exec -T -u postgres postgres psql -U postgres -d template1 -c "GRANT ALL PRIVILEGES ON DATABASE solar_db TO postgres;" 2>/dev/null || true
-
-# 4. Apply database migrations
-echo "🗄️ Running Alembic database migrations..."
-docker compose -f docker-compose.prod.yml exec -T backend alembic upgrade head
-echo "✅ Database schema updated successfully."
 
 # 5. Reload Nginx so upstream container IP resolution is fresh
 echo "🔄 Reloading Nginx reverse proxy..."

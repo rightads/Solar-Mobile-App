@@ -38,12 +38,33 @@ jobs:
         working-directory: ./SolarPro
         run: flutter pub get
 
+      - name: Configure release signing
+        working-directory: ./SolarPro/android
+        env:
+          KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          if [ -z "$KEYSTORE_B64" ]; then
+            echo "::error::ANDROID_KEYSTORE_BASE64 secret is missing; refusing to ship a debug-signed release."
+            exit 1
+          fi
+          echo "$KEYSTORE_B64" | base64 -d > app/upload-keystore.jks
+          {
+            echo "storeFile=upload-keystore.jks"
+            echo "storePassword=$KEYSTORE_PASSWORD"
+            echo "keyAlias=$KEY_ALIAS"
+            echo "keyPassword=$KEY_PASSWORD"
+          } > key.properties
+
       - name: Build Android Release APK
         working-directory: ./SolarPro
         run: |
           flutter build apk --release \
-            --dart-define=API_BASE_URL=http://82.29.165.43:8000/api/v1 \
-            --dart-define=API_LIVE_HOST=http://82.29.165.43:8000
+            --obfuscate --split-debug-info=build/symbols \
+            --dart-define=API_BASE_URL=${{ vars.API_BASE_URL || 'https://api.solarpro-app.in/api/v1' }} \
+            --dart-define=API_LIVE_HOST=${{ vars.API_LIVE_HOST || 'https://api.solarpro-app.in' }}
 
       - name: Rename Release APK
         run: |

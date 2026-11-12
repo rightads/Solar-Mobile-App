@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
-import 'package:flutter_animate/flutter_animate.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:solar_pro/core/constants/app_constants.dart';
 import 'package:solar_pro/core/theme/app_theme.dart';
+import 'package:solar_pro/features/auth/presentation/screens/splash_screen.dart';
+import 'package:solar_pro/shared/animations/motion.dart';
+import 'package:solar_pro/shared/animations/pixel_art.dart';
 
 class OnboardingScreen extends StatefulWidget {
   const OnboardingScreen({super.key});
@@ -12,35 +15,38 @@ class OnboardingScreen extends StatefulWidget {
 }
 
 class _OnboardingScreenState extends State<OnboardingScreen> {
-  final PageController _controller = PageController();
-  int _currentPage = 0;
+  final _controller = PageController();
+  double _page = 0;
 
-  final List<_OnboardData> _pages = const [
+  static final _pages = [
     _OnboardData(
-      icon: Icons.solar_power_rounded,
-      title: 'Manage Every\nSolar Project',
-      subtitle:
-          'Track leads, customers, work assignments and payments — all in one powerful platform.',
-      gradient: [Color(0xFF1E3A6E), Color(0xFF0F2040)],
-      accentColor: Color(0xFFF5A623),
+      art: (h) => PixelScenes.house(height: h),
+      lead: 'Clean Energy\nfor a ',
+      highlight: 'Brighter',
+      tail: '\nTomorrow',
+      subtitle: 'Install · Monitor · Manage\nyour solar ecosystem',
     ),
     _OnboardData(
-      icon: Icons.groups_rounded,
-      title: 'Assign Work to\nthe Right Team',
-      subtitle:
-          'Assign Structure, Electrical & Civil teams with dates. Monitor every site in real-time.',
-      gradient: [Color(0xFF1A2E50), Color(0xFF0D1E38)],
-      accentColor: Color(0xFF00C9B1),
+      art: (h) => PixelScenes.monitor(height: h),
+      lead: 'Track, Save\nand ',
+      highlight: 'Grow',
+      tail: '',
+      subtitle: 'Follow every project stage, payment\nand service ticket in real time',
     ),
     _OnboardData(
-      icon: Icons.verified_rounded,
-      title: 'Client Portal\n& Service Tickets',
-      subtitle:
-          'Customers track project status, submit payments and raise service tickets from their phone.',
-      gradient: [Color(0xFF1C2F52), Color(0xFF0F1E3A)],
-      accentColor: Color(0xFF8B5CF6),
+      art: (h) => PixelScenes.earth(height: h),
+      lead: 'Be a Part of\nthe ',
+      highlight: 'Green',
+      tail: ' Shift',
+      subtitle: 'Reduce emissions and build a\nsustainable future together',
     ),
   ];
+
+  @override
+  void initState() {
+    super.initState();
+    _controller.addListener(() => setState(() => _page = _controller.page ?? 0));
+  }
 
   @override
   void dispose() {
@@ -48,133 +54,95 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     super.dispose();
   }
 
+  Future<void> _finish() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(kOnboardingSeen, true);
+    if (mounted) context.go(AppRoutes.login);
+  }
+
   void _next() {
-    if (_currentPage < _pages.length - 1) {
-      _controller.nextPage(
-        duration: const Duration(milliseconds: 500),
-        curve: Curves.easeInOutCubic,
-      );
+    if (_page.round() < _pages.length - 1) {
+      _controller.nextPage(duration: AppMotion.slow, curve: AppMotion.emphasized);
     } else {
-      context.go(AppRoutes.login);
+      _finish();
     }
   }
 
   @override
   Widget build(BuildContext context) {
+    final h = MediaQuery.of(context).size.height;
+    final current = _page.round();
     return Scaffold(
-      body: Stack(
-        children: [
-          // Page view
-          PageView.builder(
-            controller: _controller,
-            onPageChanged: (i) => setState(() => _currentPage = i),
-            itemCount: _pages.length,
-            itemBuilder: (context, i) => _OnboardPage(data: _pages[i]),
-          ),
-
-          // Bottom controls
-          Positioned(
-            bottom: 0,
-            left: 0,
-            right: 0,
-            child: Container(
-              padding: EdgeInsets.fromLTRB(
-                28,
-                24,
-                28,
-                MediaQuery.of(context).padding.bottom + 32,
-              ),
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  colors: [
-                    Colors.transparent,
-                    AppColors.navy900.withValues(alpha: 0.95),
-                    AppColors.navy900,
-                  ],
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
-                ),
-              ),
+      body: PixelBackdrop(
+        child: SafeArea(
+          child: Center(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 460),
               child: Column(
                 children: [
-                  // Page indicators
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: List.generate(
-                      _pages.length,
-                      (i) => AnimatedContainer(
-                        duration: const Duration(milliseconds: 300),
-                        margin: const EdgeInsets.symmetric(horizontal: 4),
-                        width: _currentPage == i ? 28 : 8,
-                        height: 8,
-                        decoration: BoxDecoration(
-                          color: _currentPage == i
-                              ? _pages[_currentPage].accentColor
-                              : AppColors.grey600,
-                          borderRadius: BorderRadius.circular(4),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(24, 16, 12, 0),
+                    child: Row(
+                      children: [
+                        const SolarProLogo(size: 20),
+                        const Spacer(),
+                        AnimatedOpacity(
+                          duration: AppMotion.medium,
+                          opacity: current < _pages.length - 1 ? 1 : 0,
+                          child: TextButton(onPressed: _finish, child: const Text('Skip')),
                         ),
-                      ),
+                      ],
                     ),
                   ),
-                  const SizedBox(height: 28),
-
-                  // Next / Get Started button
-                  GestureDetector(
-                    onTap: _next,
-                    child: AnimatedContainer(
-                      duration: const Duration(milliseconds: 300),
-                      width: double.infinity,
-                      height: 58,
-                      decoration: BoxDecoration(
-                        gradient: LinearGradient(
-                          colors: [
-                            _pages[_currentPage].accentColor,
-                            _pages[_currentPage].accentColor.withValues(alpha: 0.8),
-                          ],
-                          begin: Alignment.topLeft,
-                          end: Alignment.bottomRight,
-                        ),
-                        borderRadius: BorderRadius.circular(AppRadius.lg),
-                        boxShadow: [
-                          BoxShadow(
-                            color: _pages[_currentPage].accentColor
-                                .withValues(alpha: 0.35),
-                            blurRadius: 20,
-                            offset: const Offset(0, 8),
-                          ),
-                        ],
-                      ),
-                      child: Center(
-                        child: Text(
-                          _currentPage == _pages.length - 1
-                              ? 'Get Started'
-                              : 'Continue',
-                          style: AppTextStyles.labelLarge.copyWith(
-                            fontSize: 17,
-                            color: AppColors.navy900,
-                          ),
-                        ),
-                      ),
+                  Expanded(
+                    child: PageView.builder(
+                      controller: _controller,
+                      itemCount: _pages.length,
+                      itemBuilder: (context, i) {
+                        // Parallax: art drifts slower than the text as you swipe.
+                        final delta = (i - _page).clamp(-1.0, 1.0);
+                        return _OnboardPage(data: _pages[i], delta: delta, artHeight: h * 0.32);
+                      },
                     ),
                   ),
-
-                  if (_currentPage < _pages.length - 1) ...[
-                    const SizedBox(height: 16),
-                    TextButton(
-                      onPressed: () => context.go(AppRoutes.login),
-                      child: Text(
-                        'Skip',
-                        style: AppTextStyles.bodyMedium.copyWith(
-                          color: AppColors.grey400,
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(28, 0, 28, 28),
+                    child: Row(
+                      children: [
+                        ...List.generate(_pages.length, (i) {
+                          final active = (1 - (_page - i).abs()).clamp(0.0, 1.0);
+                          return Container(
+                            margin: const EdgeInsets.only(right: 6),
+                            width: 8 + 18 * active,
+                            height: 8,
+                            decoration: BoxDecoration(
+                              color: Color.lerp(AppColors.navy500, AppColors.ink900, active),
+                              borderRadius: BorderRadius.circular(2),
+                            ),
+                          );
+                        }),
+                        const Spacer(),
+                        SizedBox(
+                          width: current == _pages.length - 1 ? 150 : 64,
+                          child: AnimatedSize(
+                            duration: AppMotion.medium,
+                            curve: AppMotion.emphasized,
+                            child: SpPixelButton(
+                              label: current == _pages.length - 1 ? 'Get Started' : '',
+                              trailingIcon: Icons.arrow_forward_rounded,
+                              height: 48,
+                              onPressed: _next,
+                            ),
+                          ),
                         ),
-                      ),
+                      ],
                     ),
-                  ],
+                  ),
                 ],
               ),
             ),
           ),
-        ],
+        ),
       ),
     );
   }
@@ -182,104 +150,67 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
 
 class _OnboardPage extends StatelessWidget {
   final _OnboardData data;
-  const _OnboardPage({required this.data});
+  final double delta;
+  final double artHeight;
+  const _OnboardPage({required this.data, required this.delta, required this.artHeight});
 
   @override
   Widget build(BuildContext context) {
-    final size = MediaQuery.of(context).size;
-    return Container(
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: data.gradient,
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-        ),
-      ),
-      child: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 32),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              SizedBox(height: size.height * 0.1),
-
-              // Icon with glow
-              Container(
-                width: 140,
-                height: 140,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: data.accentColor.withValues(alpha: 0.12),
-                  border: Border.all(
-                    color: data.accentColor.withValues(alpha: 0.3),
-                    width: 2,
-                  ),
-                  boxShadow: [
-                    BoxShadow(
-                      color: data.accentColor.withValues(alpha: 0.2),
-                      blurRadius: 40,
-                      spreadRadius: 10,
-                    ),
+    final title = AppTextStyles.displayMedium.copyWith(fontSize: 32, height: 1.18);
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 28),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Spacer(),
+          Transform.translate(
+            offset: Offset(delta * 140, 0),
+            child: Center(child: data.art(artHeight)),
+          ),
+          const Spacer(),
+          Opacity(
+            opacity: (1 - delta.abs() * 1.4).clamp(0.0, 1.0),
+            child: Transform.translate(
+              offset: Offset(delta * 40, 0),
+              child: Text.rich(
+                TextSpan(
+                  style: title,
+                  children: [
+                    TextSpan(text: data.lead),
+                    TextSpan(text: data.highlight, style: title.copyWith(color: AppColors.gold500)),
+                    TextSpan(text: data.tail),
                   ],
                 ),
-                child: Icon(data.icon, size: 68, color: data.accentColor),
-              )
-                  .animate()
-                  .scale(
-                    begin: const Offset(0.6, 0.6),
-                    end: const Offset(1, 1),
-                    duration: 600.ms,
-                    curve: Curves.elasticOut,
-                  )
-                  .fadeIn(duration: 400.ms),
-
-              const SizedBox(height: 48),
-
-              Text(
-                data.title,
-                textAlign: TextAlign.center,
-                style: AppTextStyles.displaySmall.copyWith(
-                  fontSize: 30,
-                  height: 1.25,
-                ),
-              )
-                  .animate(delay: 200.ms)
-                  .fadeIn(duration: 500.ms)
-                  .slideY(begin: 0.3, end: 0),
-
-              const SizedBox(height: 20),
-
-              Text(
-                data.subtitle,
-                textAlign: TextAlign.center,
-                style: AppTextStyles.bodyLarge.copyWith(
-                  color: AppColors.grey400,
-                  height: 1.7,
-                ),
-              )
-                  .animate(delay: 350.ms)
-                  .fadeIn(duration: 500.ms)
-                  .slideY(begin: 0.3, end: 0),
-            ],
+              ),
+            ),
           ),
-        ),
+          const SizedBox(height: 16),
+          Opacity(
+            opacity: (1 - delta.abs() * 1.8).clamp(0.0, 1.0),
+            child: Text(
+              data.subtitle,
+              style: AppTextStyles.bodyLarge.copyWith(fontSize: 15, color: AppColors.grey300),
+            ),
+          ),
+          const SizedBox(height: 28),
+        ],
       ),
     );
   }
 }
 
 class _OnboardData {
-  final IconData icon;
-  final String title;
+  final Widget Function(double height) art;
+  final String lead;
+  final String highlight;
+  final String tail;
   final String subtitle;
-  final List<Color> gradient;
-  final Color accentColor;
 
   const _OnboardData({
-    required this.icon,
-    required this.title,
+    required this.art,
+    required this.lead,
+    required this.highlight,
+    required this.tail,
     required this.subtitle,
-    required this.gradient,
-    required this.accentColor,
   });
 }

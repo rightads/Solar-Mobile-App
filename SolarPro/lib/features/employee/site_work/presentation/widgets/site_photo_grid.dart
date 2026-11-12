@@ -35,7 +35,7 @@ class SitePhotoGrid extends StatelessWidget {
                     child: Text(
                       photo.caption?.isNotEmpty == true ? photo.caption! : photo.fileKey,
                       style: const TextStyle(
-                        color: Colors.white,
+                        color: AppColors.fg,
                         fontSize: 15,
                         fontWeight: FontWeight.w700,
                       ),
@@ -117,7 +117,7 @@ class SitePhotoGrid extends StatelessWidget {
             const SizedBox(height: 8),
             Text(
               photo.fileKey,
-              style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w600),
+              style: const TextStyle(color: AppColors.fg, fontSize: 12, fontWeight: FontWeight.w600),
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
             ),
@@ -144,7 +144,7 @@ class SitePhotoGrid extends StatelessWidget {
             const Text(
               'Site Photo Proof',
               style: TextStyle(
-                color: Colors.white,
+                color: AppColors.fg,
                 fontSize: 15,
                 fontWeight: FontWeight.w700,
               ),
@@ -194,7 +194,7 @@ class SitePhotoGrid extends StatelessWidget {
                 const SizedBox(height: 8),
                 const Text(
                   'No Photo Proof Uploaded Yet',
-                  style: TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.w600),
+                  style: TextStyle(color: AppColors.fg, fontSize: 14, fontWeight: FontWeight.w600),
                 ),
                 const SizedBox(height: 4),
                 const Text(
@@ -210,7 +210,7 @@ class SitePhotoGrid extends StatelessWidget {
                     label: const Text('Capture Site Photo Proof'),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: AppColors.gold500,
-                      foregroundColor: AppColors.navy900,
+                      foregroundColor: AppColors.ink900,
                       textStyle: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13),
                     ),
                   ),
@@ -283,7 +283,7 @@ class SitePhotoGrid extends StatelessWidget {
                               color: AppColors.warning,
                               borderRadius: BorderRadius.circular(AppRadius.pill),
                             ),
-                            child: const Icon(Icons.sync_rounded, size: 10, color: Colors.black),
+                            child: const Icon(Icons.sync_rounded, size: 10, color: AppColors.shadow),
                           ),
                         ),
                       Positioned(
@@ -292,10 +292,10 @@ class SitePhotoGrid extends StatelessWidget {
                         right: 0,
                         child: Container(
                           padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
-                          color: Colors.black.withValues(alpha: 0.6),
+                          color: AppColors.shadow.withValues(alpha: 0.6),
                           child: Text(
                             photo.caption?.isNotEmpty == true ? photo.caption! : photo.fileKey,
-                            style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.w500),
+                            style: const TextStyle(color: AppColors.fg, fontSize: 10, fontWeight: FontWeight.w500),
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                           ),

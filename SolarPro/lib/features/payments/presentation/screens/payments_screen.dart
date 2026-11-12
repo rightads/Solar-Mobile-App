@@ -102,7 +102,7 @@ class _PaymentsScreenState extends State<PaymentsScreen>
                     prefixIcon: Icon(Icons.person_outline_rounded),
                   ),
                   style:
-                      AppTextStyles.bodyMedium.copyWith(color: AppColors.white),
+                      AppTextStyles.bodyMedium.copyWith(color: AppColors.fg),
                 ),
                 const SizedBox(height: 12),
                 TextField(
@@ -113,7 +113,7 @@ class _PaymentsScreenState extends State<PaymentsScreen>
                     prefixIcon: Icon(Icons.currency_rupee_rounded),
                   ),
                   style:
-                      AppTextStyles.bodyMedium.copyWith(color: AppColors.white),
+                      AppTextStyles.bodyMedium.copyWith(color: AppColors.fg),
                 ),
                 const SizedBox(height: 12),
                 TextField(
@@ -123,7 +123,7 @@ class _PaymentsScreenState extends State<PaymentsScreen>
                     prefixIcon: Icon(Icons.receipt_outlined),
                   ),
                   style:
-                      AppTextStyles.bodyMedium.copyWith(color: AppColors.white),
+                      AppTextStyles.bodyMedium.copyWith(color: AppColors.fg),
                 ),
                 const SizedBox(height: 14),
                 Text('Milestone', style: AppTextStyles.caption),
@@ -225,7 +225,7 @@ class _PaymentsScreenState extends State<PaymentsScreen>
                     child: Center(
                       child: Text('Submit for Verification',
                           style: AppTextStyles.labelLarge
-                              .copyWith(color: AppColors.navy900)),
+                              .copyWith(color: AppColors.ink900)),
                     ),
                   ),
                 ),
@@ -309,7 +309,7 @@ class _PaymentsScreenState extends State<PaymentsScreen>
                       child: Center(
                         child: Text('Download Receipt',
                             style: AppTextStyles.labelMedium
-                                .copyWith(color: AppColors.navy900)),
+                                .copyWith(color: AppColors.ink900)),
                       ),
                     ),
                   ),
@@ -350,7 +350,7 @@ class _PaymentsScreenState extends State<PaymentsScreen>
                 borderRadius: BorderRadius.circular(AppRadius.sm),
               ),
               child: const Icon(Icons.add_rounded,
-                  color: Color(0xFF0A1628), size: 18),
+                  color: Color(0xFFF6F4FD), size: 18),
             ),
             onPressed: () => _showRecordPaymentSheet(context),
           ),
@@ -375,7 +375,7 @@ class _PaymentsScreenState extends State<PaymentsScreen>
             padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
               gradient: const LinearGradient(
-                colors: [Color(0xFF1E3A6E), Color(0xFF0F2040)],
+                colors: [Color(0xFFDDD7F2), Color(0xFFFFFFFF)],
               ),
               borderRadius: BorderRadius.circular(AppRadius.xl),
               border:
@@ -518,7 +518,7 @@ class _PaymentList extends StatelessWidget {
                         Text(
                           '₹${(p.amount / 1000).toStringAsFixed(0)}K',
                           style: AppTextStyles.headlineSmall.copyWith(
-                              color: AppColors.white, fontSize: 18),
+                              color: AppColors.fg, fontSize: 18),
                         ),
                         const SizedBox(height: 3),
                         Container(

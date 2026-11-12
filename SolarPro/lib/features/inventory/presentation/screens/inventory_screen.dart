@@ -71,7 +71,7 @@ class _InventoryScreenState extends State<InventoryScreen>
                     hintText: 'Item Name (e.g. Solar Panel 550W)',
                     prefixIcon: Icon(Icons.inventory_2_outlined),
                   ),
-                  style: AppTextStyles.bodyMedium.copyWith(color: AppColors.white),
+                  style: AppTextStyles.bodyMedium.copyWith(color: AppColors.fg),
                 ),
                 const SizedBox(height: 12),
                 TextField(
@@ -80,7 +80,7 @@ class _InventoryScreenState extends State<InventoryScreen>
                     hintText: 'Brand / Manufacturer',
                     prefixIcon: Icon(Icons.branding_watermark_outlined),
                   ),
-                  style: AppTextStyles.bodyMedium.copyWith(color: AppColors.white),
+                  style: AppTextStyles.bodyMedium.copyWith(color: AppColors.fg),
                 ),
                 const SizedBox(height: 12),
                 Row(
@@ -93,7 +93,7 @@ class _InventoryScreenState extends State<InventoryScreen>
                           hintText: 'Quantity',
                           prefixIcon: Icon(Icons.numbers_rounded),
                         ),
-                        style: AppTextStyles.bodyMedium.copyWith(color: AppColors.white),
+                        style: AppTextStyles.bodyMedium.copyWith(color: AppColors.fg),
                       ),
                     ),
                     const SizedBox(width: 12),
@@ -104,7 +104,7 @@ class _InventoryScreenState extends State<InventoryScreen>
                           hintText: 'Unit (pcs, m, kg)',
                           prefixIcon: Icon(Icons.straighten_rounded),
                         ),
-                        style: AppTextStyles.bodyMedium.copyWith(color: AppColors.white),
+                        style: AppTextStyles.bodyMedium.copyWith(color: AppColors.fg),
                       ),
                     ),
                   ],
@@ -117,7 +117,7 @@ class _InventoryScreenState extends State<InventoryScreen>
                     hintText: 'Minimum Alert Level',
                     prefixIcon: Icon(Icons.warning_amber_rounded),
                   ),
-                  style: AppTextStyles.bodyMedium.copyWith(color: AppColors.white),
+                  style: AppTextStyles.bodyMedium.copyWith(color: AppColors.fg),
                 ),
                 const SizedBox(height: 14),
                 Text('Category', style: AppTextStyles.caption),
@@ -191,7 +191,7 @@ class _InventoryScreenState extends State<InventoryScreen>
                     child: Center(
                       child: Text('Save Item',
                           style: AppTextStyles.labelLarge
-                              .copyWith(color: AppColors.navy900)),
+                              .copyWith(color: AppColors.ink900)),
                     ),
                   ),
                 ),
@@ -336,7 +336,7 @@ class _InventoryScreenState extends State<InventoryScreen>
                 gradient: AppColors.goldGradient,
                 borderRadius: BorderRadius.circular(AppRadius.sm),
               ),
-              child: const Icon(Icons.add_rounded, color: Color(0xFF0A1628), size: 18),
+              child: const Icon(Icons.add_rounded, color: Color(0xFFF6F4FD), size: 18),
             ),
             onPressed: () => _showAddItemSheet(context),
           ),
@@ -489,7 +489,7 @@ class _ItemsView extends StatelessWidget {
                           Text(
                             '${item.qty} ${item.unit}',
                             style: AppTextStyles.labelLarge.copyWith(
-                              color: isLow ? AppColors.error : AppColors.white,
+                              color: isLow ? AppColors.error : AppColors.fg,
                             ),
                           ),
                           if (isLow)

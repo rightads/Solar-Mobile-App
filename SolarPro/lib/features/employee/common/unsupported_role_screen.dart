@@ -42,7 +42,7 @@ class UnsupportedRoleScreen extends StatelessWidget {
               Text(
                 'Account Not Supported',
                 style: AppTextStyles.headlineLarge.copyWith(
-                  color: Colors.white,
+                  color: AppColors.fg,
                   fontWeight: FontWeight.w700,
                 ),
               ),
@@ -66,7 +66,7 @@ class UnsupportedRoleScreen extends StatelessWidget {
                   label: const Text('Log Out'),
                   style: ElevatedButton.styleFrom(
                     backgroundColor: AppColors.navy700,
-                    foregroundColor: Colors.white,
+                    foregroundColor: AppColors.fg,
                     side: const BorderSide(color: AppColors.navy600),
                     padding: const EdgeInsets.symmetric(vertical: 14),
                     shape: RoundedRectangleBorder(

@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:solar_pro/core/network/api_client.dart';
+import 'package:solar_pro/core/services/media_picker.dart';
 import 'package:intl/intl.dart';
 import 'package:solar_pro/core/theme/app_theme.dart';
 import 'package:solar_pro/features/employee/site_work/presentation/widgets/scope_of_work_card.dart';
@@ -80,7 +82,7 @@ class _SiteJobDetailScreenState extends State<SiteJobDetailScreen> {
             children: [
               Icon(Icons.warning_amber_rounded, color: AppColors.warning),
               SizedBox(width: 8),
-              Text('Photo Proof Required', style: TextStyle(color: Colors.white, fontSize: 16)),
+              Text('Photo Proof Required', style: TextStyle(color: AppColors.fg, fontSize: 16)),
             ],
           ),
           content: const Text(
@@ -95,7 +97,7 @@ class _SiteJobDetailScreenState extends State<SiteJobDetailScreen> {
               },
               style: ElevatedButton.styleFrom(
                 backgroundColor: AppColors.gold500,
-                foregroundColor: AppColors.navy900,
+                foregroundColor: AppColors.ink900,
               ),
               child: const Text('Add Photo Proof Now'),
             ),
@@ -111,7 +113,7 @@ class _SiteJobDetailScreenState extends State<SiteJobDetailScreen> {
       builder: (ctx) => AlertDialog(
         backgroundColor: AppColors.navy800,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.lg)),
-        title: const Text('Confirm Completion', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+        title: const Text('Confirm Completion', style: TextStyle(color: AppColors.fg, fontWeight: FontWeight.bold)),
         content: Text(
           'Are you sure you want to mark this ${_job.workType.displayName} installation job as Completed?\n\n${_job.photos.length} photo proof(s) will be submitted for customer stage advancement.',
           style: const TextStyle(color: AppColors.grey300, fontSize: 13, height: 1.4),
@@ -125,7 +127,7 @@ class _SiteJobDetailScreenState extends State<SiteJobDetailScreen> {
             onPressed: () => Navigator.of(ctx).pop(true),
             style: ElevatedButton.styleFrom(
               backgroundColor: AppColors.success,
-              foregroundColor: Colors.white,
+              foregroundColor: AppColors.fg,
             ),
             child: const Text('Mark Complete'),
           ),
@@ -167,9 +169,41 @@ class _SiteJobDetailScreenState extends State<SiteJobDetailScreen> {
     }
   }
 
+  /// Rework: moves a completed job back to In Progress; the customer's
+  /// matching lifecycle stage is reopened by the server.
+  Future<void> _reopenForRework() async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Mark job incomplete?'),
+        content: const Text('Use this when rework is needed. The customer timeline will show this stage as incomplete again.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Mark incomplete')),
+        ],
+      ),
+    );
+    if (confirm != true || !mounted) return;
+    setState(() => _isLoading = true);
+    try {
+      await ApiClient().dio.post('/work-assignments/${_job.id}/reopen');
+      final fresh = await _repo.getWorkAssignmentById(_job.id);
+      if (mounted) setState(() => _job = fresh);
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(ApiClient.toFriendly(e).toString().replaceFirst('Exception: ', '')),
+          backgroundColor: AppColors.error,
+        ));
+      }
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
   void _showAddPhotosSheet() {
     final captionCtrl = TextEditingController();
-    int photoCount = 1;
+    List<PickedMedia> picked = [];
 
     showModalBottomSheet(
       context: context,
@@ -207,7 +241,7 @@ class _SiteJobDetailScreenState extends State<SiteJobDetailScreen> {
                   SizedBox(width: 8),
                   Text(
                     'Upload Site Photo Proof',
-                    style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w700),
+                    style: TextStyle(color: AppColors.fg, fontSize: 16, fontWeight: FontWeight.w700),
                   ),
                 ],
               ),
@@ -218,42 +252,43 @@ class _SiteJobDetailScreenState extends State<SiteJobDetailScreen> {
               ),
               const SizedBox(height: 16),
 
-              // Photo count selector
-              Row(
-                children: [
-                  const Text('Number of Photos: ', style: TextStyle(color: Colors.white, fontSize: 13)),
-                  const Spacer(),
-                  IconButton(
-                    icon: const Icon(Icons.remove_circle_outline, color: AppColors.gold500),
-                    onPressed: photoCount > 1
-                        ? () => setSheetState(() => photoCount--)
-                        : null,
-                  ),
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-                    decoration: BoxDecoration(
-                      color: AppColors.navy700,
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: Text(
-                      '$photoCount',
-                      style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14),
-                    ),
-                  ),
-                  IconButton(
-                    icon: const Icon(Icons.add_circle_outline, color: AppColors.gold500),
-                    onPressed: photoCount < 10
-                        ? () => setSheetState(() => photoCount++)
-                        : null,
-                  ),
-                ],
+              // Real camera / gallery selection
+              OutlinedButton.icon(
+                onPressed: () async {
+                  try {
+                    final more = await MediaPicker.pickPhotos(sheetContext, max: 10 - picked.length);
+                    setSheetState(() => picked = [...picked, ...more].take(10).toList());
+                  } catch (e) {
+                    if (!sheetContext.mounted) return;
+                    ScaffoldMessenger.of(sheetContext).showSnackBar(
+                      SnackBar(content: Text(e.toString().replaceFirst('Exception: ', '')), backgroundColor: AppColors.error),
+                    );
+                  }
+                },
+                icon: const Icon(Icons.add_a_photo_outlined),
+                label: Text(picked.isEmpty ? 'Take or choose photos' : 'Add more (${picked.length}/10)'),
               ),
+              if (picked.isNotEmpty) ...[
+                const SizedBox(height: 10),
+                SizedBox(
+                  height: 64,
+                  child: ListView.separated(
+                    scrollDirection: Axis.horizontal,
+                    itemCount: picked.length,
+                    separatorBuilder: (_, __) => const SizedBox(width: 8),
+                    itemBuilder: (_, i) => ClipRRect(
+                      borderRadius: BorderRadius.circular(8),
+                      child: Image.memory(picked[i].bytes, width: 64, height: 64, fit: BoxFit.cover),
+                    ),
+                  ),
+                ),
+              ],
               const SizedBox(height: 12),
 
               // Caption input
               TextField(
                 controller: captionCtrl,
-                style: const TextStyle(color: Colors.white, fontSize: 13),
+                style: const TextStyle(color: AppColors.fg, fontSize: 13),
                 decoration: InputDecoration(
                   labelText: 'Caption / Work Note (Optional)',
                   labelStyle: const TextStyle(color: AppColors.grey400),
@@ -273,17 +308,13 @@ class _SiteJobDetailScreenState extends State<SiteJobDetailScreen> {
               SizedBox(
                 width: double.infinity,
                 child: ElevatedButton.icon(
-                  onPressed: () async {
+                  onPressed: picked.isEmpty ? null : () async {
                     Navigator.of(ctx).pop();
                     setState(() => _isLoading = true);
 
-                    // Generate simulated local photo file paths for upload
-                    final paths = List.generate(
-                      photoCount,
-                      (i) => 'site_proof_${_job.workType.toBackendString()}_${DateTime.now().millisecondsSinceEpoch}_$i.jpg',
-                    );
+                    final paths = [for (final m in picked) if (m.path != null) m.path!];
                     final captions = List.generate(
-                      photoCount,
+                      paths.length,
                       (i) => captionCtrl.text.isNotEmpty
                           ? captionCtrl.text
                           : '${_job.workType.displayName} verification photo ${i + 1}',
@@ -319,10 +350,10 @@ class _SiteJobDetailScreenState extends State<SiteJobDetailScreen> {
                     }
                   },
                   icon: const Icon(Icons.cloud_upload_outlined),
-                  label: Text('Upload $photoCount Photo(s)'),
+                  label: Text(picked.isEmpty ? 'Select photos first' : 'Upload ${picked.length} Photo(s)'),
                   style: ElevatedButton.styleFrom(
                     backgroundColor: AppColors.gold500,
-                    foregroundColor: AppColors.navy900,
+                    foregroundColor: AppColors.ink900,
                     padding: const EdgeInsets.symmetric(vertical: 14),
                     textStyle: const TextStyle(fontWeight: FontWeight.w700),
                   ),
@@ -346,7 +377,7 @@ class _SiteJobDetailScreenState extends State<SiteJobDetailScreen> {
         elevation: 0,
         title: Text(
           '${_job.workType.displayName} Job Details',
-          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 17),
+          style: const TextStyle(color: AppColors.fg, fontWeight: FontWeight.w700, fontSize: 17),
         ),
         actions: [
           if (_job.isPendingSync)
@@ -403,7 +434,7 @@ class _SiteJobDetailScreenState extends State<SiteJobDetailScreen> {
                               Text(
                                 '${_job.workType.displayName} Assignment',
                                 style: const TextStyle(
-                                  color: Colors.white,
+                                  color: AppColors.fg,
                                   fontSize: 16,
                                   fontWeight: FontWeight.w700,
                                 ),
@@ -454,14 +485,14 @@ class _SiteJobDetailScreenState extends State<SiteJobDetailScreen> {
                             SizedBox(width: 8),
                             Text(
                               'Customer & Site Contact',
-                              style: TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.w700),
+                              style: TextStyle(color: AppColors.fg, fontSize: 15, fontWeight: FontWeight.w700),
                             ),
                           ],
                         ),
                         const SizedBox(height: 12),
                         Text(
                           _job.customer?.name ?? 'Customer Name',
-                          style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w700),
+                          style: const TextStyle(color: AppColors.fg, fontSize: 16, fontWeight: FontWeight.w700),
                         ),
                         const SizedBox(height: 8),
 
@@ -488,7 +519,7 @@ class _SiteJobDetailScreenState extends State<SiteJobDetailScreen> {
                               label: const Text('Call'),
                               style: ElevatedButton.styleFrom(
                                 backgroundColor: AppColors.teal500,
-                                foregroundColor: Colors.white,
+                                foregroundColor: AppColors.fg,
                                 minimumSize: Size.zero,
                                 tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                                 padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
@@ -562,7 +593,7 @@ class _SiteJobDetailScreenState extends State<SiteJobDetailScreen> {
                             SizedBox(width: 8),
                             Text(
                               'Schedule & Instructions',
-                              style: TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.w700),
+                              style: TextStyle(color: AppColors.fg, fontSize: 15, fontWeight: FontWeight.w700),
                             ),
                           ],
                         ),
@@ -573,7 +604,7 @@ class _SiteJobDetailScreenState extends State<SiteJobDetailScreen> {
                             const Spacer(),
                             Text(
                               '${dateFormat.format(_job.scheduledStart)} - ${dateFormat.format(_job.scheduledEnd)}',
-                              style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w600),
+                              style: const TextStyle(color: AppColors.fg, fontSize: 13, fontWeight: FontWeight.w600),
                             ),
                           ],
                         ),
@@ -609,7 +640,7 @@ class _SiteJobDetailScreenState extends State<SiteJobDetailScreen> {
                           const SizedBox(height: 4),
                           Text(
                             _job.notes!,
-                            style: const TextStyle(color: Colors.white, fontSize: 13, height: 1.3),
+                            style: const TextStyle(color: AppColors.fg, fontSize: 13, height: 1.3),
                           ),
                         ],
                       ],
@@ -644,7 +675,7 @@ class _SiteJobDetailScreenState extends State<SiteJobDetailScreen> {
                     label: const Text('Start Work On-Site'),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: AppColors.gold500,
-                      foregroundColor: AppColors.navy900,
+                      foregroundColor: AppColors.ink900,
                       padding: const EdgeInsets.symmetric(vertical: 14),
                       textStyle: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15),
                     ),
@@ -658,7 +689,7 @@ class _SiteJobDetailScreenState extends State<SiteJobDetailScreen> {
                     label: const Text('Complete Job with Proof'),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: AppColors.success,
-                      foregroundColor: Colors.white,
+                      foregroundColor: AppColors.fg,
                       padding: const EdgeInsets.symmetric(vertical: 14),
                       textStyle: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15),
                     ),
@@ -688,6 +719,16 @@ class _SiteJobDetailScreenState extends State<SiteJobDetailScreen> {
                         ),
                       ],
                     ),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                OutlinedButton.icon(
+                  onPressed: _isLoading ? null : _reopenForRework,
+                  icon: const Icon(Icons.replay_rounded, size: 18),
+                  label: const Text('Mark incomplete'),
+                  style: OutlinedButton.styleFrom(
+                    minimumSize: const Size(0, 48),
+                    padding: const EdgeInsets.symmetric(horizontal: 12),
                   ),
                 ),
               ],

@@ -158,7 +158,7 @@ class _LeadsScreenState extends State<LeadsScreen>
                 gradient: AppColors.goldGradient,
                 borderRadius: BorderRadius.circular(AppRadius.sm),
               ),
-              child: const Icon(Icons.add_rounded, color: Color(0xFF0A1628), size: 18),
+              child: const Icon(Icons.add_rounded, color: Color(0xFFF6F4FD), size: 18),
             ),
             onPressed: () => _showAddLeadSheet(context),
           ),
@@ -186,7 +186,7 @@ class _LeadsScreenState extends State<LeadsScreen>
             padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
             child: TextField(
               controller: _searchController,
-              style: AppTextStyles.bodyMedium.copyWith(color: AppColors.white),
+              style: AppTextStyles.bodyMedium.copyWith(color: AppColors.fg),
               decoration: InputDecoration(
                 hintText: 'Search leads by name, phone, area...',
                 prefixIcon: const Icon(Icons.search_rounded),
@@ -275,7 +275,7 @@ class _LeadsScreenState extends State<LeadsScreen>
                     hintText: 'Customer Name',
                     prefixIcon: Icon(Icons.person_outline_rounded),
                   ),
-                  style: AppTextStyles.bodyMedium.copyWith(color: AppColors.white),
+                  style: AppTextStyles.bodyMedium.copyWith(color: AppColors.fg),
                 ),
                 const SizedBox(height: 12),
                 TextField(
@@ -285,7 +285,7 @@ class _LeadsScreenState extends State<LeadsScreen>
                     prefixIcon: Icon(Icons.phone_outlined),
                   ),
                   keyboardType: TextInputType.phone,
-                  style: AppTextStyles.bodyMedium.copyWith(color: AppColors.white),
+                  style: AppTextStyles.bodyMedium.copyWith(color: AppColors.fg),
                 ),
                 const SizedBox(height: 12),
                 Row(
@@ -297,7 +297,7 @@ class _LeadsScreenState extends State<LeadsScreen>
                           hintText: 'Area / Location',
                           prefixIcon: Icon(Icons.location_on_outlined),
                         ),
-                        style: AppTextStyles.bodyMedium.copyWith(color: AppColors.white),
+                        style: AppTextStyles.bodyMedium.copyWith(color: AppColors.fg),
                       ),
                     ),
                     const SizedBox(width: 12),
@@ -309,7 +309,7 @@ class _LeadsScreenState extends State<LeadsScreen>
                           prefixIcon: Icon(Icons.bolt_rounded),
                         ),
                         keyboardType: TextInputType.number,
-                        style: AppTextStyles.bodyMedium.copyWith(color: AppColors.white),
+                        style: AppTextStyles.bodyMedium.copyWith(color: AppColors.fg),
                       ),
                     ),
                   ],
@@ -355,7 +355,7 @@ class _LeadsScreenState extends State<LeadsScreen>
                       hintText: 'Referred By (Name of Person)',
                       prefixIcon: Icon(Icons.badge_outlined),
                     ),
-                    style: AppTextStyles.bodyMedium.copyWith(color: AppColors.white),
+                    style: AppTextStyles.bodyMedium.copyWith(color: AppColors.fg),
                   ).animate().fadeIn(duration: 200.ms).slideY(begin: -0.1, end: 0),
                 ],
                 const SizedBox(height: 24),
@@ -428,7 +428,7 @@ class _LeadsScreenState extends State<LeadsScreen>
                     child: Center(
                       child: Text(
                         'Save Lead',
-                        style: AppTextStyles.labelLarge.copyWith(color: AppColors.navy900),
+                        style: AppTextStyles.labelLarge.copyWith(color: AppColors.ink900),
                       ),
                     ),
                   ),
@@ -569,7 +569,7 @@ class _LeadsScreenState extends State<LeadsScreen>
                           content: Row(
                             children: [
                               const Icon(Icons.phone_in_talk_rounded,
-                                  color: Colors.white, size: 18),
+                                  color: AppColors.fg, size: 18),
                               const SizedBox(width: 8),
                               Text('Calling +91 ${lead.phone}...'),
                             ],
@@ -610,7 +610,7 @@ class _LeadsScreenState extends State<LeadsScreen>
                           content: Row(
                             children: [
                               const Icon(Icons.chat_bubble_rounded,
-                                  color: Colors.white, size: 18),
+                                  color: AppColors.fg, size: 18),
                               const SizedBox(width: 8),
                               Text('Opening WhatsApp chat with ${lead.name}...'),
                             ],
@@ -677,7 +677,7 @@ class _LeadsScreenState extends State<LeadsScreen>
                           style: AppTextStyles.labelMedium.copyWith(
                             color: (lead.assignedSalesName?.isNotEmpty ?? false)
                                 ? AppColors.teal400
-                                : AppColors.white,
+                                : AppColors.fg,
                             fontWeight: FontWeight.bold,
                           ),
                         ),
@@ -800,12 +800,12 @@ class _LeadsScreenState extends State<LeadsScreen>
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
                         const Icon(Icons.check_circle_rounded,
-                            color: AppColors.navy900, size: 18),
+                            color: AppColors.ink900, size: 18),
                         const SizedBox(width: 8),
                         Text(
                           'Sales Closed (Convert to Customer)',
                           style: AppTextStyles.labelLarge.copyWith(
-                            color: AppColors.navy900,
+                            color: AppColors.ink900,
                             fontWeight: FontWeight.bold,
                           ),
                         ),
@@ -824,14 +824,13 @@ class _LeadsScreenState extends State<LeadsScreen>
   void _showAssignSalesSheet(BuildContext context, _Lead lead) async {
     List<Map<String, dynamic>> salespersons =
         await ApiClient().getSalespersons();
-    if (salespersons.isEmpty) {
-      salespersons = [
-        {'id': 'sp_1', 'name': 'Mohit Sharma (Sales)', 'phone': '9811002233'},
-        {'id': 'sp_2', 'name': 'Vikram Mehra (Sales Lead)', 'phone': '9822113344'},
-        {'id': 'sp_3', 'name': 'Aryan Jadaun (Vendor)', 'phone': '9837039028'},
-      ];
-    }
     if (!context.mounted) return;
+    if (salespersons.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        content: Text('No approved sales staff yet. Approve a sales registration first.'),
+      ));
+      return;
+    }
 
     showModalBottomSheet(
       context: context,
@@ -879,7 +878,7 @@ class _LeadsScreenState extends State<LeadsScreen>
                   leading: CircleAvatar(
                     backgroundColor: isCurrent ? AppColors.teal500 : AppColors.navy600,
                     child: const Icon(Icons.person_rounded,
-                        color: Colors.white, size: 20),
+                        color: AppColors.fg, size: 20),
                   ),
                   title: Text(name, style: AppTextStyles.labelMedium),
                   subtitle: Text(sp['phone']?.toString() ?? '',
@@ -1007,7 +1006,7 @@ class _LeadsScreenState extends State<LeadsScreen>
                     prefixIcon: Icon(Icons.badge_outlined),
                   ),
                   style: AppTextStyles.bodyMedium
-                      .copyWith(color: AppColors.white),
+                      .copyWith(color: AppColors.fg),
                 ),
                 const SizedBox(height: 12),
 
@@ -1020,7 +1019,7 @@ class _LeadsScreenState extends State<LeadsScreen>
                   ),
                   keyboardType: TextInputType.phone,
                   style: AppTextStyles.bodyMedium
-                      .copyWith(color: AppColors.white),
+                      .copyWith(color: AppColors.fg),
                 ),
                 const SizedBox(height: 16),
 
@@ -1107,7 +1106,7 @@ class _LeadsScreenState extends State<LeadsScreen>
                       prefixIcon: Icon(Icons.groups_rounded),
                     ),
                     style: AppTextStyles.bodyMedium
-                        .copyWith(color: AppColors.white),
+                        .copyWith(color: AppColors.fg),
                   ),
                 ],
                 const SizedBox(height: 24),
@@ -1180,7 +1179,7 @@ class _LeadsScreenState extends State<LeadsScreen>
                           : Text(
                               'Save Employee & Add to Team',
                               style: AppTextStyles.labelLarge
-                                  .copyWith(color: AppColors.navy900),
+                                  .copyWith(color: AppColors.ink900),
                             ),
                     ),
                   ),

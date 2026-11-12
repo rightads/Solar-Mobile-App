@@ -26,7 +26,7 @@ class DesktopHeader extends StatelessWidget {
         color: const Color(0xFF091424),
         border: Border(
           bottom: BorderSide(
-            color: AppColors.white.withValues(alpha: 0.08),
+            color: AppColors.fg.withValues(alpha: 0.08),
             width: 1,
           ),
         ),
@@ -43,7 +43,7 @@ class DesktopHeader extends StatelessWidget {
                 style: AppTextStyles.headlineMedium.copyWith(
                   fontSize: 18,
                   fontWeight: FontWeight.bold,
-                  color: AppColors.white,
+                  color: AppColors.fg,
                 ),
               ),
               Text(
@@ -63,10 +63,10 @@ class DesktopHeader extends StatelessWidget {
             child: Container(
               height: 40,
               decoration: BoxDecoration(
-                color: const Color(0xFF0F1E33),
+                color: const Color(0xFFF1EEFB),
                 borderRadius: BorderRadius.circular(AppRadius.md),
                 border: Border.all(
-                  color: AppColors.white.withValues(alpha: 0.1),
+                  color: AppColors.fg.withValues(alpha: 0.1),
                 ),
               ),
               child: Row(
@@ -76,7 +76,7 @@ class DesktopHeader extends StatelessWidget {
                   const SizedBox(width: 10),
                   Expanded(
                     child: TextField(
-                      style: const TextStyle(color: Colors.white, fontSize: 13),
+                      style: const TextStyle(color: AppColors.fg, fontSize: 13),
                       decoration: InputDecoration(
                         isDense: true,
                         hintText: 'Search leads, customers, serial numbers, paperwork...',
@@ -93,7 +93,7 @@ class DesktopHeader extends StatelessWidget {
                     margin: const EdgeInsets.only(right: 8),
                     padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                     decoration: BoxDecoration(
-                      color: AppColors.white.withValues(alpha: 0.08),
+                      color: AppColors.fg.withValues(alpha: 0.08),
                       borderRadius: BorderRadius.circular(4),
                     ),
                     child: const Text(
@@ -149,7 +149,7 @@ class DesktopHeader extends StatelessWidget {
             ElevatedButton.icon(
               style: ElevatedButton.styleFrom(
                 backgroundColor: AppColors.gold500,
-                foregroundColor: AppColors.navy900,
+                foregroundColor: AppColors.ink900,
                 elevation: 0,
                 padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 9),
                 shape: RoundedRectangleBorder(

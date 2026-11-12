@@ -1,22 +1,19 @@
-import uuid
-from typing import Callable, List, Optional, Set
+from typing import Callable, Optional, Set
 from fastapi import Depends
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
 import structlog
+from app.core import access
 from app.core.exceptions import ForbiddenException, UnauthorizedException
 from app.core.security import decode_access_token
-from app.db.session import get_db
 from app.models.enums import UserRole
-from app.models.user import User
 
 logger = structlog.get_logger()
 security_bearer = HTTPBearer(auto_error=False)
 
 
 class MongoUserProxy:
-    """Lightweight proxy for Mongo-backed authenticated users."""
+    """Authenticated user loaded from MongoDB (never carries the password hash)."""
+
     def __init__(self, doc: dict):
         self.id = str(doc.get("id") or doc["_id"])
         self.name = doc.get("name", "")
@@ -25,114 +22,101 @@ class MongoUserProxy:
         try:
             self.role = UserRole(doc.get("role", "client"))
         except Exception:
-            self.role = doc.get("role", "client")
+            self.role = str(doc.get("role", "client"))
         self.is_active = doc.get("is_active", True)
+        self.is_superadmin = bool(doc.get("is_superadmin", False))
+        self.is_phone_verified = bool(doc.get("is_phone_verified", False))
+        self.is_email_verified = bool(doc.get("is_email_verified", False))
+        self.token_version = int(doc.get("token_version", 0) or 0)
         self.fcm_token = doc.get("fcm_token")
         self.employee_no = doc.get("employee_no")
         self.trade = doc.get("trade")
         self.team = doc.get("team")
 
 
-def _get_user_from_mongo(user_id_str: str) -> Optional[MongoUserProxy]:
-    """Helper to query active user document from MongoDB Atlas."""
+def load_user(user_id_str: str) -> Optional[dict]:
     from app.db.mongo import get_mongo_db
-    mongo_db = get_mongo_db()
-    if mongo_db is None:
+    db = get_mongo_db()
+    if db is None:
         return None
-
-    from bson import ObjectId
-    query_conditions = [{"id": user_id_str}, {"_id": user_id_str}]
-    if ObjectId.is_valid(user_id_str):
-        query_conditions.append({"_id": ObjectId(user_id_str)})
-
-    mongo_user = mongo_db["users"].find_one({"$or": query_conditions, "is_active": True})
-    return MongoUserProxy(mongo_user) if mongo_user else None
+    return db["users"].find_one({"$or": [{"_id": user_id_str}, {"id": user_id_str}]})
 
 
-async def _get_user_from_db(db: AsyncSession, user_id_str: str) -> Optional[User]:
-    """Helper to query active user record from SQLAlchemy."""
-    try:
-        user_uuid = uuid.UUID(user_id_str)
-        query = select(User).where(
-            User.id == user_uuid,
-            User.is_deleted == False,
-        )
-        result = await db.execute(query)
-        user = result.scalar_one_or_none()
-        if user and not user.is_active:
-            raise ForbiddenException("User account is deactivated.")
-        return user
-    except ForbiddenException:
-        raise
-    except Exception as e:
-        logger.debug("sql_user_lookup_failed", error=str(e), user_id=user_id_str)
-        return None
-
-
-def _expand_allowed_roles(*allowed_roles: UserRole | str) -> Set[str]:
-    """Normalize roles and expand aliases (e.g., sales includes salesman/employee, admin includes vendor/co_admin)."""
-    expanded = {
-        role.value if isinstance(role, UserRole) else str(role)
-        for role in allowed_roles
-    }
-    if "admin" in expanded:
-        expanded.add("main_admin")
-        expanded.add("co_admin")
-        expanded.add("super_admin")
-        expanded.add("vendor")
-    if "sales" in expanded:
-        expanded.add("salesman")
-        expanded.add("employee")
-    if "technician" in expanded or "labour" in expanded:
-        expanded.add("site")
-        expanded.add("service")
-        expanded.add("electrician")
-        expanded.add("structure")
-        expanded.add("civil")
-    if "service" in expanded:
-        expanded.add("technician")
-    return expanded
+def assert_can_sign_in(doc: dict) -> None:
+    """Shared gate for token issuance and every authenticated request."""
+    if doc.get("is_superadmin"):
+        return
+    role = str(doc.get("role", "client")).lower()
+    status = str(doc.get("approval_status") or ("approved" if doc.get("is_active") else "pending")).lower()
+    if role != "client":
+        if status == "rejected":
+            raise ForbiddenException("Your account registration was rejected. Please contact support.")
+        if status != "approved":
+            raise ForbiddenException("Your account is pending approval by the Super Admin.")
+    if not doc.get("is_active", False):
+        raise ForbiddenException("This account has been deactivated.")
 
 
 async def get_current_user(
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(security_bearer),
-    db: Optional[AsyncSession] = Depends(get_db),
-) -> User | MongoUserProxy:
-    """Extract and validate the current authenticated active user from JWT."""
+) -> MongoUserProxy:
+    """Validate the bearer token and return the active user it belongs to."""
     if not credentials or not credentials.credentials:
         raise UnauthorizedException("Authentication token required.")
 
     payload = decode_access_token(credentials.credentials)
-    user_id_str: Optional[str] = payload.get("sub")
-
+    user_id_str = str(payload.get("sub") or "")
     if not user_id_str:
         raise UnauthorizedException("Invalid token payload.")
 
-    # 1. Check MongoDB Atlas first
-    mongo_user = _get_user_from_mongo(user_id_str)
-    if mongo_user:
-        return mongo_user
+    doc = load_user(user_id_str)
+    if not doc:
+        raise UnauthorizedException("User not found.")
+    # Tokens issued before a logout-all / password change / deactivation are void.
+    if int(payload.get("tv", -1)) != int(doc.get("token_version", 0) or 0):
+        raise UnauthorizedException("Session has been revoked. Please sign in again.")
+    try:
+        assert_can_sign_in(doc)
+    except ForbiddenException as e:
+        raise UnauthorizedException(e.message)
+    return MongoUserProxy(doc)
 
-    # 2. Check SQLAlchemy if db session is available
-    if db is not None:
-        user = await _get_user_from_db(db, user_id_str)
-        if user:
-            return user
 
-    raise UnauthorizedException("User not found.")
+_ROLE_GROUPS = {
+    "admin": access.ADMIN_ROLES,
+    "manager": {"manager"},
+    "sales": access.SALES_ROLES,
+    "office_staff": {"office_staff"},
+    "kedl": access.KEDL_ROLES,
+    "service": access.SERVICE_ROLES,
+    "technician": access.SITE_ROLES | access.SERVICE_ROLES,
+    "labour": access.SITE_ROLES,
+    "site": access.SITE_ROLES,
+    "client": access.CLIENT_ROLES,
+    "employee": access.SALES_ROLES,
+}
 
 
-def require_roles(*allowed_roles: UserRole | str) -> Callable[[User], User]:
-    """Dependency factory to enforce role-based access control."""
-    allowed_role_values = _expand_allowed_roles(*allowed_roles)
+def _expand_allowed_roles(*allowed_roles: UserRole | str) -> Set[str]:
+    expanded: Set[str] = set()
+    for role in allowed_roles:
+        key = str(getattr(role, "value", role)).lower()
+        expanded |= _ROLE_GROUPS.get(key, {key})
+    return expanded
 
-    async def role_checker(current_user: User = Depends(get_current_user)) -> User:
-        user_role_val = current_user.role.value if isinstance(current_user.role, UserRole) else str(current_user.role)
-        if user_role_val not in allowed_role_values:
-            raise ForbiddenException(
-                f"Operation not permitted. Required roles: {', '.join(allowed_role_values)}"
-            )
+
+def require_roles(*allowed_roles: UserRole | str) -> Callable:
+    """Dependency factory enforcing role-based access control."""
+    allowed = _expand_allowed_roles(*allowed_roles)
+
+    async def role_checker(current_user: MongoUserProxy = Depends(get_current_user)) -> MongoUserProxy:
+        if access.role_of(current_user) not in allowed:
+            raise ForbiddenException("You do not have permission to perform this action.")
         return current_user
 
     return role_checker
 
+
+require_staff = require_roles(*access.STAFF_ROLES)
+require_client = require_roles(UserRole.CLIENT)
+require_admin = require_roles(UserRole.ADMIN)

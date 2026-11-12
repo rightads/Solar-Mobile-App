@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:go_router/go_router.dart';
 import 'package:solar_pro/core/constants/app_constants.dart';
 import 'package:solar_pro/core/network/api_client.dart';
@@ -37,6 +38,15 @@ class DesktopSidebar extends StatefulWidget {
 }
 
 class _DesktopSidebarState extends State<DesktopSidebar> {
+  String _adminName = 'Administrator';
+
+  String get _initials {
+    final parts = _adminName.trim().split(RegExp(r'\s+')).where((p) => p.isNotEmpty).toList();
+    if (parts.isEmpty) return 'A';
+    return (parts.first[0] + (parts.length > 1 ? parts.last[0] : '')).toUpperCase();
+  }
+
+
   int _pendingApprovalsCount = 0;
 
   bool get isCollapsed => widget.isCollapsed;
@@ -47,6 +57,10 @@ class _DesktopSidebarState extends State<DesktopSidebar> {
   @override
   void initState() {
     super.initState();
+    SharedPreferences.getInstance().then((prefs) {
+      final name = prefs.getString(AppConstants.kUserName);
+      if (mounted && name != null && name.isNotEmpty) setState(() => _adminName = name);
+    });
     _loadPendingCount();
   }
 
@@ -66,10 +80,10 @@ class _DesktopSidebarState extends State<DesktopSidebar> {
       curve: Curves.easeInOutCubic,
       width: width,
       decoration: BoxDecoration(
-        color: const Color(0xFF070F1E),
+        color: const Color(0xFFF6F4FD),
         border: Border(
           right: BorderSide(
-            color: AppColors.white.withValues(alpha: 0.08),
+            color: AppColors.fg.withValues(alpha: 0.08),
             width: 1,
           ),
         ),
@@ -84,7 +98,7 @@ class _DesktopSidebarState extends State<DesktopSidebar> {
             decoration: BoxDecoration(
               border: Border(
                 bottom: BorderSide(
-                  color: AppColors.white.withValues(alpha: 0.06),
+                  color: AppColors.fg.withValues(alpha: 0.06),
                 ),
               ),
             ),
@@ -118,7 +132,7 @@ class _DesktopSidebarState extends State<DesktopSidebar> {
                         Text(
                           'SolarPro',
                           style: AppTextStyles.headlineSmall.copyWith(
-                            color: AppColors.white,
+                            color: AppColors.fg,
                             fontWeight: FontWeight.bold,
                             letterSpacing: 0.5,
                           ),
@@ -213,7 +227,7 @@ class _DesktopSidebarState extends State<DesktopSidebar> {
               color: const Color(0xFF0B1728),
               border: Border(
                 top: BorderSide(
-                  color: AppColors.white.withValues(alpha: 0.08),
+                  color: AppColors.fg.withValues(alpha: 0.08),
                 ),
               ),
             ),
@@ -222,7 +236,7 @@ class _DesktopSidebarState extends State<DesktopSidebar> {
                 CircleAvatar(
                   radius: isCollapsed ? 18 : 20,
                   backgroundColor: AppColors.gold500.withValues(alpha: 0.2),
-                  child: const Text('AS',
+                  child: Text(_initials,
                       style: TextStyle(color: AppColors.gold400, fontWeight: FontWeight.bold, fontSize: 13)),
                 ),
                 if (!isCollapsed) ...[
@@ -232,9 +246,9 @@ class _DesktopSidebarState extends State<DesktopSidebar> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          'Aryan Singh',
+                          _adminName,
                           style: AppTextStyles.labelLarge.copyWith(
-                            color: AppColors.white,
+                            color: AppColors.fg,
                             fontWeight: FontWeight.w600,
                           ),
                           overflow: TextOverflow.ellipsis,
@@ -272,7 +286,7 @@ class _DesktopSidebarState extends State<DesktopSidebar> {
     if (isCollapsed) {
       return const Padding(
         padding: EdgeInsets.symmetric(vertical: 8),
-        child: Divider(color: Colors.white10),
+        child: Divider(color: AppColors.fg10),
       );
     }
     return Padding(
@@ -339,7 +353,7 @@ class _DesktopSidebarState extends State<DesktopSidebar> {
                     child: Text(
                       label,
                       style: TextStyle(
-                        color: isSelected ? AppColors.white : AppColors.grey400,
+                        color: isSelected ? AppColors.fg : AppColors.grey400,
                         fontSize: 13,
                         fontWeight: isSelected ? FontWeight.w600 : FontWeight.w400,
                         fontFamily: 'Outfit',

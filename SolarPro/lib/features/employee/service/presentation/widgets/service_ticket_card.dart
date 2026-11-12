@@ -125,7 +125,7 @@ class ServiceTicketCard extends StatelessWidget {
                       child: Text(
                         ticket.title,
                         style: const TextStyle(
-                          color: Colors.white,
+                          color: AppColors.fg,
                           fontSize: 15,
                           fontWeight: FontWeight.w700,
                         ),
@@ -144,7 +144,7 @@ class ServiceTicketCard extends StatelessWidget {
                     const SizedBox(width: 4),
                     Text(
                       ticket.customerName,
-                      style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w600),
+                      style: const TextStyle(color: AppColors.fg, fontSize: 13, fontWeight: FontWeight.w600),
                     ),
                     const SizedBox(width: 8),
                     Expanded(

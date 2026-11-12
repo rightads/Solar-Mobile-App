@@ -58,7 +58,7 @@ enum WorkType {
       case WorkType.structure:
         return const Color(0xFF38BDF8); // sky
       case WorkType.electrical:
-        return const Color(0xFFF5A623); // gold / amber
+        return const Color(0xFFF7A21B); // gold / amber
       case WorkType.civil:
         return const Color(0xFF10B981); // emerald / teal
     }
@@ -117,9 +117,9 @@ enum WorkStatus {
   Color get color {
     switch (this) {
       case WorkStatus.pending:
-        return const Color(0xFF94A3B8); // Slate 400
+        return const Color(0xFF6C6596); // Slate 400
       case WorkStatus.inProgress:
-        return const Color(0xFFF5A623); // Amber / Gold
+        return const Color(0xFFF7A21B); // Amber / Gold
       case WorkStatus.completed:
         return const Color(0xFF10B981); // Emerald / Green
       case WorkStatus.cancelled:

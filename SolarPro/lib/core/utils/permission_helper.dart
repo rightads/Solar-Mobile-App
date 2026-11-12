@@ -88,7 +88,7 @@ class PermissionHelper {
               child: Text(
                 type.title,
                 style: const TextStyle(
-                  color: Colors.white,
+                  color: AppColors.fg,
                   fontWeight: FontWeight.w700,
                   fontSize: 16,
                 ),
@@ -139,7 +139,7 @@ class PermissionHelper {
             onPressed: () => Navigator.of(ctx).pop(true),
             style: ElevatedButton.styleFrom(
               backgroundColor: AppColors.gold500,
-              foregroundColor: AppColors.navy900,
+              foregroundColor: AppColors.ink900,
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(AppRadius.md),
               ),

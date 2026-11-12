@@ -165,7 +165,7 @@ class _KedlScreenState extends State<KedlScreen> {
                             return DropdownMenuItem<String>(
                               value: cId,
                               child: Text('$cName (${cLoc.isNotEmpty ? cLoc : 'Site'})',
-                                  style: const TextStyle(color: AppColors.white)),
+                                  style: const TextStyle(color: AppColors.fg)),
                             );
                           }),
                         ],
@@ -196,7 +196,7 @@ class _KedlScreenState extends State<KedlScreen> {
                     hintText: 'Customer Name',
                     prefixIcon: Icon(Icons.person_outline_rounded),
                   ),
-                  style: AppTextStyles.bodyMedium.copyWith(color: AppColors.white),
+                  style: AppTextStyles.bodyMedium.copyWith(color: AppColors.fg),
                 ),
                 const SizedBox(height: 12),
                 TextField(
@@ -205,7 +205,7 @@ class _KedlScreenState extends State<KedlScreen> {
                     hintText: 'Area / Substation / Discom Division',
                     prefixIcon: Icon(Icons.location_on_outlined),
                   ),
-                  style: AppTextStyles.bodyMedium.copyWith(color: AppColors.white),
+                  style: AppTextStyles.bodyMedium.copyWith(color: AppColors.fg),
                 ),
                 const SizedBox(height: 14),
 
@@ -239,7 +239,7 @@ class _KedlScreenState extends State<KedlScreen> {
                           child: Text(
                             'Create All 3 Files for this Customer (Name Change + Load + Net File)',
                             style: AppTextStyles.bodySmall.copyWith(
-                              color: initAllThree ? AppColors.white : AppColors.grey300,
+                              color: initAllThree ? AppColors.fg : AppColors.grey300,
                               fontWeight: initAllThree ? FontWeight.w600 : FontWeight.w400,
                             ),
                           ),
@@ -294,7 +294,7 @@ class _KedlScreenState extends State<KedlScreen> {
                       hintText: 'Discom Demand Amount (₹) - Optional',
                       prefixIcon: Icon(Icons.currency_rupee_rounded),
                     ),
-                    style: AppTextStyles.bodyMedium.copyWith(color: AppColors.white),
+                    style: AppTextStyles.bodyMedium.copyWith(color: AppColors.fg),
                   ),
                   const SizedBox(height: 12),
                   TextField(
@@ -303,7 +303,7 @@ class _KedlScreenState extends State<KedlScreen> {
                       hintText: 'Demand Notice No. / Reference (e.g. DN-1092)',
                       prefixIcon: Icon(Icons.receipt_outlined),
                     ),
-                    style: AppTextStyles.bodyMedium.copyWith(color: AppColors.white),
+                    style: AppTextStyles.bodyMedium.copyWith(color: AppColors.fg),
                   ),
                 ],
 
@@ -380,7 +380,7 @@ class _KedlScreenState extends State<KedlScreen> {
                             ? 'Initialize All 3 Files (Name Change, Load, Net)'
                             : 'Save KEDL File Application',
                         style: AppTextStyles.labelLarge
-                            .copyWith(color: AppColors.navy900),
+                            .copyWith(color: AppColors.ink900),
                       ),
                     ),
                   ),
@@ -434,7 +434,7 @@ class _KedlScreenState extends State<KedlScreen> {
                 hintText: 'Discom Demand Amount (₹)',
                 prefixIcon: Icon(Icons.currency_rupee_rounded),
               ),
-              style: AppTextStyles.bodyMedium.copyWith(color: AppColors.white),
+              style: AppTextStyles.bodyMedium.copyWith(color: AppColors.fg),
             ),
             const SizedBox(height: 12),
             TextField(
@@ -443,7 +443,7 @@ class _KedlScreenState extends State<KedlScreen> {
                 hintText: 'Demand Notice No. / Ref (e.g. DN-5091)',
                 prefixIcon: Icon(Icons.receipt_long_outlined),
               ),
-              style: AppTextStyles.bodyMedium.copyWith(color: AppColors.white),
+              style: AppTextStyles.bodyMedium.copyWith(color: AppColors.fg),
             ),
             const SizedBox(height: 24),
             GestureDetector(
@@ -497,7 +497,7 @@ class _KedlScreenState extends State<KedlScreen> {
                 child: Center(
                   child: Text('Confirm Demand Notice',
                       style: AppTextStyles.labelLarge
-                          .copyWith(color: AppColors.navy900)),
+                          .copyWith(color: AppColors.ink900)),
                 ),
               ),
             ),
@@ -660,7 +660,7 @@ class _KedlScreenState extends State<KedlScreen> {
                     const SizedBox(height: 8),
                     Text('Amount: ₹${f.demand}',
                         style: AppTextStyles.headlineSmall
-                            .copyWith(color: AppColors.white)),
+                            .copyWith(color: AppColors.fg)),
                     if (f.demandRef.isNotEmpty)
                       Text('Notice Ref: ${f.demandRef}',
                           style: AppTextStyles.bodySmall
@@ -851,7 +851,7 @@ class _KedlScreenState extends State<KedlScreen> {
                         child: Text(
                           f.status == 'demand_paid' ? 'Approve File ✓' : 'Advance Stage →',
                           style: AppTextStyles.labelMedium
-                              .copyWith(color: AppColors.navy900),
+                              .copyWith(color: AppColors.ink900),
                         ),
                       ),
                     ),
@@ -888,7 +888,7 @@ class _KedlScreenState extends State<KedlScreen> {
                 borderRadius: BorderRadius.circular(AppRadius.sm),
               ),
               child: const Icon(Icons.add_rounded,
-                  color: Color(0xFF0A1628), size: 18),
+                  color: Color(0xFFF6F4FD), size: 18),
             ),
             onPressed: () => _showAddFileSheet(context),
           ),

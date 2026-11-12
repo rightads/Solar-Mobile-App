@@ -43,7 +43,7 @@ class ClientPaymentsTab extends StatelessWidget {
               padding: const EdgeInsets.all(18),
               decoration: BoxDecoration(
                 gradient: const LinearGradient(
-                  colors: [Color(0xFF1E3A6E), Color(0xFF0F2040)],
+                  colors: [Color(0xFFDDD7F2), Color(0xFFFFFFFF)],
                   begin: Alignment.topLeft,
                   end: Alignment.bottomRight,
                 ),
@@ -93,7 +93,7 @@ class ClientPaymentsTab extends StatelessWidget {
                               Text('Remaining Balance', style: AppTextStyles.caption.copyWith(color: AppColors.grey400)),
                               const SizedBox(height: 2),
                               Text('₹${remaining.toStringAsFixed(0)}',
-                                  style: AppTextStyles.bodyMedium.copyWith(color: AppColors.white, fontWeight: FontWeight.bold)),
+                                  style: AppTextStyles.bodyMedium.copyWith(color: AppColors.fg, fontWeight: FontWeight.bold)),
                             ],
                           ),
                         ),
@@ -144,7 +144,7 @@ class ClientPaymentsTab extends StatelessWidget {
                         const Icon(Icons.verified_user_rounded, color: AppColors.gold500, size: 20),
                         const SizedBox(width: 8),
                         Text('Salesman Approval Workflow',
-                            style: AppTextStyles.labelLarge.copyWith(color: AppColors.white)),
+                            style: AppTextStyles.labelLarge.copyWith(color: AppColors.fg)),
                       ],
                     ),
                     const SizedBox(height: 8),
@@ -163,7 +163,7 @@ class ClientPaymentsTab extends StatelessWidget {
                       child: ElevatedButton(
                         style: ElevatedButton.styleFrom(
                           backgroundColor: AppColors.gold500,
-                          foregroundColor: AppColors.navy900,
+                          foregroundColor: AppColors.ink900,
                           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.md)),
                         ),
                         onPressed: () => SubmitPaymentModal.show(
@@ -177,7 +177,7 @@ class ClientPaymentsTab extends StatelessWidget {
                             const Icon(Icons.add_a_photo_rounded, size: 18),
                             const SizedBox(width: 8),
                             Text('Submit Payment with Photo',
-                                style: AppTextStyles.labelLarge.copyWith(color: AppColors.navy900, fontWeight: FontWeight.bold)),
+                                style: AppTextStyles.labelLarge.copyWith(color: AppColors.ink900, fontWeight: FontWeight.bold)),
                           ],
                         ),
                       ),
@@ -276,7 +276,7 @@ class ClientPaymentsTab extends StatelessWidget {
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               Text('₹${p.amount.toStringAsFixed(0)}',
-                  style: AppTextStyles.headlineSmall.copyWith(color: AppColors.white, fontWeight: FontWeight.bold)),
+                  style: AppTextStyles.headlineSmall.copyWith(color: AppColors.fg, fontWeight: FontWeight.bold)),
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                 decoration: BoxDecoration(
@@ -329,7 +329,7 @@ class ClientPaymentsTab extends StatelessWidget {
                     context: context,
                     builder: (ctx) => AlertDialog(
                       backgroundColor: AppColors.navy800,
-                      title: const Text('Payment Receipt Photo', style: TextStyle(color: Colors.white)),
+                      title: const Text('Payment Receipt Photo', style: TextStyle(color: AppColors.fg)),
                       content: Column(
                         mainAxisSize: MainAxisSize.min,
                         children: [
@@ -346,7 +346,7 @@ class ClientPaymentsTab extends StatelessWidget {
                               children: [
                                 Icon(Icons.receipt_rounded, size: 54, color: AppColors.gold500),
                                 SizedBox(height: 8),
-                                Text('Receipt Verified Proof', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                                Text('Receipt Verified Proof', style: TextStyle(color: AppColors.fg, fontWeight: FontWeight.bold)),
                                 Text('Official transaction upload', style: TextStyle(color: AppColors.grey400, fontSize: 12)),
                               ],
                             ),

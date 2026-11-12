@@ -1,8 +1,11 @@
 import sys, os
 sys.path.insert(0, os.path.abspath("."))
-from app.db.mongo import mongo_create_employee, get_mongo_db, mongo_get_client_home, mongo_get_client_payments
+from app.db.mongo import mongo_create_employee, get_mongo_db
 
-default_seed_password = os.getenv("DEFAULT_SEED_PASSWORD", "")
+_seed_pw = os.getenv("DEFAULT_SEED_PASSWORD", "")
+if len(_seed_pw) < 8:
+    raise SystemExit("DEFAULT_SEED_PASSWORD must be set to a strong password (8+ chars) before seeding.")
+default_seed_password = _seed_pw
 
 employees = [
     {
@@ -52,14 +55,13 @@ employees = [
 ]
 
 for emp in employees:
-    created = mongo_create_employee(emp)
+    try:
+        created = mongo_create_employee({**emp, "password": default_seed_password})
+    except ValueError as e:
+        print(f"Skipped {emp.get('name')}: {e}")
+        continue
     print(f"Created/Synced employee: {created['name']} ({created.get('employee_no')}) | Role: {created['role']} | Email: {created.get('email')} | Phone: {created['phone']}")
 
 db = get_mongo_db()
 print("Total DB users count:", db["users"].count_documents({}))
 
-# Also initialize client project & payments for client 9837039028
-home = mongo_get_client_home("9837039028")
-print("Initialized Client Home. Stage:", home["stage"], "| Assigned:", home["responsible_contact"]["name"])
-payments = mongo_get_client_payments("9837039028")
-print(f"Initialized Client Payments count: {len(payments)}")

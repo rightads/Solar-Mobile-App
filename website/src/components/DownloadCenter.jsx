@@ -158,20 +158,12 @@ export default function DownloadCenter({ userPlatform, onOpenModal, onDownload }
             <span className="pulse-dot green"></span>
             <div>
               <strong>SolarPro Cloud Production Cluster</strong>
-              <span>Host: <code>http://82.29.165.43:8000/api/v1</code> (Port 8000)</span>
+              <span>Encrypted HTTPS API · TLS 1.2+</span>
             </div>
           </div>
           <div className="api-right">
             <span className="api-badge">Status: 200 OK</span>
-            <span className="api-badge">104 Endpoints Active</span>
-            <a
-              href="http://82.29.165.43:8000/docs"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="api-link"
-            >
-              API Swagger Docs ↗
-            </a>
+            <span className="api-badge">Secured</span>
           </div>
         </div>
 

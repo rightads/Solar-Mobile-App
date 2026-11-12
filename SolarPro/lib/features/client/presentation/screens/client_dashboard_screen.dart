@@ -1,4 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:solar_pro/core/network/api_client.dart';
+import 'package:solar_pro/shared/widgets/sp_greeting_header.dart';
+import 'package:solar_pro/shared/animations/motion.dart';
+import 'package:solar_pro/shared/widgets/sp_bottom_nav.dart';
 import 'package:go_router/go_router.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:solar_pro/core/constants/app_constants.dart';
@@ -39,7 +43,7 @@ class _ClientDashboardScreenState extends State<ClientDashboardScreen> {
     final prefs = await SharedPreferences.getInstance();
     if (mounted) {
       setState(() {
-        _userName = prefs.getString('user_name') ?? 'Aryan Jadaun';
+        _userName = prefs.getString('user_name') ?? 'Client';
       });
     }
   }
@@ -100,7 +104,7 @@ class _ClientDashboardScreenState extends State<ClientDashboardScreen> {
         ),
         title: const Text(
           'Log Out',
-          style: TextStyle(color: AppColors.white, fontWeight: FontWeight.bold),
+          style: TextStyle(color: AppColors.fg, fontWeight: FontWeight.bold),
         ),
         content: const Text(
           'Are you sure you want to log out of your client solar portal?',
@@ -114,7 +118,7 @@ class _ClientDashboardScreenState extends State<ClientDashboardScreen> {
           ElevatedButton(
             style: ElevatedButton.styleFrom(
               backgroundColor: AppColors.error,
-              foregroundColor: Colors.white,
+              foregroundColor: AppColors.fg,
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(AppRadius.md),
               ),
@@ -123,8 +127,7 @@ class _ClientDashboardScreenState extends State<ClientDashboardScreen> {
               final router = GoRouter.of(context);
               final messenger = ScaffoldMessenger.of(context);
               Navigator.of(ctx).pop();
-              final prefs = await SharedPreferences.getInstance();
-              await prefs.clear();
+              await ApiClient().logout();
               if (mounted) {
                 router.go(AppRoutes.login);
                 messenger.showSnackBar(
@@ -149,91 +152,27 @@ class _ClientDashboardScreenState extends State<ClientDashboardScreen> {
 
     return Scaffold(
       backgroundColor: AppColors.navy900,
-      appBar: AppBar(
-        backgroundColor: AppColors.navy900,
-        elevation: 0,
-        scrolledUnderElevation: 0,
-        titleSpacing: 16,
-        title: Row(
-          children: [
-            Container(
-              width: 36,
-              height: 36,
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(10),
-                boxShadow: [
-                  BoxShadow(
-                    color: AppColors.gold500.withValues(alpha: 0.3),
-                    blurRadius: 8,
-                  ),
-                ],
-              ),
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(10),
-                child: Image.asset(AppAssets.logo, fit: BoxFit.cover),
-              ),
-            ),
-            const SizedBox(width: 10),
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text('Client Portal',
-                    style: AppTextStyles.caption.copyWith(color: AppColors.gold400, fontWeight: FontWeight.bold)),
-                Text(_userName,
-                    style: AppTextStyles.labelLarge.copyWith(color: AppColors.white)),
-              ],
-            ),
-          ],
-        ),
-        actions: [
-          // Assigned Employee indicator pill in app bar
-          Container(
-            margin: const EdgeInsets.symmetric(vertical: 10, horizontal: 4),
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-            decoration: BoxDecoration(
-              color: AppColors.navy800,
-              borderRadius: BorderRadius.circular(AppRadius.pill),
-              border: Border.all(
-                color: hasOfficer ? AppColors.gold500.withValues(alpha: 0.4) : AppColors.grey700,
-              ),
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(
-                  hasOfficer ? Icons.badge_outlined : Icons.person_outline_rounded,
-                  color: hasOfficer ? AppColors.gold500 : AppColors.grey400,
-                  size: 14,
-                ),
-                const SizedBox(width: 4),
-                Text(
-                  hasOfficer ? empNo : 'Awaiting Officer',
-                  style: TextStyle(
-                    color: hasOfficer ? AppColors.gold400 : AppColors.grey400,
-                    fontSize: 11,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          IconButton(
-            icon: const Icon(Icons.logout_rounded, color: AppColors.error, size: 20),
-            tooltip: 'Log Out',
-            onPressed: () => _logout(context),
-          ),
-          const SizedBox(width: 4),
-        ],
+      appBar: SpGreetingHeader(
+        name: _userName,
+        role: 'Client',
+        badge: hasOfficer ? empNo : 'Awaiting officer',
+        onBell: () => context.push(AppRoutes.notifications),
+        onLogout: () => _logout(context),
       ),
-      bottomNavigationBar: _ClientBottomNavBar(
+      bottomNavigationBar: SpBottomNav(
         selectedIndex: _selectedIndex,
         onTap: (i) => setState(() => _selectedIndex = i),
+        items: const [
+          SpNavItem(icon: Icons.home_outlined, activeIcon: Icons.home_rounded, label: 'My Project'),
+          SpNavItem(icon: Icons.account_balance_wallet_outlined, activeIcon: Icons.account_balance_wallet_rounded, label: 'Payments'),
+          SpNavItem(icon: Icons.support_agent_outlined, activeIcon: Icons.support_agent_rounded, label: 'Support'),
+        ],
       ),
       body: _isLoading
           ? const Center(
               child: CircularProgressIndicator(color: AppColors.gold500),
             )
-          : IndexedStack(
+          : SpAnimatedIndexedStack(
               index: _selectedIndex,
               children: [
                 // 1) Status with Employee No.
@@ -264,83 +203,4 @@ class _ClientDashboardScreenState extends State<ClientDashboardScreen> {
   }
 }
 
-class _ClientBottomNavBar extends StatelessWidget {
-  final int selectedIndex;
-  final ValueChanged<int> onTap;
 
-  const _ClientBottomNavBar({
-    required this.selectedIndex,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      decoration: const BoxDecoration(
-        color: AppColors.navy800,
-        border: Border(top: BorderSide(color: AppColors.navy700, width: 1)),
-      ),
-      child: SafeArea(
-        child: SizedBox(
-          height: 62,
-          child: Row(
-            children: [
-              _buildNavItem(
-                index: 0,
-                label: 'Status & Emp ID',
-                icon: Icons.assignment_turned_in_rounded,
-                activeColor: AppColors.gold500,
-              ),
-              _buildNavItem(
-                index: 1,
-                label: 'Pay & Salesman',
-                icon: Icons.payments_rounded,
-                activeColor: AppColors.teal400,
-              ),
-              _buildNavItem(
-                index: 2,
-                label: 'Service Tickets',
-                icon: Icons.support_agent_rounded,
-                activeColor: AppColors.orange500,
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildNavItem({
-    required int index,
-    required String label,
-    required IconData icon,
-    required Color activeColor,
-  }) {
-    final isSelected = selectedIndex == index;
-    return Expanded(
-      child: GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onTap: () => onTap(index),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(
-              icon,
-              color: isSelected ? activeColor : AppColors.grey500,
-              size: 22,
-            ),
-            const SizedBox(height: 3),
-            Text(
-              label,
-              style: TextStyle(
-                fontSize: 11,
-                color: isSelected ? activeColor : AppColors.grey500,
-                fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}

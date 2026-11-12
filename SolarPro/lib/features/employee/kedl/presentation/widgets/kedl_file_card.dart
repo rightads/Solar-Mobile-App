@@ -61,7 +61,7 @@ class KedlFileCard extends StatelessWidget {
                           Text(
                             file.fileType.displayName,
                             style: const TextStyle(
-                              color: Colors.white,
+                              color: AppColors.fg,
                               fontSize: 14,
                               fontWeight: FontWeight.w700,
                             ),

@@ -159,7 +159,7 @@ class _TicketsScreenState extends State<TicketsScreen> {
                 child: Center(
                   child: Text('Dispatch Service Technician',
                       style: AppTextStyles.labelMedium
-                          .copyWith(color: AppColors.navy900)),
+                          .copyWith(color: AppColors.ink900)),
                 ),
               ),
             ),
@@ -243,7 +243,7 @@ class _TicketsScreenState extends State<TicketsScreen> {
                     hintText: 'Short Title (e.g. Inverter Error E04)',
                     prefixIcon: Icon(Icons.title_rounded),
                   ),
-                  style: AppTextStyles.bodyMedium.copyWith(color: AppColors.white),
+                  style: AppTextStyles.bodyMedium.copyWith(color: AppColors.fg),
                 ),
                 const SizedBox(height: 12),
                 TextField(
@@ -253,7 +253,7 @@ class _TicketsScreenState extends State<TicketsScreen> {
                     alignLabelWithHint: true,
                   ),
                   maxLines: 3,
-                  style: AppTextStyles.bodyMedium.copyWith(color: AppColors.white),
+                  style: AppTextStyles.bodyMedium.copyWith(color: AppColors.fg),
                 ),
                 const SizedBox(height: 14),
                 // Upload photos
@@ -330,7 +330,7 @@ class _TicketsScreenState extends State<TicketsScreen> {
                     child: Center(
                       child: Text('Submit Service Ticket',
                           style: AppTextStyles.labelLarge
-                              .copyWith(color: AppColors.navy900)),
+                              .copyWith(color: AppColors.ink900)),
                     ),
                   ),
                 ),
@@ -366,7 +366,7 @@ class _TicketsScreenState extends State<TicketsScreen> {
                 borderRadius: BorderRadius.circular(AppRadius.sm),
               ),
               child: const Icon(Icons.add_rounded,
-                  color: Color(0xFF0A1628), size: 18),
+                  color: Color(0xFFF6F4FD), size: 18),
             ),
             onPressed: () => _showNewTicketSheet(context),
           ),

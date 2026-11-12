@@ -142,7 +142,7 @@ class _KedlHomeTabState extends State<KedlHomeTab> {
                       children: [
                         Text(
                           'KEDL Discom Desk',
-                          style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
+                          style: TextStyle(color: AppColors.fg, fontSize: 18, fontWeight: FontWeight.bold),
                         ),
                         SizedBox(height: 4),
                         Text(
@@ -204,7 +204,7 @@ class _KedlHomeTabState extends State<KedlHomeTab> {
                 children: [
                   const Text(
                     'Files by Paperwork Type',
-                    style: TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.bold),
+                    style: TextStyle(color: AppColors.fg, fontSize: 15, fontWeight: FontWeight.bold),
                   ),
                   const SizedBox(height: 12),
                   Row(
@@ -244,7 +244,7 @@ class _KedlHomeTabState extends State<KedlHomeTab> {
                 const Expanded(
                   child: Text(
                     'Demands Requiring Action',
-                    style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
+                    style: TextStyle(color: AppColors.fg, fontSize: 16, fontWeight: FontWeight.bold),
                     overflow: TextOverflow.ellipsis,
                   ),
                 ),
@@ -278,7 +278,7 @@ class _KedlHomeTabState extends State<KedlHomeTab> {
                     SizedBox(height: 10),
                     Text(
                       'All Discom Demands Resolved',
-                      style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 15),
+                      style: TextStyle(color: AppColors.fg, fontWeight: FontWeight.bold, fontSize: 15),
                     ),
                     SizedBox(height: 4),
                     Text(
@@ -366,7 +366,7 @@ class _KedlHomeTabState extends State<KedlHomeTab> {
           const SizedBox(height: 6),
           Text(
             type.displayName,
-            style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w600),
+            style: const TextStyle(color: AppColors.fg, fontSize: 11, fontWeight: FontWeight.w600),
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
           ),

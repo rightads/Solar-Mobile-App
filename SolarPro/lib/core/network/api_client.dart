@@ -1,7 +1,9 @@
 import 'dart:developer' as dev;
+import 'package:flutter/foundation.dart';
 import 'package:dio/dio.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:solar_pro/core/constants/app_constants.dart';
+import 'package:solar_pro/core/services/session_store.dart';
 
 class EmailVerificationRequiredException implements Exception {
   final String message;
@@ -37,27 +39,91 @@ class ApiClient {
       ),
     );
 
+    if (kReleaseMode && !AppConstants.baseUrl.startsWith('https://')) {
+      throw StateError('Release builds must use an https:// API_BASE_URL.');
+    }
+
     _dio.interceptors.add(
-      InterceptorsWrapper(
+      QueuedInterceptorsWrapper(
         onRequest: (options, handler) async {
-          final prefs = await SharedPreferences.getInstance();
-          final token = prefs.getString(AppConstants.kAccessToken);
+          final token = await SessionStore.accessToken();
           if (token != null && token.isNotEmpty) {
             options.headers['Authorization'] = 'Bearer $token';
           }
-          dev.log('API Request: [${options.method}] ${options.uri}');
+          if (kDebugMode) dev.log('API Request: [${options.method}] ${options.uri.path}');
           return handler.next(options);
         },
-        onResponse: (response, handler) {
-          dev.log('API Response: [${response.statusCode}] ${response.requestOptions.uri}');
-          return handler.next(response);
-        },
         onError: (DioException error, handler) async {
-          dev.log('API Error: [${error.response?.statusCode}] ${error.message}');
+          final req = error.requestOptions;
+          final isAuthCall = req.path.startsWith('/auth/');
+          if (error.response?.statusCode == 401 && !isAuthCall && req.extra['retried'] != true) {
+            if (await _refreshSession()) {
+              req.extra['retried'] = true;
+              req.headers['Authorization'] = 'Bearer ${await SessionStore.accessToken()}';
+              try {
+                return handler.resolve(await _dio.fetch(req));
+              } on DioException catch (e) {
+                return handler.next(e);
+              }
+            }
+            await SessionStore.clear();
+            onSessionExpired?.call();
+          }
           return handler.next(error);
         },
       ),
     );
+  }
+
+  /// Invoked when the session can no longer be refreshed (route to login).
+  static void Function()? onSessionExpired;
+
+  final Dio _refreshDio = Dio(BaseOptions(
+    baseUrl: AppConstants.baseUrl,
+    connectTimeout: const Duration(milliseconds: AppConstants.connectTimeout),
+    receiveTimeout: const Duration(milliseconds: AppConstants.receiveTimeout),
+  ));
+
+  Future<bool> _refreshSession() async {
+    final refresh = await SessionStore.refreshToken();
+    if (refresh == null || refresh.isEmpty) return false;
+    try {
+      final res = await _refreshDio.post('/auth/refresh', data: {'refresh_token': refresh});
+      final data = res.data;
+      if (data is Map<String, dynamic> && data['access_token'] is String) {
+        await _persistSession(data);
+        return true;
+      }
+    } catch (e) {
+      dev.log('session refresh failed');
+    }
+    return false;
+  }
+
+  /// Stores tokens securely and caches non-secret profile fields for routing.
+  Future<void> _persistSession(Map<String, dynamic>? data) async {
+    if (data == null || data['access_token'] is! String) return;
+    await SessionStore.save(
+      access: data['access_token'] as String,
+      refresh: data['refresh_token'] as String?,
+    );
+    final user = data['user'];
+    if (user is! Map) return;
+    final prefs = await SharedPreferences.getInstance();
+    Future<void> put(String key, Object? v) async {
+      if (v == null) {
+        await prefs.remove(key);
+      } else {
+        await prefs.setString(key, v.toString());
+      }
+    }
+    await put(AppConstants.kUserRole, user['role']);
+    await put(AppConstants.kUserId, user['id']);
+    await put(AppConstants.kUserName, user['name']);
+    await put(AppConstants.kUserPhone, user['phone']);
+    await put('user_email', user['email']);
+    await put('user_team', user['team'] ?? user['team_type']);
+    await put('user_employee_no', user['employee_no']);
   }
 
   String _formatDioError(DioException de, {String fallback = 'An error occurred.'}) {
@@ -98,6 +164,13 @@ class ApiClient {
 
   Dio get dio => _dio;
 
+  /// User-facing message for any API failure (server message when available).
+  static Exception toFriendly(Object e, {String fallback = 'Something went wrong. Please try again.'}) {
+    if (e is DioException) return Exception(_instance._formatDioError(e, fallback: fallback));
+    if (e is Exception) return e;
+    return Exception(fallback);
+  }
+
   // ── Authentication ─────────────────────────────────────────────────────────
 
   /// Login with email or phone + password (salted bcrypt verification)
@@ -108,42 +181,13 @@ class ApiClient {
         'password': password,
       });
       final data = res.data as Map<String, dynamic>?;
-      if (data != null && data['access_token'] != null) {
-        final prefs = await SharedPreferences.getInstance();
-        await prefs.setString(AppConstants.kAccessToken, data['access_token'] as String);
-        if (data['refresh_token'] != null) {
-          await prefs.setString(AppConstants.kRefreshToken, data['refresh_token'] as String);
-        }
-        if (data['user'] != null && data['user'] is Map) {
-          final user = data['user'] as Map<String, dynamic>;
-          if (user['role'] != null) {
-            await prefs.setString(AppConstants.kUserRole, user['role'] as String);
-          }
-          if (user['id'] != null) {
-            await prefs.setString(AppConstants.kUserId, user['id'].toString());
-          }
-          if (user['name'] != null) {
-            await prefs.setString(AppConstants.kUserName, user['name'] as String);
-          }
-          if (user['phone'] != null) {
-            await prefs.setString(AppConstants.kUserPhone, user['phone'] as String);
-          }
-          if (user['email'] != null) {
-            await prefs.setString('user_email', user['email'] as String);
-          }
-          if (user['team'] != null) {
-            await prefs.setString('user_team', user['team'] as String);
-          } else if (user['team_type'] != null) {
-            await prefs.setString('user_team', user['team_type'] as String);
-          }
-        }
-      }
+      await _persistSession(data);
       return data;
     } on DioException catch (de) {
       final rawData = de.response?.data;
       final errData = rawData is Map && rawData['error'] is Map ? rawData['error'] as Map : null;
       final errCode = errData?['code']?.toString();
-      if (errCode == 'EMAIL_NOT_VERIFIED' || de.response?.statusCode == 403) {
+      if (errCode == 'EMAIL_NOT_VERIFIED') {
         final details = errData?['details'] is Map ? errData!['details'] as Map : null;
         final email = details?['email']?.toString() ?? (identifier.contains('@') ? identifier : null);
         throw EmailVerificationRequiredException(
@@ -185,42 +229,13 @@ class ApiClient {
         'otp': otp,
       });
       final data = res.data as Map<String, dynamic>?;
-      if (data != null && data['access_token'] != null) {
-        final prefs = await SharedPreferences.getInstance();
-        await prefs.setString(AppConstants.kAccessToken, data['access_token'] as String);
-        if (data['refresh_token'] != null) {
-          await prefs.setString(AppConstants.kRefreshToken, data['refresh_token'] as String);
-        }
-        if (data['user'] != null && data['user'] is Map) {
-          final user = data['user'] as Map<String, dynamic>;
-          if (user['role'] != null) {
-            await prefs.setString(AppConstants.kUserRole, user['role'] as String);
-          }
-          if (user['id'] != null) {
-            await prefs.setString(AppConstants.kUserId, user['id'].toString());
-          }
-          if (user['name'] != null) {
-            await prefs.setString(AppConstants.kUserName, user['name'] as String);
-          }
-          if (user['phone'] != null) {
-            await prefs.setString(AppConstants.kUserPhone, user['phone'] as String);
-          }
-          if (user['email'] != null) {
-            await prefs.setString('user_email', user['email'] as String);
-          }
-          if (user['team'] != null) {
-            await prefs.setString('user_team', user['team'] as String);
-          } else if (user['team_type'] != null) {
-            await prefs.setString('user_team', user['team_type'] as String);
-          }
-        }
-      }
+      await _persistSession(data);
       return data;
     } on DioException catch (de) {
       final rawData = de.response?.data;
       final errData = rawData is Map && rawData['error'] is Map ? rawData['error'] as Map : null;
       final errCode = errData?['code']?.toString();
-      if (errCode == 'EMAIL_NOT_VERIFIED' || de.response?.statusCode == 403) {
+      if (errCode == 'EMAIL_NOT_VERIFIED') {
         final details = errData?['details'] is Map ? errData!['details'] as Map : null;
         final email = details?['email']?.toString();
         throw EmailVerificationRequiredException(
@@ -260,36 +275,7 @@ class ApiClient {
         'code': code.trim(),
       });
       final data = res.data as Map<String, dynamic>?;
-      if (data != null && data['access_token'] != null) {
-        final prefs = await SharedPreferences.getInstance();
-        await prefs.setString(AppConstants.kAccessToken, data['access_token'] as String);
-        if (data['refresh_token'] != null) {
-          await prefs.setString(AppConstants.kRefreshToken, data['refresh_token'] as String);
-        }
-        if (data['user'] != null && data['user'] is Map) {
-          final user = data['user'] as Map<String, dynamic>;
-          if (user['role'] != null) {
-            await prefs.setString(AppConstants.kUserRole, user['role'] as String);
-          }
-          if (user['id'] != null) {
-            await prefs.setString(AppConstants.kUserId, user['id'].toString());
-          }
-          if (user['name'] != null) {
-            await prefs.setString(AppConstants.kUserName, user['name'] as String);
-          }
-          if (user['phone'] != null) {
-            await prefs.setString(AppConstants.kUserPhone, user['phone'] as String);
-          }
-          if (user['email'] != null) {
-            await prefs.setString('user_email', user['email'] as String);
-          }
-          if (user['team'] != null) {
-            await prefs.setString('user_team', user['team'] as String);
-          } else if (user['team_type'] != null) {
-            await prefs.setString('user_team', user['team_type'] as String);
-          }
-        }
-      }
+      await _persistSession(data);
       return data;
     } on DioException catch (de) {
       final msg = _formatDioError(de, fallback: 'Invalid or expired verification code.');
@@ -312,25 +298,17 @@ class ApiClient {
     }
   }
 
-  /// Logout
+  /// Logout: revoke the refresh token server-side, then wipe local session.
   Future<void> logout() async {
-    final prefs = await SharedPreferences.getInstance();
     try {
-      final refreshToken = prefs.getString(AppConstants.kRefreshToken);
-      if (refreshToken != null) {
-        await _dio.post('/auth/logout', data: {'refresh_token': refreshToken});
+      final refreshToken = await SessionStore.refreshToken();
+      if (refreshToken != null && refreshToken.isNotEmpty) {
+        await _refreshDio.post('/auth/logout', data: {'refresh_token': refreshToken});
       }
     } catch (e) {
-      dev.log('logout error: $e');
+      dev.log('logout request failed');
     } finally {
-      await prefs.remove(AppConstants.kAccessToken);
-      await prefs.remove(AppConstants.kRefreshToken);
-      await prefs.remove(AppConstants.kUserRole);
-      await prefs.remove(AppConstants.kUserId);
-      await prefs.remove(AppConstants.kUserName);
-      await prefs.remove(AppConstants.kUserPhone);
-      await prefs.remove('user_email');
-      await prefs.remove('user_team');
+      await SessionStore.clear();
     }
   }
 

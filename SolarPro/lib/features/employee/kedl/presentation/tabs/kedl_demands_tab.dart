@@ -135,7 +135,7 @@ class _KedlDemandsTabState extends State<KedlDemandsTab> {
                 children: [
                   const Text(
                     'Fee Demands',
-                    style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.w800),
+                    style: TextStyle(color: AppColors.fg, fontSize: 20, fontWeight: FontWeight.w800),
                   ),
                   const Spacer(),
                   if (overdueCount > 0)
@@ -166,7 +166,7 @@ class _KedlDemandsTabState extends State<KedlDemandsTab> {
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
               child: TextField(
                 onChanged: (val) => setState(() => _searchQuery = val),
-                style: const TextStyle(color: Colors.white, fontSize: 13),
+                style: const TextStyle(color: AppColors.fg, fontSize: 13),
                 decoration: InputDecoration(
                   hintText: 'Search customer name or fee note...',
                   hintStyle: const TextStyle(color: AppColors.grey500, fontSize: 13),

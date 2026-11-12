@@ -38,8 +38,8 @@ jobs:
       - name: Build Windows Desktop App
         run: |
           flutter build windows --release `
-            --dart-define=API_BASE_URL=http://82.29.165.43:8000/api/v1 `
-            --dart-define=API_LIVE_HOST=http://82.29.165.43:8000
+            --dart-define=API_BASE_URL=${{ vars.API_BASE_URL || 'https://api.solarpro-app.in/api/v1' }} `
+            --dart-define=API_LIVE_HOST=${{ vars.API_LIVE_HOST || 'https://api.solarpro-app.in' }}
         working-directory: ./SolarPro
 
       - name: Package Windows Release (ZIP)

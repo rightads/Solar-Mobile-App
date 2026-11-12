@@ -28,7 +28,7 @@ class PendingApprovalCard extends StatelessWidget {
             Align(
               alignment: Alignment.topRight,
               child: IconButton(
-                icon: const Icon(Icons.close_rounded, color: Colors.white, size: 28),
+                icon: const Icon(Icons.close_rounded, color: AppColors.fg, size: 28),
                 onPressed: () => Navigator.of(ctx).pop(),
               ),
             ),
@@ -45,7 +45,7 @@ class PendingApprovalCard extends StatelessWidget {
                     children: [
                       Icon(Icons.broken_image_rounded, color: AppColors.grey500, size: 48),
                       SizedBox(height: 8),
-                      Text('Proof image not available', style: TextStyle(color: Colors.white)),
+                      Text('Proof image not available', style: TextStyle(color: AppColors.fg)),
                     ],
                   ),
                 ),
@@ -70,7 +70,7 @@ class PendingApprovalCard extends StatelessWidget {
           children: [
             Icon(Icons.cancel_outlined, color: AppColors.error, size: 24),
             SizedBox(width: 8),
-            Text('Reject Payment', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+            Text('Reject Payment', style: TextStyle(color: AppColors.fg, fontWeight: FontWeight.bold)),
           ],
         ),
         content: Form(
@@ -87,7 +87,7 @@ class PendingApprovalCard extends StatelessWidget {
               TextFormField(
                 controller: reasonController,
                 maxLines: 3,
-                style: const TextStyle(color: Colors.white, fontSize: 13),
+                style: const TextStyle(color: AppColors.fg, fontSize: 13),
                 decoration: InputDecoration(
                   hintText: 'e.g. UTR reference not matching bank statement, incorrect amount...',
                   hintStyle: const TextStyle(color: AppColors.grey500, fontSize: 12),
@@ -120,7 +120,7 @@ class PendingApprovalCard extends StatelessWidget {
             },
             style: ElevatedButton.styleFrom(
               backgroundColor: AppColors.error,
-              foregroundColor: Colors.white,
+              foregroundColor: AppColors.fg,
             ),
             child: const Text('Confirm Rejection'),
           ),
@@ -205,7 +205,7 @@ class PendingApprovalCard extends StatelessWidget {
               const SizedBox(width: 4),
               Text(
                 payment.modeLabel,
-                style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w500),
+                style: const TextStyle(color: AppColors.fg, fontSize: 12, fontWeight: FontWeight.w500),
               ),
               if (payment.referenceNo != null && payment.referenceNo!.isNotEmpty) ...[
                 const SizedBox(width: 8),
@@ -261,7 +261,7 @@ class PendingApprovalCard extends StatelessWidget {
                   style: ElevatedButton.styleFrom(
                     visualDensity: VisualDensity.compact,
                     backgroundColor: AppColors.teal500,
-                    foregroundColor: Colors.white,
+                    foregroundColor: AppColors.fg,
                     minimumSize: Size.zero,
                     tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                     padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),

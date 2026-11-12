@@ -21,3 +21,9 @@ backend_prompts/
 *.env
 !.env.example
 !.env.prod.example
+
+# Local-only artefacts (may contain secrets / large media)
+SECURITY_AUDIT_REPORT.md
+*.mp4
+scratch/
+Backend/uploads/

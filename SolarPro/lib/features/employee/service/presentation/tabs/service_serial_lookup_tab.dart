@@ -111,7 +111,7 @@ class _ServiceSerialLookupTabState extends State<ServiceSerialLookupTab> {
                   const Text(
                     'Reverse Equipment Serial Lookup',
                     style: TextStyle(
-                      color: Colors.white,
+                      color: AppColors.fg,
                       fontWeight: FontWeight.w700,
                       fontSize: 16,
                     ),
@@ -129,7 +129,7 @@ class _ServiceSerialLookupTabState extends State<ServiceSerialLookupTab> {
                           controller: _serialController,
                           textCapitalization: TextCapitalization.characters,
                           style: const TextStyle(
-                            color: Colors.white,
+                            color: AppColors.fg,
                             fontWeight: FontWeight.w600,
                             letterSpacing: 1.0,
                           ),
@@ -171,7 +171,7 @@ class _ServiceSerialLookupTabState extends State<ServiceSerialLookupTab> {
                             : () => _performLookup(_serialController.text),
                         style: ElevatedButton.styleFrom(
                           backgroundColor: AppColors.gold500,
-                          foregroundColor: AppColors.navy900,
+                          foregroundColor: AppColors.ink900,
                           padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
                           shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(AppRadius.md),
@@ -181,7 +181,7 @@ class _ServiceSerialLookupTabState extends State<ServiceSerialLookupTab> {
                             ? const SizedBox(
                                 width: 20,
                                 height: 20,
-                                child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.navy900),
+                                child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.ink900),
                               )
                             : const Text('Verify', style: TextStyle(fontWeight: FontWeight.w700)),
                       ),
@@ -202,7 +202,7 @@ class _ServiceSerialLookupTabState extends State<ServiceSerialLookupTab> {
                       ..._sampleSerials.map(
                         (sample) => ActionChip(
                           label: Text(sample['label']!),
-                          labelStyle: const TextStyle(fontSize: 11, color: Colors.white, fontWeight: FontWeight.w600),
+                          labelStyle: const TextStyle(fontSize: 11, color: AppColors.fg, fontWeight: FontWeight.w600),
                           backgroundColor: AppColors.navy900,
                           side: const BorderSide(color: AppColors.navy600),
                           onPressed: () {
@@ -234,7 +234,7 @@ class _ServiceSerialLookupTabState extends State<ServiceSerialLookupTab> {
                     Expanded(
                       child: Text(
                         _errorMessage!,
-                        style: const TextStyle(color: Colors.white, fontSize: 13),
+                        style: const TextStyle(color: AppColors.fg, fontSize: 13),
                       ),
                     ),
                   ],
@@ -251,7 +251,7 @@ class _ServiceSerialLookupTabState extends State<ServiceSerialLookupTab> {
             if (_recentSearches.isNotEmpty) ...[
               const Text(
                 'Recent Lookups',
-                style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 14),
+                style: TextStyle(color: AppColors.fg, fontWeight: FontWeight.w700, fontSize: 14),
               ),
               const SizedBox(height: 8),
               Wrap(
@@ -358,7 +358,7 @@ class _ServiceSerialLookupTabState extends State<ServiceSerialLookupTab> {
                 Text(
                   item.itemName,
                   style: const TextStyle(
-                    color: Colors.white,
+                    color: AppColors.fg,
                     fontSize: 18,
                     fontWeight: FontWeight.w700,
                   ),
@@ -424,7 +424,7 @@ class _ServiceSerialLookupTabState extends State<ServiceSerialLookupTab> {
                             const SizedBox(height: 3),
                             Text(
                               item.installedOn != null ? dateFormat.format(item.installedOn!) : 'N/A',
-                              style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 13),
+                              style: const TextStyle(color: AppColors.fg, fontWeight: FontWeight.w600, fontSize: 13),
                             ),
                           ],
                         ),
@@ -456,7 +456,7 @@ class _ServiceSerialLookupTabState extends State<ServiceSerialLookupTab> {
                 // Customer Profile Details
                 const Text(
                   'Installed Customer Profile',
-                  style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 14),
+                  style: TextStyle(color: AppColors.fg, fontWeight: FontWeight.w700, fontSize: 14),
                 ),
                 const SizedBox(height: 10),
                 _buildInfoRow(
@@ -512,7 +512,7 @@ class _ServiceSerialLookupTabState extends State<ServiceSerialLookupTab> {
         Expanded(
           child: Text(
             value,
-            style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w600),
+            style: const TextStyle(color: AppColors.fg, fontSize: 12, fontWeight: FontWeight.w600),
           ),
         ),
         if (trailing != null) trailing,

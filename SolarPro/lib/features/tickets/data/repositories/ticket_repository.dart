@@ -106,17 +106,9 @@ class TicketRepository {
         return updated;
       }
     } catch (e) {
-      dev.log('Error updating ticket status $id: $e. Updating locally.');
+      throw ApiClient.toFriendly(e);
     }
-
-    final current = await getTicketById(id);
-    final updated = current.copyWith(
-      status: status,
-      resolvedAt: status == TicketStatus.resolved ? DateTime.now() : current.resolvedAt,
-      resolutionNote: resolutionNote ?? current.resolutionNote,
-    );
-    await _updateCachedTicket(updated);
-    return updated;
+    throw Exception('Unexpected response from server.');
   }
 
   // ── Add Ticket Comment ─────────────────────────────────────────────────────
@@ -138,23 +130,9 @@ class TicketRepository {
         return comment;
       }
     } catch (e) {
-      dev.log('Error adding ticket comment: $e. Adding locally.');
+      throw ApiClient.toFriendly(e);
     }
-
-    final prefs = await SharedPreferences.getInstance();
-    final name = prefs.getString(AppConstants.kUserName) ?? 'Service Specialist';
-    final comment = TicketCommentModel(
-      id: 'cmt_${DateTime.now().millisecondsSinceEpoch}',
-      ticketId: id,
-      authorName: name,
-      authorRole: 'technician',
-      message: message.trim(),
-      createdAt: DateTime.now(),
-    );
-
-    final current = await getTicketById(id);
-    await _updateCachedTicket(current.copyWith(comments: [...current.comments, comment]));
-    return comment;
+    throw Exception('Unexpected response from server.');
   }
 
   // ── Add Visit Photos ───────────────────────────────────────────────────────
@@ -191,34 +169,9 @@ class TicketRepository {
         return SerialDetailModel.fromJson(response.data as Map<String, dynamic>);
       }
     } catch (e) {
-      dev.log('Error looking up serial $cleanSerial from API: $e. Checking mock inventory.');
+      throw ApiClient.toFriendly(e, fallback: 'Serial number not found.');
     }
-
-    final mockSerials = _generateMockSerials();
-    final match = mockSerials.where((s) => s.serialNo.toUpperCase() == cleanSerial).firstOrNull;
-    if (match != null) return match;
-
-    // Generic fallback if user enters any valid serial code
-    final now = DateTime.now();
-    return SerialDetailModel(
-      id: 'ser_lookup_${now.millisecondsSinceEpoch}',
-      itemId: 'item_gen_01',
-      itemName: cleanSerial.contains('INV') ? 'Solar Grid Inverter' : 'Solar Monocrystalline Module',
-      category: cleanSerial.contains('INV') ? 'inverter' : 'panel',
-      brand: cleanSerial.contains('INV') ? 'Growatt' : 'Adani Solar',
-      model: cleanSerial.contains('INV') ? 'MIN 5000TL-X' : '540W Bifacial',
-      serialNo: cleanSerial,
-      status: 'installed',
-      customerId: 'cust_101',
-      customerName: 'Sunil Verma',
-      customerPhone: '9829012345',
-      customerAddress: 'Plot 42, Malviya Nagar, Jaipur, Rajasthan',
-      supplierName: 'Premier Energy Distributors',
-      warrantyMonths: 60,
-      installedOn: now.subtract(const Duration(days: 120)),
-      warrantyUntil: now.add(const Duration(days: 1705)),
-      isUnderWarranty: true,
-    );
+    throw Exception('Serial number not found.');
   }
 
   // ── Cache & Mock Persistence ───────────────────────────────────────────────
@@ -264,9 +217,7 @@ class TicketRepository {
       }
     } catch (_) {}
 
-    final seed = _generateSeedTickets();
-    await _cacheTickets(seed);
-    return _applyFilters(seed, customerId, status, type, assignedTo, priority, search);
+    return [];
   }
 
   List<TicketModel> _applyFilters(
@@ -295,147 +246,5 @@ class TicketRepository {
     }).toList();
   }
 
-  List<TicketModel> _generateSeedTickets() {
-    final now = DateTime.now();
 
-    return [
-      TicketModel(
-        id: 'tck_001',
-        ticketNo: 'TCK-2026-1001',
-        customerId: 'cust_101',
-        customerName: 'Sunil Verma',
-        customerPhone: '9829012345',
-        customerAddress: 'Plot 42, Malviya Nagar, Jaipur, Rajasthan',
-        type: TicketType.inverter,
-        title: 'Inverter blinking red with error code',
-        description: 'Growatt inverter display shows blinking warning LED and stopped generating power since yesterday.',
-        errorCode: 'E-029: Grid Overvoltage',
-        status: TicketStatus.assigned,
-        priority: TicketPriority.urgent,
-        createdAt: now.subtract(const Duration(hours: 4)),
-        updatedAt: now.subtract(const Duration(hours: 4)),
-        images: [
-          TicketImageModel(
-            id: 'img_tck_01',
-            ticketId: 'tck_001',
-            fileKey: 'inverter_error_display.jpg',
-            createdAt: now.subtract(const Duration(hours: 4)),
-          ),
-        ],
-        comments: [
-          TicketCommentModel(
-            id: 'cmt_01',
-            ticketId: 'tck_001',
-            authorName: 'Sunil Verma',
-            authorRole: 'client',
-            message: 'Please send a service technician urgently, system is not exporting.',
-            createdAt: now.subtract(const Duration(hours: 3)),
-          ),
-        ],
-      ),
-      TicketModel(
-        id: 'tck_002',
-        ticketNo: 'TCK-2026-1002',
-        customerId: 'cust_102',
-        customerName: 'Rajesh Sharma',
-        customerPhone: '9829098765',
-        customerAddress: 'Shop 12, Industrial Area, Kota, Rajasthan',
-        type: TicketType.wiring,
-        title: 'AC conduit clamp loose after high winds',
-        description: 'The outdoor PVC flexible conduit carrying AC output wire came off the wall clamp.',
-        status: TicketStatus.inProgress,
-        priority: TicketPriority.normal,
-        createdAt: now.subtract(const Duration(days: 1)),
-        updatedAt: now.subtract(const Duration(hours: 2)),
-        images: [
-          TicketImageModel(
-            id: 'img_tck_02',
-            ticketId: 'tck_002',
-            fileKey: 'loose_conduit_photo.jpg',
-            createdAt: now.subtract(const Duration(days: 1)),
-          ),
-        ],
-      ),
-      TicketModel(
-        id: 'tck_003',
-        ticketNo: 'TCK-2026-1003',
-        customerId: 'cust_103',
-        customerName: 'Pooja Agarwal',
-        customerPhone: '9414055555',
-        customerAddress: '15 Civil Lines, Ajmer, Rajasthan',
-        type: TicketType.structure,
-        title: 'Structure end-clamp tightening request',
-        description: 'Corner panel clamp was making vibrating sound during high wind.',
-        status: TicketStatus.resolved,
-        priority: TicketPriority.low,
-        resolvedAt: now.subtract(const Duration(days: 2)),
-        resolutionNote: 'Replaced mid-clamp bolt and re-torqued all 8 end clamps with anti-rust spray.',
-        createdAt: now.subtract(const Duration(days: 5)),
-        updatedAt: now.subtract(const Duration(days: 2)),
-      ),
-    ];
-  }
-
-  List<SerialDetailModel> _generateMockSerials() {
-    final now = DateTime.now();
-    return [
-      SerialDetailModel(
-        id: 'ser_01',
-        itemId: 'item_growatt_5k',
-        itemName: 'Growatt 5kW Grid-Tie Inverter',
-        category: 'inverter',
-        brand: 'Growatt',
-        model: 'MIN 5000TL-X',
-        serialNo: 'INV-GW-5K-9901',
-        status: 'installed',
-        customerId: 'cust_101',
-        customerName: 'Sunil Verma',
-        customerPhone: '9829012345',
-        customerAddress: 'Plot 42, Malviya Nagar, Jaipur, Rajasthan',
-        supplierName: 'Premier Energy Distributors',
-        warrantyMonths: 60,
-        installedOn: now.subtract(const Duration(days: 90)),
-        warrantyUntil: now.add(const Duration(days: 1735)),
-        isUnderWarranty: true,
-      ),
-      SerialDetailModel(
-        id: 'ser_02',
-        itemId: 'item_adani_540',
-        itemName: 'Adani Solar 540W Mono PERC',
-        category: 'panel',
-        brand: 'Adani Solar',
-        model: 'Bifacial DCR',
-        serialNo: 'PAN-AD-540-1011',
-        status: 'installed',
-        customerId: 'cust_101',
-        customerName: 'Sunil Verma',
-        customerPhone: '9829012345',
-        customerAddress: 'Plot 42, Malviya Nagar, Jaipur, Rajasthan',
-        supplierName: 'Adani Solar Direct',
-        warrantyMonths: 144,
-        installedOn: now.subtract(const Duration(days: 90)),
-        warrantyUntil: now.add(const Duration(days: 4290)),
-        isUnderWarranty: true,
-      ),
-      SerialDetailModel(
-        id: 'ser_03',
-        itemId: 'item_old_inv',
-        itemName: 'Luminous Solar Inverter 3kW',
-        category: 'inverter',
-        brand: 'Luminous',
-        model: 'NXi 3000',
-        serialNo: 'INV-LUM-3K-0012',
-        status: 'installed',
-        customerId: 'cust_103',
-        customerName: 'Pooja Agarwal',
-        customerPhone: '9414055555',
-        customerAddress: '15 Civil Lines, Ajmer, Rajasthan',
-        supplierName: 'Luminous Power',
-        warrantyMonths: 24,
-        installedOn: now.subtract(const Duration(days: 900)),
-        warrantyUntil: now.subtract(const Duration(days: 170)),
-        isUnderWarranty: false, // Expired warranty!
-      ),
-    ];
-  }
 }

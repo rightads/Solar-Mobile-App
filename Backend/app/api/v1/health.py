@@ -32,5 +32,5 @@ async def health_check(db: AsyncSession = Depends(get_db)):
     except Exception as exc:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=f"Database unavailable: {str(exc)}",
+            detail="Database unavailable.",
         )

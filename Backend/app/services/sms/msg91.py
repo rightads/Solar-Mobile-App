@@ -35,31 +35,42 @@ class Msg91SmsProvider(BaseSmsProvider):
                     if resp.is_success and data.get("Status") == "Success":
                         logger.info("2Factor.in OTP texted successfully", phone=mobile_10, session_id=data.get("Details"))
                         return True
-                    logger.warning("2Factor.in error response", status=resp.status_code, body=resp.text)
+                    logger.warning("2Factor.in error response", status=resp.status_code, status_only=True)
             except Exception as e:
                 logger.error("2Factor.in error", error=str(e))
 
         # 2. Fast2SMS (Fallback Indian SMS Gateway)
         if self.fast2sms_key:
             try:
-                url = "https://www.fast2sms.com/dev/bulkV2"
-                headers = {"authorization": self.fast2sms_key, "Content-Type": "application/json"}
+                # Fast2SMS dev_api supports GET and POST
+                url_get = f"https://www.fast2sms.com/dev/bulkV2?authorization={self.fast2sms_key}&route=otp&variables_values={otp_code}&numbers={mobile_10}"
                 async with httpx.AsyncClient(timeout=10.0) as client:
-                    # Attempt 1: Fast2SMS dedicated OTP route
-                    payload_otp = {
-                        "variables_values": otp_code,
-                        "route": "otp",
-                        "numbers": mobile_10,
-                    }
-                    resp = await client.post(url, headers=headers, json=payload_otp)
+                    resp = await client.get(url_get)
                     try:
                         data = resp.json()
                     except Exception:
                         data = {}
                     if resp.is_success and data.get("return"):
-                        logger.info("Fast2SMS OTP texted successfully (route otp)", phone=mobile_10)
+                        logger.info("Fast2SMS OTP texted successfully (GET route otp)", phone=mobile_10)
                         return True
-                    logger.warning("Fast2SMS route otp returned", status=resp.status_code, body=resp.text)
+
+                    # Fallback to POST
+                    url = "https://www.fast2sms.com/dev/bulkV2"
+                    headers = {"authorization": self.fast2sms_key, "Content-Type": "application/json"}
+                    payload_otp = {
+                        "variables_values": otp_code,
+                        "route": "otp",
+                        "numbers": mobile_10,
+                    }
+                    resp_post = await client.post(url, headers=headers, json=payload_otp)
+                    try:
+                        data_post = resp_post.json()
+                    except Exception:
+                        data_post = {}
+                    if resp_post.is_success and data_post.get("return"):
+                        logger.info("Fast2SMS OTP texted successfully (POST route otp)", phone=mobile_10)
+                        return True
+                    logger.warning("Fast2SMS returned", status=resp_post.status_code, status_only=True)
 
                     # Attempt 2: Quick SMS route
                     payload_q = {
@@ -77,7 +88,7 @@ class Msg91SmsProvider(BaseSmsProvider):
                     if resp_q.is_success and data_q.get("return"):
                         logger.info("Fast2SMS OTP texted successfully (route q)", phone=mobile_10)
                         return True
-                    logger.warning("Fast2SMS route q returned", status=resp_q.status_code, body=resp_q.text)
+                    logger.warning("Fast2SMS route q returned", status=resp_q.status_code, status_only=True)
             except Exception as e:
                 logger.error("Fast2SMS error", error=str(e))
 
@@ -96,7 +107,7 @@ class Msg91SmsProvider(BaseSmsProvider):
                     if resp.is_success:
                         logger.info("Twilio SMS texted successfully", phone=mobile_with_cc)
                         return True
-                    logger.warning("Twilio SMS error response", status=resp.status_code, body=resp.text)
+                    logger.warning("Twilio SMS error response", status=resp.status_code, status_only=True)
             except Exception as e:
                 logger.error("Twilio SMS error", error=str(e))
 
@@ -115,7 +126,7 @@ class Msg91SmsProvider(BaseSmsProvider):
                     if resp.is_success:
                         logger.info("Msg91 SMS texted successfully", phone=mobile_with_cc)
                         return True
-                    logger.warning("Msg91 SMS error response", status=resp.status_code, body=resp.text)
+                    logger.warning("Msg91 SMS error response", status=resp.status_code, status_only=True)
             except Exception as e:
                 logger.error("Msg91 SMS error", error=str(e))
 

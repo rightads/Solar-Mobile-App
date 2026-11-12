@@ -239,7 +239,7 @@ class _AssignTaskDialogState extends State<AssignTaskDialog> {
                     Text(
                       'Assign Task to Staff',
                       style: AppTextStyles.headlineSmall.copyWith(
-                        color: Colors.white,
+                        color: AppColors.fg,
                         fontWeight: FontWeight.bold,
                       ),
                     ),
@@ -277,7 +277,7 @@ class _AssignTaskDialogState extends State<AssignTaskDialog> {
                   const SizedBox(height: 6),
                   TextField(
                     controller: _titleController,
-                    style: const TextStyle(color: Colors.white, fontSize: 14),
+                    style: const TextStyle(color: AppColors.fg, fontSize: 14),
                     decoration: InputDecoration(
                       hintText: 'e.g. Structure foundation layout & grouting',
                       hintStyle: const TextStyle(color: AppColors.grey500, fontSize: 13),
@@ -321,7 +321,7 @@ class _AssignTaskDialogState extends State<AssignTaskDialog> {
                               style: TextStyle(
                                 fontSize: 11,
                                 fontWeight: FontWeight.bold,
-                                color: isSel ? Colors.black : AppColors.grey400,
+                                color: isSel ? AppColors.shadow : AppColors.grey400,
                               ),
                             ),
                             selected: isSel,
@@ -380,7 +380,7 @@ class _AssignTaskDialogState extends State<AssignTaskDialog> {
                               value: cid,
                               child: Text(
                                 '$name ($kw kW)',
-                                style: const TextStyle(color: Colors.white, fontSize: 13),
+                                style: const TextStyle(color: AppColors.fg, fontSize: 13),
                               ),
                             );
                           }).toList(),
@@ -406,7 +406,7 @@ class _AssignTaskDialogState extends State<AssignTaskDialog> {
                   ] else ...[
                     TextField(
                       controller: _customCustomerController,
-                      style: const TextStyle(color: Colors.white, fontSize: 14),
+                      style: const TextStyle(color: AppColors.fg, fontSize: 14),
                       decoration: InputDecoration(
                         hintText: 'Enter Customer or Project Name',
                         hintStyle: const TextStyle(color: AppColors.grey500, fontSize: 13),
@@ -435,7 +435,7 @@ class _AssignTaskDialogState extends State<AssignTaskDialog> {
                   const SizedBox(height: 6),
                   TextField(
                     controller: _locationController,
-                    style: const TextStyle(color: Colors.white, fontSize: 14),
+                    style: const TextStyle(color: AppColors.fg, fontSize: 14),
                     decoration: InputDecoration(
                       hintText: 'e.g. Plot 42, Industrial Area, Jaipur',
                       hintStyle: const TextStyle(color: AppColors.grey500, fontSize: 13),
@@ -494,7 +494,7 @@ class _AssignTaskDialogState extends State<AssignTaskDialog> {
                                 const SizedBox(width: 8),
                                 Text(
                                   _startDate.toIso8601String().split('T').first,
-                                  style: const TextStyle(color: Colors.white, fontSize: 13),
+                                  style: const TextStyle(color: AppColors.fg, fontSize: 13),
                                 ),
                               ],
                             ),
@@ -528,7 +528,7 @@ class _AssignTaskDialogState extends State<AssignTaskDialog> {
                                 const SizedBox(width: 8),
                                 Text(
                                   _endDate.toIso8601String().split('T').first,
-                                  style: const TextStyle(color: Colors.white, fontSize: 13),
+                                  style: const TextStyle(color: AppColors.fg, fontSize: 13),
                                 ),
                               ],
                             ),
@@ -565,7 +565,7 @@ class _AssignTaskDialogState extends State<AssignTaskDialog> {
                   TextField(
                     controller: _notesController,
                     maxLines: 3,
-                    style: const TextStyle(color: Colors.white, fontSize: 13),
+                    style: const TextStyle(color: AppColors.fg, fontSize: 13),
                     decoration: InputDecoration(
                       hintText: 'Enter specific checklist items or site safety guidelines...',
                       hintStyle: const TextStyle(color: AppColors.grey500, fontSize: 12),
@@ -596,7 +596,7 @@ class _AssignTaskDialogState extends State<AssignTaskDialog> {
               onPressed: _isSubmitting ? null : _submitAssignment,
               style: ElevatedButton.styleFrom(
                 backgroundColor: AppColors.gold500,
-                foregroundColor: AppColors.navy900,
+                foregroundColor: AppColors.ink900,
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(AppRadius.md),
                 ),
@@ -608,7 +608,7 @@ class _AssignTaskDialogState extends State<AssignTaskDialog> {
                       height: 20,
                       child: CircularProgressIndicator(
                         strokeWidth: 2,
-                        color: AppColors.navy900,
+                        color: AppColors.ink900,
                       ),
                     )
                   : const Text(

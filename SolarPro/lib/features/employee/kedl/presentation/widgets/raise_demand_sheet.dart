@@ -130,7 +130,7 @@ class _RaiseDemandSheetState extends State<RaiseDemandSheet> {
                 const SizedBox(width: 8),
                 Text(
                   'Raise Discom Demand (${widget.file.fileType.displayName})',
-                  style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
+                  style: const TextStyle(color: AppColors.fg, fontSize: 16, fontWeight: FontWeight.bold),
                 ),
               ],
             ),
@@ -144,7 +144,7 @@ class _RaiseDemandSheetState extends State<RaiseDemandSheet> {
             // Description Field
             TextFormField(
               controller: _descController,
-              style: const TextStyle(color: Colors.white, fontSize: 14),
+              style: const TextStyle(color: AppColors.fg, fontSize: 14),
               maxLines: 2,
               decoration: InputDecoration(
                 labelText: 'Demand Description / Requirement *',
@@ -168,7 +168,7 @@ class _RaiseDemandSheetState extends State<RaiseDemandSheet> {
             TextFormField(
               controller: _amountController,
               keyboardType: TextInputType.number,
-              style: const TextStyle(color: Colors.white, fontSize: 14),
+              style: const TextStyle(color: AppColors.fg, fontSize: 14),
               decoration: InputDecoration(
                 labelText: 'Fee Amount in Rupees (Optional)',
                 labelStyle: const TextStyle(color: AppColors.grey400),
@@ -202,7 +202,7 @@ class _RaiseDemandSheetState extends State<RaiseDemandSheet> {
                           ? 'Due Date: ${dateFormat.format(_selectedDueDate!)}'
                           : 'Select Payment Due Date (Optional)',
                       style: TextStyle(
-                        color: _selectedDueDate != null ? Colors.white : AppColors.grey400,
+                        color: _selectedDueDate != null ? AppColors.fg : AppColors.grey400,
                         fontSize: 13,
                         fontWeight: _selectedDueDate != null ? FontWeight.w600 : FontWeight.normal,
                       ),
@@ -221,12 +221,12 @@ class _RaiseDemandSheetState extends State<RaiseDemandSheet> {
               child: ElevatedButton.icon(
                 onPressed: _isSubmitting ? null : _submit,
                 icon: _isSubmitting
-                    ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black))
+                    ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.shadow))
                     : const Icon(Icons.add_task_rounded),
                 label: const Text('Raise Demand & Set Status'),
                 style: ElevatedButton.styleFrom(
                   backgroundColor: AppColors.gold500,
-                  foregroundColor: AppColors.navy900,
+                  foregroundColor: AppColors.ink900,
                   padding: const EdgeInsets.symmetric(vertical: 14),
                   textStyle: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
                 ),

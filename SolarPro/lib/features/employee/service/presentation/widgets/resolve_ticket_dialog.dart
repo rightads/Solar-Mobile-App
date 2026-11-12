@@ -32,7 +32,7 @@ class _ResolveTicketDialogState extends State<ResolveTicketDialog> {
           SizedBox(width: 8),
           Text(
             'Resolve Service Ticket',
-            style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16),
+            style: TextStyle(color: AppColors.fg, fontWeight: FontWeight.bold, fontSize: 16),
           ),
         ],
       ),
@@ -49,12 +49,12 @@ class _ResolveTicketDialogState extends State<ResolveTicketDialog> {
             const SizedBox(height: 12),
             const Text(
               'Resolution Note (Mandatory) *',
-              style: TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w600),
+              style: TextStyle(color: AppColors.fg, fontSize: 13, fontWeight: FontWeight.w600),
             ),
             const SizedBox(height: 6),
             TextFormField(
               controller: _noteController,
-              style: const TextStyle(color: Colors.white, fontSize: 13),
+              style: const TextStyle(color: AppColors.fg, fontSize: 13),
               maxLines: 3,
               decoration: InputDecoration(
                 hintText: 'Describe the action taken (e.g. Replaced MC4 connector, tested grid voltage, inverter restarted).',
@@ -89,7 +89,7 @@ class _ResolveTicketDialogState extends State<ResolveTicketDialog> {
           },
           style: ElevatedButton.styleFrom(
             backgroundColor: AppColors.success,
-            foregroundColor: Colors.white,
+            foregroundColor: AppColors.fg,
             minimumSize: Size.zero,
             tapTargetSize: MaterialTapTargetSize.shrinkWrap,
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),

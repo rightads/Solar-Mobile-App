@@ -104,7 +104,7 @@ class _SalesmanCustomersTabState extends State<SalesmanCustomersTab> {
                       const Text(
                         'My Converted Customers',
                         style: TextStyle(
-                          color: Colors.white,
+                          color: AppColors.fg,
                           fontSize: 20,
                           fontWeight: FontWeight.w800,
                         ),
@@ -131,7 +131,7 @@ class _SalesmanCustomersTabState extends State<SalesmanCustomersTab> {
                   // Search Bar
                   TextField(
                     controller: _searchController,
-                    style: const TextStyle(color: Colors.white, fontSize: 14),
+                    style: const TextStyle(color: AppColors.fg, fontSize: 14),
                     decoration: InputDecoration(
                       hintText: 'Search customer name, phone, address...',
                       hintStyle: const TextStyle(color: AppColors.grey500),
@@ -179,7 +179,7 @@ class _SalesmanCustomersTabState extends State<SalesmanCustomersTab> {
                     label: Text(
                       stage,
                       style: TextStyle(
-                        color: isSelected ? Colors.white : AppColors.grey400,
+                        color: isSelected ? AppColors.fg : AppColors.grey400,
                         fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
                         fontSize: 12,
                       ),
@@ -193,7 +193,7 @@ class _SalesmanCustomersTabState extends State<SalesmanCustomersTab> {
                     },
                     backgroundColor: AppColors.navy800,
                     selectedColor: AppColors.teal500,
-                    checkmarkColor: Colors.white,
+                    checkmarkColor: AppColors.fg,
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(AppRadius.pill),
                       side: BorderSide(
@@ -249,7 +249,7 @@ class _SalesmanCustomersTabState extends State<SalesmanCustomersTab> {
                 label: const Text('Try Again'),
                 style: ElevatedButton.styleFrom(
                   backgroundColor: AppColors.teal500,
-                  foregroundColor: Colors.white,
+                  foregroundColor: AppColors.fg,
                 ),
               ),
             ],
@@ -276,7 +276,7 @@ class _SalesmanCustomersTabState extends State<SalesmanCustomersTab> {
               const SizedBox(height: 16),
               const Text(
                 'No Converted Customers Found',
-                style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
+                style: TextStyle(color: AppColors.fg, fontSize: 16, fontWeight: FontWeight.bold),
               ),
               const SizedBox(height: 8),
               const Text(
@@ -361,7 +361,7 @@ class _CustomerCard extends StatelessWidget {
                         Text(
                           customer.name,
                           style: const TextStyle(
-                            color: Colors.white,
+                            color: AppColors.fg,
                             fontSize: 16,
                             fontWeight: FontWeight.w700,
                           ),
@@ -459,11 +459,11 @@ class _CustomerCard extends StatelessWidget {
                   const SizedBox(width: 8),
                   ElevatedButton.icon(
                     onPressed: onTap,
-                    icon: const Icon(Icons.arrow_forward_rounded, color: Colors.white, size: 15),
+                    icon: const Icon(Icons.arrow_forward_rounded, color: AppColors.fg, size: 15),
                     label: const Text('Details', style: TextStyle(fontSize: 12)),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: AppColors.teal500,
-                      foregroundColor: Colors.white,
+                      foregroundColor: AppColors.fg,
                       visualDensity: VisualDensity.compact,
                       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                     ),
@@ -507,7 +507,7 @@ class _SpecItem extends StatelessWidget {
         Text(
           value,
           style: TextStyle(
-            color: valueColor ?? Colors.white,
+            color: valueColor ?? AppColors.fg,
             fontSize: 13,
             fontWeight: FontWeight.w700,
           ),

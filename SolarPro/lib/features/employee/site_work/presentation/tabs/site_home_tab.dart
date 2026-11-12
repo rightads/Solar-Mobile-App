@@ -159,7 +159,7 @@ class _SiteHomeTabState extends State<SiteHomeTab> {
                         Text(
                           'Welcome, $_workerName',
                           style: const TextStyle(
-                            color: Colors.white,
+                            color: AppColors.fg,
                             fontSize: 18,
                             fontWeight: FontWeight.w700,
                           ),
@@ -234,7 +234,7 @@ class _SiteHomeTabState extends State<SiteHomeTab> {
                       onPressed: _offlineQueue.isSyncing ? null : _handleSyncNow,
                       style: ElevatedButton.styleFrom(
                         backgroundColor: AppColors.warning,
-                        foregroundColor: Colors.black,
+                        foregroundColor: AppColors.shadow,
                         minimumSize: Size.zero,
                         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                         textStyle: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
@@ -243,7 +243,7 @@ class _SiteHomeTabState extends State<SiteHomeTab> {
                           ? const SizedBox(
                               width: 14,
                               height: 14,
-                              child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black),
+                              child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.shadow),
                             )
                           : const Text('Sync Now'),
                     ),
@@ -294,7 +294,7 @@ class _SiteHomeTabState extends State<SiteHomeTab> {
                 const Text(
                   "Today's Priority Jobs",
                   style: TextStyle(
-                    color: Colors.white,
+                    color: AppColors.fg,
                     fontSize: 16,
                     fontWeight: FontWeight.w700,
                   ),
@@ -333,7 +333,7 @@ class _SiteHomeTabState extends State<SiteHomeTab> {
                     SizedBox(height: 10),
                     Text(
                       'No site jobs scheduled for today',
-                      style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 14),
+                      style: TextStyle(color: AppColors.fg, fontWeight: FontWeight.w600, fontSize: 14),
                     ),
                     SizedBox(height: 4),
                     Text(

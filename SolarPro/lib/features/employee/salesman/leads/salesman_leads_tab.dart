@@ -128,7 +128,7 @@ class _SalesmanLeadsTabState extends State<SalesmanLeadsTab> {
                 // Search Input
                 TextField(
                   controller: _searchController,
-                  style: const TextStyle(color: Colors.white, fontSize: 14),
+                  style: const TextStyle(color: AppColors.fg, fontSize: 14),
                   decoration: InputDecoration(
                     hintText: 'Search by prospect name or phone...',
                     hintStyle: const TextStyle(color: AppColors.grey500, fontSize: 13),
@@ -211,7 +211,7 @@ class _SalesmanLeadsTabState extends State<SalesmanLeadsTab> {
           }
         },
         backgroundColor: AppColors.gold500,
-        foregroundColor: AppColors.navy900,
+        foregroundColor: AppColors.ink900,
         icon: const Icon(Icons.person_add_alt_1_rounded),
 
         label: const Text('New Lead', style: TextStyle(fontWeight: FontWeight.w700)),
@@ -236,7 +236,7 @@ class _SalesmanLeadsTabState extends State<SalesmanLeadsTab> {
               Text(
                 _errorMessage!,
                 textAlign: TextAlign.center,
-                style: const TextStyle(color: Colors.white, fontSize: 14),
+                style: const TextStyle(color: AppColors.fg, fontSize: 14),
               ),
               const SizedBox(height: 16),
               ElevatedButton.icon(
@@ -245,7 +245,7 @@ class _SalesmanLeadsTabState extends State<SalesmanLeadsTab> {
                 label: const Text('Retry'),
                 style: ElevatedButton.styleFrom(
                   backgroundColor: AppColors.navy700,
-                  foregroundColor: Colors.white,
+                  foregroundColor: AppColors.fg,
                 ),
               ),
             ],
@@ -268,7 +268,7 @@ class _SalesmanLeadsTabState extends State<SalesmanLeadsTab> {
                 _searchQuery.isNotEmpty
                     ? 'No leads matching "$_searchQuery"'
                     : (_selectedFilter == 'All' ? 'No leads found' : 'No $_selectedFilter leads'),
-                style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w600),
+                style: const TextStyle(color: AppColors.fg, fontSize: 16, fontWeight: FontWeight.w600),
               ),
               const SizedBox(height: 6),
               const Text(
@@ -347,7 +347,7 @@ class _SalesmanLeadsTabState extends State<SalesmanLeadsTab> {
                         Text(
                           lead.name,
                           style: const TextStyle(
-                            color: Colors.white,
+                            color: AppColors.fg,
                             fontWeight: FontWeight.w700,
                             fontSize: 15,
                           ),
@@ -423,7 +423,7 @@ class _SalesmanLeadsTabState extends State<SalesmanLeadsTab> {
                       ),
                       child: Text(
                         '${lead.expectedKw} kW',
-                        style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w600),
+                        style: const TextStyle(color: AppColors.fg, fontSize: 11, fontWeight: FontWeight.w600),
                       ),
                     ),
                   const Spacer(),

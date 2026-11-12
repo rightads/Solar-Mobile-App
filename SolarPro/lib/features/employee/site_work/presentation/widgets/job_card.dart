@@ -49,7 +49,7 @@ class SiteJobCard extends StatelessWidget {
         ),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: 0.15),
+            color: AppColors.shadow.withValues(alpha: 0.15),
             blurRadius: 8,
             offset: const Offset(0, 4),
           ),
@@ -150,7 +150,7 @@ class SiteJobCard extends StatelessWidget {
                 Text(
                   job.customer?.name ?? 'Customer Assignment',
                   style: const TextStyle(
-                    color: Colors.white,
+                    color: AppColors.fg,
                     fontSize: 16,
                     fontWeight: FontWeight.w700,
                   ),
@@ -199,7 +199,7 @@ class SiteJobCard extends StatelessWidget {
                       Text(
                         dateStr,
                         style: TextStyle(
-                          color: isToday ? AppColors.gold500 : Colors.white,
+                          color: isToday ? AppColors.gold500 : AppColors.fg,
                           fontSize: 12,
                           fontWeight: isToday ? FontWeight.w700 : FontWeight.w500,
                         ),

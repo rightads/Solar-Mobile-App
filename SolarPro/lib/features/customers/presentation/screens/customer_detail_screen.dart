@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:solar_pro/core/services/media_picker.dart';
+import 'package:dio/dio.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:timeline_tile/timeline_tile.dart';
 import 'package:solar_pro/core/network/api_client.dart';
@@ -19,18 +21,79 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen>
   late _CustomerInfo _customer;
   bool _isLoading = true;
 
-  final List<_StageInfo> _stages = [
-    _StageInfo('Sale Confirmed', true, AppColors.success, Icons.handshake_rounded),
-    _StageInfo('Docs Received', true, AppColors.success, Icons.folder_rounded),
-    _StageInfo('Advance Verified', true, AppColors.success, Icons.verified_rounded),
-    _StageInfo('Structure Work', true, AppColors.success, Icons.foundation_rounded),
-    _StageInfo('Electrical Work', true, AppColors.success, Icons.electrical_services_rounded),
-    _StageInfo('Civil Work', false, AppColors.warning, Icons.construction_rounded),
-    _StageInfo('Installation Done', false, AppColors.grey600, Icons.solar_power_rounded),
-    _StageInfo('KEDL Process', false, AppColors.grey600, Icons.description_rounded),
-    _StageInfo('Net Meter Installed', false, AppColors.grey600, Icons.bolt_rounded),
-    _StageInfo('Handed Over', false, AppColors.grey600, Icons.celebration_rounded),
+  static const _stageMeta = [
+    ('SALE_CONFIRMED', 'Sale Confirmed', Icons.handshake_rounded),
+    ('DOCUMENTS_RECEIVED', 'Docs Received', Icons.folder_rounded),
+    ('ADVANCE_VERIFIED', 'Advance Verified', Icons.verified_rounded),
+    ('STRUCTURE_WORK', 'Structure Work', Icons.foundation_rounded),
+    ('ELECTRICAL_WORK', 'Electrical Work', Icons.electrical_services_rounded),
+    ('CIVIL_WORK', 'Civil Work', Icons.construction_rounded),
+    ('INSTALLATION_COMPLETE', 'Installation Done', Icons.solar_power_rounded),
+    ('KEDL_PROCESS', 'KEDL Process', Icons.description_rounded),
+    ('SYSTEM_LIVE', 'System Live / Net Meter', Icons.bolt_rounded),
+    ('HANDED_OVER', 'Handed Over', Icons.celebration_rounded),
   ];
+
+  // Live 10-stage timeline from the backend (never hardcoded).
+  List<_StageInfo> _stages = [
+    for (final m in _stageMeta) _StageInfo(m.$1, m.$2, false, AppColors.grey600, m.$3),
+  ];
+  String? _togglingStage;
+
+  List<_StageInfo> _parseTimeline(Map<String, dynamic> data) {
+    final byKey = <String, Map>{};
+    for (final st in (data['stages'] as List? ?? const [])) {
+      if (st is Map) byKey[st['stage'].toString()] = st;
+    }
+    return [
+      for (final m in _stageMeta)
+        _StageInfo(
+          m.$1,
+          m.$2,
+          byKey[m.$1]?['done'] == true,
+          byKey[m.$1]?['status'] == 'current' ? AppColors.warning : AppColors.success,
+          m.$3,
+          current: byKey[m.$1]?['status'] == 'current',
+          by: byKey[m.$1]?['by']?.toString(),
+          date: byKey[m.$1]?['date']?.toString(),
+        ),
+    ];
+  }
+
+  Future<void> _loadTimeline() async {
+    try {
+      final res = await ApiClient().dio.get('/customers/${widget.customerId}/timeline');
+      if (mounted && res.data is Map) {
+        setState(() => _stages = _parseTimeline(Map<String, dynamic>.from(res.data as Map)));
+      }
+    } catch (_) {}
+  }
+
+  Future<void> _toggleStage(_StageInfo stage) async {
+    if (_togglingStage != null) return;
+    setState(() => _togglingStage = stage.key);
+    try {
+      final res = await ApiClient().dio.post(
+        '/customers/${widget.customerId}/timeline',
+        data: {'stage': stage.key, 'done': !stage.done},
+      );
+      if (mounted && res.data is Map) {
+        setState(() => _stages = _parseTimeline(Map<String, dynamic>.from(res.data as Map)));
+      }
+    } catch (e) {
+      if (mounted) {
+        final code = e is DioException ? e.response?.statusCode : null;
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(code == 404 || code == 403
+              ? 'Only the employee responsible for this stage (or an admin) can change it.'
+              : ApiClient.toFriendly(e).toString().replaceFirst('Exception: ', '')),
+          backgroundColor: AppColors.error,
+        ));
+      }
+    } finally {
+      if (mounted) setState(() => _togglingStage = null);
+    }
+  }
 
   late List<_DocItem> _documents;
   List<_MilestoneItem> _milestones = [];
@@ -77,6 +140,7 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen>
   }
 
   Future<void> _loadFromBackend() async {
+    _loadTimeline();
     setState(() => _isLoading = true);
     try {
       final results = await Future.wait([
@@ -103,11 +167,11 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen>
         // Documents
         final rawDocs = cMap['documents'] is Map ? cMap['documents'] as Map : {};
         final updatedDocs = [
-          _DocItem('e_bill', 'E-Bill', Icons.receipt_long_rounded, AppColors.teal500, rawDocs['e_bill'] == true || (rawDocs['e_bill'] is String && rawDocs['e_bill'].isNotEmpty)),
-          _DocItem('aadhaar', 'Aadhaar Card', Icons.badge_rounded, AppColors.gold500, rawDocs['aadhaar'] == true || (rawDocs['aadhaar'] is String && rawDocs['aadhaar'].isNotEmpty)),
-          _DocItem('pan', 'PAN Card', Icons.credit_card_rounded, AppColors.info, rawDocs['pan'] == true || (rawDocs['pan'] is String && rawDocs['pan'].isNotEmpty)),
-          _DocItem('cancelled_cheque', 'Cancelled Cheque', Icons.account_balance_rounded, AppColors.orange500, rawDocs['cancelled_cheque'] == true || (rawDocs['cancelled_cheque'] is String && rawDocs['cancelled_cheque'].isNotEmpty)),
-          _DocItem('registry', 'Registry (Property Paper)', Icons.home_work_rounded, AppColors.purple500, rawDocs['registry'] == true || (rawDocs['registry'] is String && rawDocs['registry'].isNotEmpty)),
+          _DocItem('e_bill', 'E-Bill', Icons.receipt_long_rounded, AppColors.teal500, _isUploaded(rawDocs['e_bill'])),
+          _DocItem('aadhaar', 'Aadhaar Card', Icons.badge_rounded, AppColors.gold500, _isUploaded(rawDocs['aadhaar'])),
+          _DocItem('pan', 'PAN Card', Icons.credit_card_rounded, AppColors.info, _isUploaded(rawDocs['pan'])),
+          _DocItem('cancelled_cheque', 'Cancelled Cheque', Icons.account_balance_rounded, AppColors.orange500, _isUploaded(rawDocs['cancelled_cheque'])),
+          _DocItem('registry', 'Registry (Property Paper)', Icons.home_work_rounded, AppColors.purple500, _isUploaded(rawDocs['registry'])),
         ];
 
         // Milestones
@@ -116,34 +180,6 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen>
           final mm = Map<String, dynamic>.from(m as Map);
           return _MilestoneItem.fromMap(mm);
         }).toList();
-
-        // If no milestones found, initialize 1st Payment & 2nd Payment from Page 1 specs
-        if (parsedMilestones.isEmpty) {
-          final firstAmt = (finalPrice * 0.2).round();
-          final secondAmt = (finalPrice * 0.5).round();
-          parsedMilestones.addAll([
-            _MilestoneItem(
-              id: 'm_1',
-              title: '1st Payment (Booking Advance)',
-              amount: firstAmt,
-              status: paidAmt >= firstAmt ? 'verified' : 'pending',
-              dueDate: 'On Booking',
-              verifiedBy: 'Sales Representative',
-              employeeVerifiedDate: paidAmt >= firstAmt ? '2026-10-10' : '',
-              customerVerifiedDate: paidAmt >= firstAmt ? '2026-10-10' : '',
-            ),
-            _MilestoneItem(
-              id: 'm_2',
-              title: '2nd Payment (Structure & Module Delivery)',
-              amount: secondAmt,
-              status: paidAmt >= (firstAmt + secondAmt) ? 'verified' : 'pending',
-              dueDate: 'Material Dispatch',
-              verifiedBy: 'Installation Engineer',
-              employeeVerifiedDate: '',
-              customerVerifiedDate: '',
-            ),
-          ]);
-        }
 
         setState(() {
           _customer = _CustomerInfo(
@@ -178,49 +214,47 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen>
     super.dispose();
   }
 
+  static bool _isUploaded(Object? v) => v is Map || v == true || (v is String && v.isNotEmpty);
+
   Future<void> _uploadDocument(int index) async {
     final doc = _documents[index];
-    final newStatus = !doc.uploaded;
-
-    setState(() {
-      _documents[index] = doc.copyWith(uploaded: newStatus);
-    });
-
-    final docMap = <String, dynamic>{};
-    for (final d in _documents) {
-      docMap[d.key] = d.uploaded;
-    }
-    final count = _documents.where((d) => d.uploaded).length;
-
+    final messenger = ScaffoldMessenger.of(context);
     try {
-      await ApiClient().updateCustomer(
-        customerId: widget.customerId,
-        data: {
-          'documents': docMap,
-          'documents_count': count,
-        },
-      );
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              newStatus
-                  ? 'Document "${doc.name}" marked as uploaded & verified in cloud!'
-                  : 'Document "${doc.name}" removed.',
-            ),
-            backgroundColor: newStatus ? AppColors.success : AppColors.grey600,
+      if (doc.uploaded) {
+        final confirm = await showDialog<bool>(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            title: Text('Remove ${doc.name}?'),
+            content: const Text('The uploaded file will be detached from this customer.'),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+              TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Remove')),
+            ],
           ),
         );
+        if (confirm != true) return;
+        await ApiClient().dio.delete('/customers/${widget.customerId}/documents/${doc.key}');
+      } else {
+        final picked = await MediaPicker.pickDocument();
+        if (picked == null) return;
+        await ApiClient().dio.post(
+          '/customers/${widget.customerId}/documents',
+          data: FormData.fromMap({
+            'type': doc.key,
+            'file': MultipartFile.fromBytes(picked.bytes, filename: picked.name),
+          }),
+        );
       }
+      await _loadFromBackend();
+      messenger.showSnackBar(SnackBar(
+        content: Text(doc.uploaded ? '${doc.name} removed.' : '${doc.name} uploaded securely.'),
+        backgroundColor: doc.uploaded ? AppColors.grey600 : AppColors.success,
+      ));
     } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Failed to update document: $e'),
-            backgroundColor: AppColors.error,
-          ),
-        );
-      }
+      messenger.showSnackBar(SnackBar(
+        content: Text(ApiClient.toFriendly(e).toString().replaceFirst('Exception: ', '')),
+        backgroundColor: AppColors.error,
+      ));
     }
   }
 
@@ -254,30 +288,8 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen>
         },
       );
 
-      // Recalculate paid amount
-      final totalPaid = _milestones
-          .where((item) => item.status == 'verified')
-          .fold<int>(0, (sum, item) => sum + item.amount);
-
-      await ApiClient().updateCustomer(
-        customerId: widget.customerId,
-        data: {'paid_amount': totalPaid},
-      );
-
-      setState(() {
-        _customer = _CustomerInfo(
-          id: _customer.id,
-          name: _customer.name,
-          phone: _customer.phone,
-          address: _customer.address,
-          locationGps: _customer.locationGps,
-          kw: _customer.kw,
-          phase: _customer.phase,
-          amount: _customer.amount,
-          paid: totalPaid,
-          stage: _customer.stage,
-        );
-      });
+      // Paid amount is recomputed by the server from verified milestones.
+      await _loadFromBackend();
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -342,7 +354,7 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen>
                 hintText: 'Milestone Title (e.g. 3rd Payment)',
                 prefixIcon: Icon(Icons.title_rounded),
               ),
-              style: AppTextStyles.bodyMedium.copyWith(color: AppColors.white),
+              style: AppTextStyles.bodyMedium.copyWith(color: AppColors.fg),
             ),
             const SizedBox(height: 12),
             TextField(
@@ -352,7 +364,7 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen>
                 hintText: 'Amount (₹)',
                 prefixIcon: Icon(Icons.currency_rupee_rounded),
               ),
-              style: AppTextStyles.bodyMedium.copyWith(color: AppColors.white),
+              style: AppTextStyles.bodyMedium.copyWith(color: AppColors.fg),
             ),
             const SizedBox(height: 24),
             GestureDetector(
@@ -416,7 +428,7 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen>
                 child: Center(
                   child: Text('Add Milestone',
                       style: AppTextStyles.labelLarge
-                          .copyWith(color: AppColors.navy900)),
+                          .copyWith(color: AppColors.ink900)),
                 ),
               ),
             ),
@@ -481,7 +493,7 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen>
                                     child: Text(
                                       _customer.name.isNotEmpty ? _customer.name[0] : 'C',
                                       style: const TextStyle(
-                                        color: Color(0xFF0A1628),
+                                        color: Color(0xFFF6F4FD),
                                         fontSize: 24,
                                         fontWeight: FontWeight.bold,
                                       ),
@@ -626,7 +638,7 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen>
               body: TabBarView(
                 controller: _tabController,
                 children: [
-                  _TimelineTab(stages: _stages),
+                  _TimelineTab(stages: _stages, busyKey: _togglingStage, onToggle: _toggleStage),
                   _DocumentsTab(
                     docs: _documents,
                     onToggleUpload: _uploadDocument,
@@ -684,7 +696,9 @@ class _SliverAppBarDelegate extends SliverPersistentHeaderDelegate {
 
 class _TimelineTab extends StatelessWidget {
   final List<_StageInfo> stages;
-  const _TimelineTab({required this.stages});
+  final String? busyKey;
+  final ValueChanged<_StageInfo> onToggle;
+  const _TimelineTab({required this.stages, required this.busyKey, required this.onToggle});
 
   @override
   Widget build(BuildContext context) {
@@ -741,16 +755,24 @@ class _TimelineTab extends StatelessWidget {
                           )),
                       const SizedBox(height: 2),
                       Text(
-                        stage.done ? 'Completed & Logged' : 'Pending',
+                        stage.done
+                            ? 'Done${stage.by != null ? ' · ${stage.by}' : ''}'
+                            : (stage.current ? 'In progress' : 'Incomplete'),
                         style: AppTextStyles.caption.copyWith(
                           color: stage.done
                               ? AppColors.success
-                              : AppColors.grey600,
+                              : (stage.current ? AppColors.warning : AppColors.grey600),
                         ),
                       ),
                     ],
                   ),
                 ),
+                busyKey == stage.key
+                    ? const SizedBox(width: 44, height: 24, child: Center(child: SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))))
+                    : Tooltip(
+                        message: stage.done ? 'Mark incomplete' : 'Mark done',
+                        child: Switch(value: stage.done, onChanged: (_) => onToggle(stage)),
+                      ),
               ],
             ),
           ),
@@ -910,7 +932,7 @@ class _MilestonesTab extends StatelessWidget {
           padding: const EdgeInsets.all(16),
           decoration: BoxDecoration(
             gradient: const LinearGradient(
-              colors: [Color(0xFF1A3A6E), Color(0xFF0F2040)],
+              colors: [Color(0xFFEFEBFC), Color(0xFFFFFFFF)],
             ),
             borderRadius: BorderRadius.circular(AppRadius.xl),
             border: Border.all(color: AppColors.gold500.withValues(alpha: 0.3)),
@@ -1364,7 +1386,7 @@ class _WorkTab extends StatelessWidget {
                     hintText: 'Notes / Scope of work (optional)',
                     prefixIcon: Icon(Icons.note_alt_outlined),
                   ),
-                  style: AppTextStyles.bodyMedium.copyWith(color: AppColors.white),
+                  style: AppTextStyles.bodyMedium.copyWith(color: AppColors.fg),
                 ),
 
                 const SizedBox(height: 24),
@@ -1410,7 +1432,7 @@ class _WorkTab extends StatelessWidget {
                     child: Center(
                       child: Text('Confirm Assignment with Dates',
                           style: AppTextStyles.labelLarge
-                              .copyWith(color: AppColors.navy900)),
+                              .copyWith(color: AppColors.ink900)),
                     ),
                   ),
                 ),
@@ -1445,11 +1467,11 @@ class _WorkTab extends StatelessWidget {
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      const Icon(Icons.add_rounded, size: 16, color: AppColors.navy900),
+                      const Icon(Icons.add_rounded, size: 16, color: AppColors.ink900),
                       const SizedBox(width: 4),
                       Text('Assign Work',
                           style: AppTextStyles.caption.copyWith(
-                              color: AppColors.navy900,
+                              color: AppColors.ink900,
                               fontWeight: FontWeight.bold)),
                     ],
                   ),
@@ -1630,11 +1652,11 @@ class _KedlTab extends StatelessWidget {
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        const Icon(Icons.flash_on_rounded, size: 16, color: AppColors.navy900),
+                        const Icon(Icons.flash_on_rounded, size: 16, color: AppColors.ink900),
                         const SizedBox(width: 4),
                         Text('Init 3 Files',
                             style: AppTextStyles.caption.copyWith(
-                                color: AppColors.navy900,
+                                color: AppColors.ink900,
                                 fontWeight: FontWeight.bold)),
                       ],
                     ),
@@ -1771,11 +1793,15 @@ class _CustomerInfo {
 }
 
 class _StageInfo {
+  final String key;
   final String label;
   final bool done;
   final Color color;
   final IconData icon;
-  const _StageInfo(this.label, this.done, this.color, this.icon);
+  final bool current;
+  final String? by;
+  final String? date;
+  const _StageInfo(this.key, this.label, this.done, this.color, this.icon, {this.current = false, this.by, this.date});
 }
 
 class _DocItem {

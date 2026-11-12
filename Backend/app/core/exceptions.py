@@ -90,3 +90,14 @@ class EmailVerificationRequiredException(AppException):
             details={"email": email, "role": role},
         )
 
+
+
+class TooManyRequestsException(AppException):
+    def __init__(self, message: str = "Too many requests. Please try again later.", retry_after: int = 60):
+        super().__init__(
+            message=message,
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            code="RATE_LIMITED",
+            details={"retry_after": retry_after},
+        )
+        self.headers = {"Retry-After": str(retry_after)}

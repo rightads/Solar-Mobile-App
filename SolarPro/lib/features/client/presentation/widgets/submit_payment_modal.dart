@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:solar_pro/core/services/media_picker.dart';
 import 'package:solar_pro/core/theme/app_theme.dart';
 import 'package:solar_pro/features/client/data/models/client_dashboard_model.dart';
 import 'package:solar_pro/features/client/data/repositories/client_repository.dart';
@@ -52,6 +53,7 @@ class _SubmitPaymentModalState extends State<SubmitPaymentModal> {
   bool _isSubmitting = false;
   String? _selectedPhotoName;
   bool _hasPhoto = false;
+  PickedMedia? _proof;
 
   final _clientRepo = ClientRepository();
 
@@ -63,18 +65,21 @@ class _SubmitPaymentModalState extends State<SubmitPaymentModal> {
     super.dispose();
   }
 
-  void _pickSamplePhoto() {
-    setState(() {
-      _hasPhoto = true;
-      _selectedPhotoName = 'payment_receipt_${DateTime.now().millisecondsSinceEpoch.toString().substring(8)}.jpg';
-    });
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('Photo receipt attached: $_selectedPhotoName'),
-        backgroundColor: AppColors.teal500,
-        duration: const Duration(seconds: 2),
-      ),
-    );
+  Future<void> _pickSamplePhoto() async {
+    try {
+      final picked = await MediaPicker.pickPhotos(context);
+      if (picked.isEmpty || !mounted) return;
+      setState(() {
+        _proof = picked.first;
+        _hasPhoto = true;
+        _selectedPhotoName = picked.first.name;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(e.toString().replaceFirst('Exception: ', '')), backgroundColor: AppColors.error),
+      );
+    }
   }
 
   Future<void> _submit() async {
@@ -108,7 +113,7 @@ class _SubmitPaymentModalState extends State<SubmitPaymentModal> {
         mode: _selectedMode,
         referenceNo: _refCtrl.text.trim().isNotEmpty ? _refCtrl.text.trim() : null,
         remarks: _remarksCtrl.text.trim().isNotEmpty ? _remarksCtrl.text.trim() : null,
-        proofFileName: _selectedPhotoName,
+        proof: _proof,
       );
 
       if (mounted) {
@@ -118,11 +123,13 @@ class _SubmitPaymentModalState extends State<SubmitPaymentModal> {
           SnackBar(
             content: Row(
               children: [
-                const Icon(Icons.check_circle_rounded, color: AppColors.white),
+                const Icon(Icons.check_circle_rounded, color: AppColors.fg),
                 const SizedBox(width: 8),
                 Expanded(
                   child: Text(
-                    'Payment of ₹${amount.toStringAsFixed(0)} submitted! Awaiting approval by salesman (${widget.salesRep?.name ?? 'Rajesh Sharma'} • ${widget.salesRep?.employeeNo ?? 'EMP-SLS-042'}).',
+                    widget.salesRep != null && widget.salesRep!.name.isNotEmpty
+                        ? 'Payment of ₹${amount.toStringAsFixed(0)} submitted! Awaiting approval by ${widget.salesRep!.name}.'
+                        : 'Payment of ₹${amount.toStringAsFixed(0)} submitted! Awaiting approval by your sales representative.',
                   ),
                 ),
               ],
@@ -147,8 +154,8 @@ class _SubmitPaymentModalState extends State<SubmitPaymentModal> {
 
   @override
   Widget build(BuildContext context) {
-    final salesRepName = widget.salesRep?.name ?? 'Rajesh Sharma';
-    final salesEmpNo = widget.salesRep?.employeeNo ?? 'EMP-SLS-042';
+    final salesRepName = widget.salesRep?.name ?? 'your sales representative';
+    final salesEmpNo = widget.salesRep?.employeeNo ?? '';
 
     return SingleChildScrollView(
       physics: const BouncingScrollPhysics(),
@@ -236,7 +243,7 @@ class _SubmitPaymentModalState extends State<SubmitPaymentModal> {
           TextField(
             controller: _amountCtrl,
             keyboardType: TextInputType.number,
-            style: AppTextStyles.headlineSmall.copyWith(color: AppColors.white),
+            style: AppTextStyles.headlineSmall.copyWith(color: AppColors.fg),
             decoration: InputDecoration(
               prefixText: '₹ ',
               prefixStyle: AppTextStyles.headlineSmall.copyWith(color: AppColors.gold500),
@@ -314,7 +321,7 @@ class _SubmitPaymentModalState extends State<SubmitPaymentModal> {
           const SizedBox(height: 6),
           TextField(
             controller: _refCtrl,
-            style: AppTextStyles.bodyMedium.copyWith(color: AppColors.white),
+            style: AppTextStyles.bodyMedium.copyWith(color: AppColors.fg),
             decoration: InputDecoration(
               hintText: 'e.g. UPI/4891238910 or Cheque #000412',
               hintStyle: const TextStyle(color: AppColors.grey500),
@@ -391,6 +398,7 @@ class _SubmitPaymentModalState extends State<SubmitPaymentModal> {
                           onPressed: () => setState(() {
                             _hasPhoto = false;
                             _selectedPhotoName = null;
+                            _proof = null;
                           }),
                         ),
                       ],
@@ -421,7 +429,7 @@ class _SubmitPaymentModalState extends State<SubmitPaymentModal> {
           TextField(
             controller: _remarksCtrl,
             maxLines: 2,
-            style: AppTextStyles.bodyMedium.copyWith(color: AppColors.white),
+            style: AppTextStyles.bodyMedium.copyWith(color: AppColors.fg),
             decoration: InputDecoration(
               hintText: 'e.g. Paid token for Structure & Electrical milestone',
               hintStyle: const TextStyle(color: AppColors.grey500),
@@ -450,7 +458,7 @@ class _SubmitPaymentModalState extends State<SubmitPaymentModal> {
             child: ElevatedButton(
               style: ElevatedButton.styleFrom(
                 backgroundColor: AppColors.gold500,
-                foregroundColor: AppColors.navy900,
+                foregroundColor: AppColors.ink900,
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.md)),
               ),
               onPressed: _isSubmitting ? null : _submit,
@@ -458,14 +466,14 @@ class _SubmitPaymentModalState extends State<SubmitPaymentModal> {
                   ? const SizedBox(
                       width: 22,
                       height: 22,
-                      child: CircularProgressIndicator(color: AppColors.navy900, strokeWidth: 2),
+                      child: CircularProgressIndicator(color: AppColors.ink900, strokeWidth: 2),
                     )
                   : Row(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
                         const Icon(Icons.send_rounded, size: 18),
                         const SizedBox(width: 8),
-                        Text('Submit for Salesman Approval', style: AppTextStyles.labelLarge.copyWith(color: AppColors.navy900, fontWeight: FontWeight.bold)),
+                        Text('Submit for Salesman Approval', style: AppTextStyles.labelLarge.copyWith(color: AppColors.ink900, fontWeight: FontWeight.bold)),
                       ],
                     ),
             ),

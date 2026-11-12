@@ -20,7 +20,7 @@ class TicketImageRead(BaseModel):
 
 
 class TicketCommentCreate(BaseModel):
-    message: str = Field(..., min_length=1, description="Comment or reply message")
+    message: str = Field(..., min_length=1, max_length=2000, description="Comment or reply message")
 
 
 class TicketCommentRead(BaseModel):
@@ -52,15 +52,15 @@ class TicketStatusLogRead(BaseModel):
 class TicketCreate(BaseModel):
     type: TicketType = Field(..., description="structure, wiring, or inverter")
     title: str = Field(..., min_length=3, max_length=200)
-    description: str = Field(..., min_length=5)
-    error_code: Optional[str] = Field(None, description="Optional inverter fault or error code")
+    description: str = Field(..., min_length=5, max_length=4000)
+    error_code: Optional[str] = Field(None, max_length=60, description="Optional inverter fault or error code")
     priority: TicketPriority = Field(default=TicketPriority.NORMAL)
-    image_keys: Optional[List[str]] = Field(default_factory=list, description="List of uploaded image keys")
+    image_keys: Optional[List[str]] = Field(default_factory=list, max_length=10, description="IDs of files uploaded via /files")
 
 
 class TicketStatusUpdate(BaseModel):
     status: TicketStatus = Field(..., description="Target status (assigned, in_progress, resolved, closed, reopened)")
-    resolution_note: Optional[str] = Field(None, description="Required when marking ticket resolved")
+    resolution_note: Optional[str] = Field(None, max_length=2000, description="Required when marking ticket resolved")
 
 
 class TicketAssign(BaseModel):

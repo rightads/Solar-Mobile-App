@@ -53,7 +53,7 @@ class _DesktopOverviewPaneState extends State<DesktopOverviewPane> {
                 gradient: LinearGradient(
                   colors: [
                     AppColors.orange500.withValues(alpha: 0.22),
-                    const Color(0xFF0C192E),
+                    const Color(0xFFF1EEFB),
                   ],
                 ),
                 borderRadius: BorderRadius.circular(AppRadius.lg),
@@ -77,7 +77,7 @@ class _DesktopOverviewPaneState extends State<DesktopOverviewPane> {
                         Text(
                           '$_pendingCount Employee Registration Request${_pendingCount > 1 ? "s" : ""} Pending Review',
                           style: const TextStyle(
-                            color: Colors.white,
+                            color: AppColors.fg,
                             fontWeight: FontWeight.bold,
                             fontSize: 14,
                             fontFamily: 'Outfit',
@@ -95,7 +95,7 @@ class _DesktopOverviewPaneState extends State<DesktopOverviewPane> {
                   ElevatedButton.icon(
                     style: ElevatedButton.styleFrom(
                       backgroundColor: AppColors.orange500,
-                      foregroundColor: Colors.white,
+                      foregroundColor: AppColors.fg,
                       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
                       textStyle: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold),
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
@@ -172,9 +172,9 @@ class _DesktopOverviewPaneState extends State<DesktopOverviewPane> {
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
             decoration: BoxDecoration(
-              color: const Color(0xFF0F1E33),
+              color: const Color(0xFFF1EEFB),
               borderRadius: BorderRadius.circular(AppRadius.lg),
-              border: Border.all(color: AppColors.white.withValues(alpha: 0.08)),
+              border: Border.all(color: AppColors.fg.withValues(alpha: 0.08)),
             ),
             child: Row(
               children: [
@@ -183,7 +183,7 @@ class _DesktopOverviewPaneState extends State<DesktopOverviewPane> {
                 const Text(
                   'Quick Management Actions:',
                   style: TextStyle(
-                    color: Colors.white,
+                    color: AppColors.fg,
                     fontWeight: FontWeight.w600,
                     fontSize: 13,
                     fontFamily: 'Outfit',
@@ -342,9 +342,9 @@ class _DesktopOverviewPaneState extends State<DesktopOverviewPane> {
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        color: const Color(0xFF0C192E),
+        color: const Color(0xFFF1EEFB),
         borderRadius: BorderRadius.circular(AppRadius.xl),
-        border: Border.all(color: AppColors.white.withValues(alpha: 0.08)),
+        border: Border.all(color: AppColors.fg.withValues(alpha: 0.08)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,

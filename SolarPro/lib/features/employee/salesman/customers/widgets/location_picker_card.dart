@@ -108,7 +108,7 @@ class _LocationPickerCardState extends State<LocationPickerCard> {
               const Text(
                 'Installation Site Location (GPS)',
                 style: TextStyle(
-                  color: Colors.white,
+                  color: AppColors.fg,
                   fontWeight: FontWeight.w700,
                   fontSize: 14,
                 ),
@@ -155,7 +155,7 @@ class _LocationPickerCardState extends State<LocationPickerCard> {
                   : const Icon(Icons.my_location_rounded, color: AppColors.teal500, size: 18),
               label: Text(
                 _isAcquiring ? 'Detecting Site GPS...' : 'Use Current Location',
-                style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 13),
+                style: const TextStyle(color: AppColors.fg, fontWeight: FontWeight.w600, fontSize: 13),
               ),
               style: OutlinedButton.styleFrom(
                 side: const BorderSide(color: AppColors.teal500),
@@ -178,7 +178,7 @@ class _LocationPickerCardState extends State<LocationPickerCard> {
                     TextField(
                       controller: _latController,
                       keyboardType: const TextInputType.numberWithOptions(decimal: true, signed: true),
-                      style: const TextStyle(color: Colors.white, fontSize: 13),
+                      style: const TextStyle(color: AppColors.fg, fontSize: 13),
                       decoration: InputDecoration(
                         hintText: 'e.g. 28.6139',
                         hintStyle: const TextStyle(color: AppColors.grey600, fontSize: 12),
@@ -206,7 +206,7 @@ class _LocationPickerCardState extends State<LocationPickerCard> {
                     TextField(
                       controller: _lngController,
                       keyboardType: const TextInputType.numberWithOptions(decimal: true, signed: true),
-                      style: const TextStyle(color: Colors.white, fontSize: 13),
+                      style: const TextStyle(color: AppColors.fg, fontSize: 13),
                       decoration: InputDecoration(
                         hintText: 'e.g. 77.2090',
                         hintStyle: const TextStyle(color: AppColors.grey600, fontSize: 12),
@@ -250,12 +250,12 @@ class _LocationPickerCardState extends State<LocationPickerCard> {
                         Container(
                           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                           decoration: BoxDecoration(
-                            color: Colors.black.withValues(alpha: 0.75),
+                            color: AppColors.shadow.withValues(alpha: 0.75),
                             borderRadius: BorderRadius.circular(AppRadius.pill),
                           ),
                           child: Text(
                             '${widget.latitude!.toStringAsFixed(4)}°, ${widget.longitude!.toStringAsFixed(4)}°',
-                            style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold),
+                            style: const TextStyle(color: AppColors.fg, fontSize: 10, fontWeight: FontWeight.bold),
                           ),
                         ),
                       ],

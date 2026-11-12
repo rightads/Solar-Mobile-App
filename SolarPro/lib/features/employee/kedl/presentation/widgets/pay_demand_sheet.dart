@@ -88,7 +88,7 @@ class _PayDemandSheetState extends State<PayDemandSheet> {
               SizedBox(width: 8),
               Text(
                 'Resolve Discom Demand',
-                style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
+                style: TextStyle(color: AppColors.fg, fontSize: 16, fontWeight: FontWeight.bold),
               ),
             ],
           ),
@@ -120,7 +120,7 @@ class _PayDemandSheetState extends State<PayDemandSheet> {
                   },
                   selectedColor: AppColors.success,
                   labelStyle: TextStyle(
-                    color: _status == KedlDemandStatus.paid ? Colors.white : AppColors.grey400,
+                    color: _status == KedlDemandStatus.paid ? AppColors.fg : AppColors.grey400,
                     fontWeight: FontWeight.bold,
                   ),
                 ),
@@ -135,7 +135,7 @@ class _PayDemandSheetState extends State<PayDemandSheet> {
                   },
                   selectedColor: AppColors.navy600,
                   labelStyle: TextStyle(
-                    color: _status == KedlDemandStatus.waived ? Colors.white : AppColors.grey400,
+                    color: _status == KedlDemandStatus.waived ? AppColors.fg : AppColors.grey400,
                     fontWeight: FontWeight.bold,
                   ),
                 ),
@@ -173,7 +173,7 @@ class _PayDemandSheetState extends State<PayDemandSheet> {
                           Text(
                             _hasReceipt ? 'Receipt Attached' : 'Attach Payment Receipt (Optional)',
                             style: TextStyle(
-                              color: _hasReceipt ? Colors.white : AppColors.grey300,
+                              color: _hasReceipt ? AppColors.fg : AppColors.grey300,
                               fontWeight: FontWeight.w600,
                               fontSize: 13,
                             ),
@@ -204,12 +204,12 @@ class _PayDemandSheetState extends State<PayDemandSheet> {
               onPressed: _isSubmitting ? null : _submit,
               style: ElevatedButton.styleFrom(
                 backgroundColor: _status == KedlDemandStatus.paid ? AppColors.success : AppColors.navy600,
-                foregroundColor: Colors.white,
+                foregroundColor: AppColors.fg,
                 padding: const EdgeInsets.symmetric(vertical: 14),
                 textStyle: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
               ),
               child: _isSubmitting
-                  ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                  ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.fg))
                   : Text(_status == KedlDemandStatus.paid ? 'Confirm Payment & Resolve' : 'Confirm Demand Waiver'),
             ),
           ),

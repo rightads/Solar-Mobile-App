@@ -143,7 +143,7 @@ class _EmployeeTaskDetailSheetState extends State<EmployeeTaskDetailSheet> {
                       Text(
                         widget.employee.name,
                         style: AppTextStyles.headlineSmall.copyWith(
-                          color: Colors.white,
+                          color: AppColors.fg,
                           fontWeight: FontWeight.bold,
                         ),
                         maxLines: 1,
@@ -221,7 +221,7 @@ class _EmployeeTaskDetailSheetState extends State<EmployeeTaskDetailSheet> {
                     ),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: AppColors.gold500,
-                      foregroundColor: AppColors.navy900,
+                      foregroundColor: AppColors.ink900,
                       padding: const EdgeInsets.symmetric(vertical: 12),
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(AppRadius.md),
@@ -298,7 +298,7 @@ class _EmployeeTaskDetailSheetState extends State<EmployeeTaskDetailSheet> {
                                         ? 'No Active Tasks'
                                         : 'No Completed Tasks',
                                 style: const TextStyle(
-                                  color: Colors.white,
+                                  color: AppColors.fg,
                                   fontSize: 16,
                                   fontWeight: FontWeight.bold,
                                 ),
@@ -447,7 +447,7 @@ class _TaskCard extends StatelessWidget {
           Text(
             task.title,
             style: const TextStyle(
-              color: Colors.white,
+              color: AppColors.fg,
               fontSize: 15,
               fontWeight: FontWeight.bold,
             ),
@@ -462,7 +462,7 @@ class _TaskCard extends StatelessWidget {
                 const SizedBox(width: 4),
                 Text(
                   task.customerName,
-                  style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w600),
+                  style: const TextStyle(color: AppColors.fg, fontSize: 12, fontWeight: FontWeight.w600),
                 ),
                 if (task.location.isNotEmpty) ...[
                   const SizedBox(width: 6),

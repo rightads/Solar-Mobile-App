@@ -2,6 +2,10 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<key>NSCameraUsageDescription</key>
+	<string>SolarPro uses the camera to capture site proof photos, payment receipts and service ticket evidence.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>SolarPro lets you attach photos and documents from your library to your project.</string>
 	<key>CADisableMinimumFrameDurationOnPhone</key>
 	<true/>
 	<key>CFBundleDevelopmentRegion</key>

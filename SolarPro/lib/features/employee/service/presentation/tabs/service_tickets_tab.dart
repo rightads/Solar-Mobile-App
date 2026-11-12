@@ -109,7 +109,7 @@ class _ServiceTicketsTabState extends State<ServiceTicketsTab>
                 TextField(
                   controller: _searchController,
                   onChanged: (_) => _loadTickets(),
-                  style: const TextStyle(color: Colors.white, fontSize: 14),
+                  style: const TextStyle(color: AppColors.fg, fontSize: 14),
                   decoration: InputDecoration(
                     hintText: 'Search by ticket #, customer, error code...',
                     hintStyle: const TextStyle(color: AppColors.grey500, fontSize: 13),
@@ -324,7 +324,7 @@ class _ServiceTicketsTabState extends State<ServiceTicketsTab>
                                             ? 'No tickets currently in progress'
                                             : 'No resolved tickets yet',
                                     style: const TextStyle(
-                                      color: Colors.white,
+                                      color: AppColors.fg,
                                       fontWeight: FontWeight.w700,
                                       fontSize: 16,
                                     ),
@@ -401,7 +401,7 @@ class _ServiceTicketsTabState extends State<ServiceTicketsTab>
         child: Text(
           label,
           style: TextStyle(
-            color: isSelected ? Colors.white : AppColors.grey400,
+            color: isSelected ? AppColors.fg : AppColors.grey400,
             fontSize: 12,
             fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
           ),

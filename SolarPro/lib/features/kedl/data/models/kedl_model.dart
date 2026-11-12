@@ -60,7 +60,7 @@ enum KedlFileType {
       case KedlFileType.nameChange:
         return const Color(0xFF38BDF8); // Sky blue
       case KedlFileType.loadIncrease:
-        return const Color(0xFFF5A623); // Amber / Gold
+        return const Color(0xFFF7A21B); // Amber / Gold
       case KedlFileType.net:
         return const Color(0xFF10B981); // Emerald / Teal
     }
@@ -133,11 +133,11 @@ enum KedlFileStatus {
   Color get color {
     switch (this) {
       case KedlFileStatus.notStarted:
-        return const Color(0xFF94A3B8); // Slate
+        return const Color(0xFF6C6596); // Slate
       case KedlFileStatus.submitted:
         return const Color(0xFF38BDF8); // Sky
       case KedlFileStatus.demandRaised:
-        return const Color(0xFFF5A623); // Amber
+        return const Color(0xFFF7A21B); // Amber
       case KedlFileStatus.demandPaid:
         return const Color(0xFF8B5CF6); // Violet
       case KedlFileStatus.approved:
@@ -208,11 +208,11 @@ enum KedlDemandStatus {
   Color get color {
     switch (this) {
       case KedlDemandStatus.open:
-        return const Color(0xFFF5A623); // Amber
+        return const Color(0xFFF7A21B); // Amber
       case KedlDemandStatus.paid:
         return const Color(0xFF10B981); // Emerald
       case KedlDemandStatus.waived:
-        return const Color(0xFF94A3B8); // Slate
+        return const Color(0xFF6C6596); // Slate
     }
   }
 }

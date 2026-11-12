@@ -114,7 +114,7 @@ class _ServiceHomeTabState extends State<ServiceHomeTab> {
                             Text(
                               'Service & Maintenance',
                               style: AppTextStyles.headlineMedium.copyWith(
-                                color: Colors.white,
+                                color: AppColors.fg,
                                 fontWeight: FontWeight.w700,
                               ),
                             ),
@@ -147,7 +147,7 @@ class _ServiceHomeTabState extends State<ServiceHomeTab> {
                           Expanded(
                             child: Text(
                               '$urgentCount urgent ticket${urgentCount > 1 ? 's' : ''} require immediate site attention',
-                              style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w600),
+                              style: const TextStyle(color: AppColors.fg, fontSize: 13, fontWeight: FontWeight.w600),
                             ),
                           ),
                           GestureDetector(
@@ -241,7 +241,7 @@ class _ServiceHomeTabState extends State<ServiceHomeTab> {
                       children: [
                         Text(
                           'Reverse Serial Lookup',
-                          style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 15),
+                          style: TextStyle(color: AppColors.fg, fontWeight: FontWeight.w700, fontSize: 15),
                         ),
                         SizedBox(height: 2),
                         Text(
@@ -256,7 +256,7 @@ class _ServiceHomeTabState extends State<ServiceHomeTab> {
                     onPressed: () => widget.onNavigateTab?.call(2),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: AppColors.teal500,
-                      foregroundColor: AppColors.navy900,
+                      foregroundColor: AppColors.ink900,
                       minimumSize: Size.zero,
                       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
                       textStyle: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13),
@@ -282,7 +282,7 @@ class _ServiceHomeTabState extends State<ServiceHomeTab> {
                           child: Text(
                             'Urgent Attention (${urgentTickets.length})',
                             style: const TextStyle(
-                              color: Colors.white,
+                              color: AppColors.fg,
                               fontWeight: FontWeight.w700,
                               fontSize: 16,
                             ),
@@ -323,7 +323,7 @@ class _ServiceHomeTabState extends State<ServiceHomeTab> {
                         child: Text(
                           'Assigned Tickets (${activeTickets.length})',
                           style: const TextStyle(
-                            color: Colors.white,
+                            color: AppColors.fg,
                             fontWeight: FontWeight.w700,
                             fontSize: 16,
                           ),
@@ -364,7 +364,7 @@ class _ServiceHomeTabState extends State<ServiceHomeTab> {
                     SizedBox(height: 12),
                     Text(
                       'All Tickets Resolved!',
-                      style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 16),
+                      style: TextStyle(color: AppColors.fg, fontWeight: FontWeight.w700, fontSize: 16),
                     ),
                     SizedBox(height: 4),
                     Text(

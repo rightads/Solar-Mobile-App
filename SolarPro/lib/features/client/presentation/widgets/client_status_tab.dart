@@ -3,6 +3,8 @@ import 'package:flutter/services.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:timeline_tile/timeline_tile.dart';
 import 'package:solar_pro/core/theme/app_theme.dart';
+import 'package:solar_pro/shared/animations/motion.dart';
+import 'package:solar_pro/shared/widgets/sp_solar_system_card.dart';
 import 'package:solar_pro/features/client/data/models/client_dashboard_model.dart';
 
 class ClientStatusTab extends StatelessWidget {
@@ -60,129 +62,51 @@ class ClientStatusTab extends StatelessWidget {
       child: CustomScrollView(
         physics: const BouncingScrollPhysics(),
         slivers: [
-          // Hero Banner
-          SliverToBoxAdapter(
-            child: Container(
-              margin: const EdgeInsets.fromLTRB(16, 12, 16, 12),
-              padding: const EdgeInsets.all(18),
-              decoration: BoxDecoration(
-                gradient: const LinearGradient(
-                  colors: [Color(0xFF1E3A6E), Color(0xFF0F2040)],
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
+          if (homeData?['needs_phone_verification'] == true)
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+                child: Container(
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(
+                    color: AppColors.gold100,
+                    borderRadius: BorderRadius.circular(AppRadius.lg),
+                    border: Border.all(color: AppColors.gold300),
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.phonelink_lock_outlined, color: AppColors.ink900),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Text(
+                          'To see your project, sign out and sign in once with Mobile OTP. '
+                          'This confirms the mobile number on your account is yours.',
+                          style: AppTextStyles.bodySmall.copyWith(color: AppColors.ink900),
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
-                borderRadius: BorderRadius.circular(AppRadius.xl),
-                border: Border.all(color: AppColors.gold500.withValues(alpha: 0.3)),
-                boxShadow: [
-                  BoxShadow(
-                    color: AppColors.navy900.withValues(alpha: 0.5),
-                    blurRadius: 12,
-                    offset: const Offset(0, 4),
-                  ),
-                ],
               ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                        decoration: BoxDecoration(
-                          color: AppColors.gold500.withValues(alpha: 0.15),
-                          borderRadius: BorderRadius.circular(AppRadius.pill),
-                          border: Border.all(color: AppColors.gold500.withValues(alpha: 0.4)),
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            const Icon(Icons.solar_power_rounded, color: AppColors.gold500, size: 14),
-                            const SizedBox(width: 6),
-                            Text(
-                              capacity > 0 ? '$capacity kW Grid-Tied Solar' : 'Solar Project Onboarding',
-                              style: AppTextStyles.caption.copyWith(color: AppColors.gold400, fontWeight: FontWeight.bold),
-                            ),
-                          ],
-                        ),
-                      ),
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                        decoration: BoxDecoration(
-                          color: completedCount > 0
-                              ? AppColors.teal500.withValues(alpha: 0.15)
-                              : AppColors.orange500.withValues(alpha: 0.15),
-                          borderRadius: BorderRadius.circular(AppRadius.pill),
-                          border: Border.all(
-                            color: completedCount > 0
-                                ? AppColors.teal500.withValues(alpha: 0.4)
-                                : AppColors.orange500.withValues(alpha: 0.4),
-                          ),
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(
-                              completedCount > 0 ? Icons.bolt_rounded : Icons.pending_actions_rounded,
-                              color: completedCount > 0 ? AppColors.teal400 : AppColors.orange400,
-                              size: 14,
-                            ),
-                            const SizedBox(width: 4),
-                            Text(
-                              completedCount > 0 ? 'Active Setup' : 'Application Received',
-                              style: AppTextStyles.caption.copyWith(
-                                color: completedCount > 0 ? AppColors.teal400 : AppColors.orange400,
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 14),
-                  Text('Current Milestone Status', style: AppTextStyles.caption.copyWith(color: AppColors.grey400)),
-                  const SizedBox(height: 4),
-                  Text(
-                    currentStage == 'REGISTRATION_SUBMITTED'
-                        ? 'Registration Submitted'
-                        : _formatStageName(currentStage),
-                    style: AppTextStyles.headlineLarge.copyWith(color: AppColors.gold400),
-                  ),
-                  const SizedBox(height: 12),
-                  // Dynamic progress indicator
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(4),
-                    child: LinearProgressIndicator(
-                      value: progressFraction,
-                      backgroundColor: AppColors.navy900,
-                      valueColor: const AlwaysStoppedAnimation<Color>(AppColors.gold500),
-                      minHeight: 8,
-                    ),
-                  ),
-                  const SizedBox(height: 6),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Text(
-                        completedCount == 0
-                            ? (currentStage == 'REGISTRATION_SUBMITTED'
-                                ? 'Application Under Review • Awaiting Site Survey'
-                                : 'Stage 1 of $totalCount in Progress')
-                            : (completedCount >= totalCount
-                                ? 'All $totalCount Stages Completed'
-                                : 'Stage ${completedCount + 1} of $totalCount in Progress'),
-                        style: AppTextStyles.caption.copyWith(color: AppColors.grey400),
-                      ),
-                      Text(
-                        '$progressPercentage% Complete',
-                        style: AppTextStyles.caption.copyWith(color: AppColors.gold400, fontWeight: FontWeight.bold),
-                      ),
-                    ],
-                  ),
-                ],
+            ),
+
+          // Hero: "Your Solar System"
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 14),
+              child: SpEntrance(
+                child: SpSolarSystemCard(
+                  capacityKw: capacity,
+                  stageLabel: currentStage == 'REGISTRATION_SUBMITTED'
+                      ? 'Registration Submitted'
+                      : _formatStageName(currentStage),
+                  completed: completedCount,
+                  total: totalCount,
+                  percentage: progressPercentage,
+                  active: completedCount > 0,
+                ),
               ),
-            ).animate().fadeIn(duration: 400.ms).slideY(begin: 0.08, end: 0),
+            ),
           ),
 
           // REQUIREMENT 1: "Status with Employee No." Card
@@ -214,7 +138,7 @@ class ClientStatusTab extends StatelessWidget {
                               Expanded(
                                 child: Text(
                                   'Assigned Project Officer',
-                                  style: AppTextStyles.labelLarge.copyWith(color: AppColors.white),
+                                  style: AppTextStyles.labelLarge.copyWith(color: AppColors.fg),
                                   overflow: TextOverflow.ellipsis,
                                 ),
                               ),
@@ -355,7 +279,7 @@ class ClientStatusTab extends StatelessWidget {
                                     Expanded(
                                       child: Text(
                                         'Assigned Project Officer',
-                                        style: AppTextStyles.labelLarge.copyWith(color: AppColors.white),
+                                        style: AppTextStyles.labelLarge.copyWith(color: AppColors.fg),
                                         overflow: TextOverflow.ellipsis,
                                       ),
                                     ),
@@ -490,19 +414,30 @@ class ClientStatusTab extends StatelessWidget {
                           shape: BoxShape.circle,
                           color: isDone
                               ? AppColors.success.withValues(alpha: 0.2)
-                              : (isCurrent ? AppColors.gold500.withValues(alpha: 0.2) : AppColors.navy900),
+                              : (isCurrent ? AppColors.gold500.withValues(alpha: 0.25) : AppColors.navy900),
                           border: Border.all(
                             color: isDone
                                 ? AppColors.success
                                 : (isCurrent ? AppColors.gold500 : AppColors.navy600),
                             width: 2,
                           ),
+                          boxShadow: isCurrent
+                              ? [
+                                  BoxShadow(
+                                    color: AppColors.gold500.withValues(alpha: 0.45),
+                                    blurRadius: 10,
+                                    spreadRadius: 2,
+                                  ),
+                                ]
+                              : null,
                         ),
                         child: Center(
                           child: isDone
                               ? const Icon(Icons.check_rounded, color: AppColors.success, size: 16)
                               : (isCurrent
                                   ? const Icon(Icons.autorenew_rounded, color: AppColors.gold500, size: 16)
+                                      .animate(onPlay: (c) => c.repeat())
+                                      .rotate(duration: const Duration(seconds: 4))
                                   : Container(
                                       width: 8,
                                       height: 8,
@@ -552,7 +487,7 @@ class ClientStatusTab extends StatelessWidget {
                                   child: Text(
                                     title,
                                     style: AppTextStyles.bodyMedium.copyWith(
-                                      color: isDone || isCurrent ? AppColors.white : AppColors.grey400,
+                                      color: isDone || isCurrent ? AppColors.fg : AppColors.grey400,
                                       fontWeight: isCurrent ? FontWeight.bold : FontWeight.w500,
                                     ),
                                   ),
@@ -576,7 +511,7 @@ class ClientStatusTab extends StatelessWidget {
                                     ),
                                     child: const Text('IN PROGRESS',
                                         style: TextStyle(fontSize: 10, color: AppColors.gold400, fontWeight: FontWeight.bold)),
-                                  ),
+                                  ).animate(onPlay: (c) => c.repeat(reverse: true)).fade(begin: 0.7, end: 1.0),
                               ],
                             ),
                             if (note != null && note.toString().isNotEmpty) ...[
@@ -589,7 +524,7 @@ class ClientStatusTab extends StatelessWidget {
                           ],
                         ),
                       ),
-                    ),
+                    ).animate(delay: Duration(milliseconds: i * 50)).fadeIn(duration: 350.ms).slideX(begin: 0.04, end: 0),
                   );
                 },
                 childCount: timelineRaw.isNotEmpty ? timelineRaw.length : 10,

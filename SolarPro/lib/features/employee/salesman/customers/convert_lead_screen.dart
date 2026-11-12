@@ -452,7 +452,7 @@ class _ConvertLeadScreenState extends State<ConvertLeadScreen> {
           children: [
             Icon(Icons.check_circle_rounded, color: AppColors.success, size: 28),
             SizedBox(width: 10),
-            Text('Lead Converted!', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+            Text('Lead Converted!', style: TextStyle(color: AppColors.fg, fontWeight: FontWeight.bold)),
           ],
         ),
         content: Column(
@@ -499,7 +499,7 @@ class _ConvertLeadScreenState extends State<ConvertLeadScreen> {
             },
             style: ElevatedButton.styleFrom(
               backgroundColor: AppColors.teal500,
-              foregroundColor: Colors.white,
+              foregroundColor: AppColors.fg,
             ),
             child: const Text('Proceed to Payments'),
           ),
@@ -520,7 +520,7 @@ class _ConvertLeadScreenState extends State<ConvertLeadScreen> {
           children: [
             const Text(
               'Convert Lead to Customer',
-              style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w700),
+              style: TextStyle(color: AppColors.fg, fontSize: 16, fontWeight: FontWeight.w700),
             ),
             Text(
               '${widget.lead.name} • ${_calculatedCapacityKw.toStringAsFixed(1)} kW',
@@ -595,7 +595,7 @@ class _ConvertLeadScreenState extends State<ConvertLeadScreen> {
                           : (_currentStep == 6 ? _submitConversion : _onNext),
                       style: ElevatedButton.styleFrom(
                         backgroundColor: _currentStep == 6 ? AppColors.success : AppColors.teal500,
-                        foregroundColor: Colors.white,
+                        foregroundColor: AppColors.fg,
                         padding: const EdgeInsets.symmetric(vertical: 14),
                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.md)),
                       ),
@@ -603,7 +603,7 @@ class _ConvertLeadScreenState extends State<ConvertLeadScreen> {
                           ? const SizedBox(
                               height: 20,
                               width: 20,
-                              child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                              child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.fg),
                             )
                           : Text(
                               _currentStep == 6 ? 'Confirm & Convert Lead' : 'Next Step',
@@ -658,7 +658,7 @@ class _ConvertLeadScreenState extends State<ConvertLeadScreen> {
           // Name
           TextFormField(
             controller: _nameController,
-            style: const TextStyle(color: Colors.white),
+            style: const TextStyle(color: AppColors.fg),
             decoration: _inputDecoration('Customer Full Name *', Icons.person_rounded),
             validator: (v) => (v == null || v.trim().length < 2) ? 'Name is required' : null,
           ),
@@ -668,7 +668,7 @@ class _ConvertLeadScreenState extends State<ConvertLeadScreen> {
           TextFormField(
             controller: _phoneController,
             keyboardType: TextInputType.phone,
-            style: const TextStyle(color: Colors.white),
+            style: const TextStyle(color: AppColors.fg),
             decoration: _inputDecoration('10-Digit Mobile *', Icons.phone_rounded),
             validator: (v) {
               final digits = (v ?? '').replaceAll(RegExp(r'\D'), '');
@@ -681,7 +681,7 @@ class _ConvertLeadScreenState extends State<ConvertLeadScreen> {
           TextFormField(
             controller: _addressController,
             maxLines: 2,
-            style: const TextStyle(color: Colors.white),
+            style: const TextStyle(color: AppColors.fg),
             decoration: _inputDecoration('Site Installation Address *', Icons.home_rounded),
             validator: (v) => (v == null || v.trim().length < 5) ? 'Min 5 characters required' : null,
           ),
@@ -711,7 +711,7 @@ class _ConvertLeadScreenState extends State<ConvertLeadScreen> {
           TextFormField(
             controller: _priceController,
             keyboardType: TextInputType.number,
-            style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
+            style: const TextStyle(color: AppColors.fg, fontSize: 16, fontWeight: FontWeight.bold),
             decoration: InputDecoration(
               prefixIcon: const Icon(Icons.currency_rupee_rounded, color: AppColors.gold500),
               hintText: 'e.g. 250000',
@@ -762,7 +762,7 @@ class _ConvertLeadScreenState extends State<ConvertLeadScreen> {
               children: [
                 const Text(
                   'Subsidy Scheme Selection',
-                  style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 14),
+                  style: TextStyle(color: AppColors.fg, fontWeight: FontWeight.w700, fontSize: 14),
                 ),
                 const SizedBox(height: 4),
                 const Text(
@@ -790,7 +790,7 @@ class _ConvertLeadScreenState extends State<ConvertLeadScreen> {
                             child: Text(
                               'SUBSIDY',
                               style: TextStyle(
-                                color: _isSubsidy ? Colors.white : AppColors.grey400,
+                                color: _isSubsidy ? AppColors.fg : AppColors.grey400,
                                 fontWeight: FontWeight.bold,
                                 fontSize: 13,
                               ),
@@ -818,7 +818,7 @@ class _ConvertLeadScreenState extends State<ConvertLeadScreen> {
                             child: Text(
                               'NON-SUBSIDY',
                               style: TextStyle(
-                                color: !_isSubsidy ? Colors.black : AppColors.grey400,
+                                color: !_isSubsidy ? AppColors.shadow : AppColors.grey400,
                                 fontWeight: FontWeight.bold,
                                 fontSize: 13,
                               ),
@@ -894,7 +894,7 @@ class _ConvertLeadScreenState extends State<ConvertLeadScreen> {
                     TextFormField(
                       controller: _panelWattController,
                       keyboardType: TextInputType.number,
-                      style: const TextStyle(color: Colors.white),
+                      style: const TextStyle(color: AppColors.fg),
                       decoration: _inputDecoration('e.g. 540', Icons.bolt_rounded),
                       onChanged: (_) => setState(() {}),
                       validator: (v) => (int.tryParse(v ?? '') ?? 0) > 0 ? null : 'Watt required',
@@ -912,7 +912,7 @@ class _ConvertLeadScreenState extends State<ConvertLeadScreen> {
                     TextFormField(
                       controller: _panelCountController,
                       keyboardType: TextInputType.number,
-                      style: const TextStyle(color: Colors.white),
+                      style: const TextStyle(color: AppColors.fg),
                       decoration: _inputDecoration('e.g. 10', Icons.solar_power_rounded),
                       onChanged: (_) => setState(() {}),
                       validator: (v) => (int.tryParse(v ?? '') ?? 0) > 0 ? null : 'Quantity required',
@@ -1005,7 +1005,7 @@ class _ConvertLeadScreenState extends State<ConvertLeadScreen> {
                   TextField(
                     controller: _inverterCountController,
                     keyboardType: TextInputType.number,
-                    style: const TextStyle(color: Colors.white),
+                    style: const TextStyle(color: AppColors.fg),
                     decoration: _inputDecoration('1', Icons.numbers_rounded),
                     onChanged: (_) => _autosaveDraft(),
                   ),
@@ -1022,7 +1022,7 @@ class _ConvertLeadScreenState extends State<ConvertLeadScreen> {
                   TextField(
                     controller: _inverterCapacityController,
                     keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                    style: const TextStyle(color: Colors.white),
+                    style: const TextStyle(color: AppColors.fg),
                     decoration: _inputDecoration('e.g. 5.0', Icons.speed_rounded),
                     onChanged: (_) => _autosaveDraft(),
                   ),
@@ -1058,7 +1058,7 @@ class _ConvertLeadScreenState extends State<ConvertLeadScreen> {
                     child: Text(
                       '1-Phase (Single)',
                       style: TextStyle(
-                        color: _phase == 'single' ? Colors.white : AppColors.grey400,
+                        color: _phase == 'single' ? AppColors.fg : AppColors.grey400,
                         fontWeight: FontWeight.bold,
                       ),
                     ),
@@ -1084,7 +1084,7 @@ class _ConvertLeadScreenState extends State<ConvertLeadScreen> {
                     child: Text(
                       '3-Phase (Three)',
                       style: TextStyle(
-                        color: _phase == 'three' ? Colors.white : AppColors.grey400,
+                        color: _phase == 'three' ? AppColors.fg : AppColors.grey400,
                         fontWeight: FontWeight.bold,
                       ),
                     ),
@@ -1122,7 +1122,7 @@ class _ConvertLeadScreenState extends State<ConvertLeadScreen> {
                   TextField(
                     controller: _structureCountController,
                     keyboardType: TextInputType.number,
-                    style: const TextStyle(color: Colors.white),
+                    style: const TextStyle(color: AppColors.fg),
                     decoration: _inputDecoration('1', Icons.layers_rounded),
                     onChanged: (_) => _autosaveDraft(),
                   ),
@@ -1148,7 +1148,7 @@ class _ConvertLeadScreenState extends State<ConvertLeadScreen> {
                       isExpanded: true,
                       dropdownColor: AppColors.navy800,
                       underline: const SizedBox.shrink(),
-                      style: const TextStyle(color: Colors.white, fontSize: 13),
+                      style: const TextStyle(color: AppColors.fg, fontSize: 13),
                       items: const [
                         DropdownMenuItem(value: 'Standard (4-6 ft)', child: Text('Standard (4-6 ft)')),
                         DropdownMenuItem(value: 'High Rise (8-10 ft)', child: Text('High Rise (8-10 ft)')),
@@ -1227,7 +1227,7 @@ class _ConvertLeadScreenState extends State<ConvertLeadScreen> {
         const SizedBox(height: 8),
         TextField(
           controller: TextEditingController(text: _spdAcDetails),
-          style: const TextStyle(color: Colors.white, fontSize: 13),
+          style: const TextStyle(color: AppColors.fg, fontSize: 13),
           decoration: _inputDecoration('SPD ACDB Details (e.g. Type 2 40kA)', Icons.security_rounded),
           onChanged: (v) {
             _spdAcDetails = v;
@@ -1248,7 +1248,7 @@ class _ConvertLeadScreenState extends State<ConvertLeadScreen> {
         const SizedBox(height: 8),
         TextField(
           controller: TextEditingController(text: _spdDcDetails),
-          style: const TextStyle(color: Colors.white, fontSize: 13),
+          style: const TextStyle(color: AppColors.fg, fontSize: 13),
           decoration: _inputDecoration('SPD DCDB Details (e.g. 1000V 40kA)', Icons.shield_rounded),
           onChanged: (v) {
             _spdDcDetails = v;
@@ -1283,7 +1283,7 @@ class _ConvertLeadScreenState extends State<ConvertLeadScreen> {
                   TextField(
                     controller: _solarMeterCountController,
                     keyboardType: TextInputType.number,
-                    style: const TextStyle(color: Colors.white),
+                    style: const TextStyle(color: AppColors.fg),
                     decoration: _inputDecoration('1', Icons.speed_rounded),
                     onChanged: (_) => _autosaveDraft(),
                   ),
@@ -1313,7 +1313,7 @@ class _ConvertLeadScreenState extends State<ConvertLeadScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(title, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 13)),
+          Text(title, style: const TextStyle(color: AppColors.fg, fontWeight: FontWeight.w600, fontSize: 13)),
           const SizedBox(height: 8),
           Row(
             children: [
@@ -1337,7 +1337,7 @@ class _ConvertLeadScreenState extends State<ConvertLeadScreen> {
                     const SizedBox(height: 6),
                     TextField(
                       controller: TextEditingController(text: size),
-                      style: const TextStyle(color: Colors.white, fontSize: 13),
+                      style: const TextStyle(color: AppColors.fg, fontSize: 13),
                       decoration: _inputDecoration('e.g. 4 sq mm', Icons.straighten_rounded),
                       onChanged: (s) {
                         onSizeChanged(s);
@@ -1376,7 +1376,7 @@ class _ConvertLeadScreenState extends State<ConvertLeadScreen> {
         TextField(
           controller: _civilWorkController,
           maxLines: 3,
-          style: const TextStyle(color: Colors.white),
+          style: const TextStyle(color: AppColors.fg),
           decoration: _inputDecoration('Enter civil work notes, concrete foundation, column grouting...', Icons.foundation_rounded),
           onChanged: (_) => _autosaveDraft(),
         ),
@@ -1391,7 +1391,7 @@ class _ConvertLeadScreenState extends State<ConvertLeadScreen> {
         TextField(
           controller: _earthingNotesController,
           maxLines: 3,
-          style: const TextStyle(color: Colors.white),
+          style: const TextStyle(color: AppColors.fg),
           decoration: _inputDecoration('Enter chemical earthing pits, copper strip bonding notes...', Icons.bolt_rounded),
           onChanged: (_) => _autosaveDraft(),
         ),
@@ -1515,7 +1515,7 @@ class _ConvertLeadScreenState extends State<ConvertLeadScreen> {
                   SizedBox(width: 8),
                   Text(
                     'Order & System Summary',
-                    style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 15),
+                    style: TextStyle(color: AppColors.fg, fontWeight: FontWeight.bold, fontSize: 15),
                   ),
                 ],
               ),
@@ -1611,7 +1611,7 @@ class _StepHeader extends StatelessWidget {
         const SizedBox(height: 4),
         Text(
           title,
-          style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w800),
+          style: const TextStyle(color: AppColors.fg, fontSize: 18, fontWeight: FontWeight.w800),
         ),
         const SizedBox(height: 4),
         Text(
@@ -1649,7 +1649,7 @@ class _SummaryRow extends StatelessWidget {
             child: Text(
               value,
               style: TextStyle(
-                color: valueColor ?? Colors.white,
+                color: valueColor ?? AppColors.fg,
                 fontSize: 13,
                 fontWeight: FontWeight.w600,
               ),

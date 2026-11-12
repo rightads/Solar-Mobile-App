@@ -104,7 +104,7 @@ class ScopeOfWorkCard extends StatelessWidget {
                         child: Text(
                           entry.value,
                           style: const TextStyle(
-                            color: Colors.white,
+                            color: AppColors.fg,
                             fontSize: 13,
                             fontWeight: FontWeight.w600,
                           ),

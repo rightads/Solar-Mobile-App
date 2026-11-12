@@ -1,11 +1,56 @@
+import 'dart:async';
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
-import 'package:flutter_animate/flutter_animate.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:solar_pro/core/constants/app_constants.dart';
 import 'package:solar_pro/core/network/api_client.dart';
 import 'package:solar_pro/core/theme/app_theme.dart';
+import 'package:solar_pro/shared/animations/motion.dart';
+import 'package:solar_pro/shared/animations/pixel_art.dart';
+
+enum _Portal { client, employee, admin }
+
+enum _Stage { portal, signIn, otp, register }
+
+enum _Method { password, otp }
+
+extension on _Portal {
+  String get title => switch (this) {
+        _Portal.client => 'Client',
+        _Portal.employee => 'Employee',
+        _Portal.admin => 'Admin',
+      };
+  String get blurb => switch (this) {
+        _Portal.client => 'Get solar for your home\nor business',
+        _Portal.employee => 'Sales, site, KEDL &\nservice teams',
+        _Portal.admin => 'Oversee operations,\nusers and performance',
+      };
+  IconData get icon => switch (this) {
+        _Portal.client => Icons.groups_2_outlined,
+        _Portal.employee => Icons.engineering_outlined,
+        _Portal.admin => Icons.settings_outlined,
+      };
+  Color get tint => switch (this) {
+        _Portal.client => AppColors.violet500,
+        _Portal.employee => AppColors.gold500,
+        _Portal.admin => AppColors.teal500,
+      };
+  String get fallbackRole => switch (this) {
+        _Portal.client => 'client',
+        _Portal.employee => 'sales',
+        _Portal.admin => 'admin',
+      };
+}
+
+/// Employee departments selectable at sign-up (pending admin approval).
+const _departments = [
+  ('sales', 'Sales', Icons.handshake_outlined),
+  ('site', 'Site Ops', Icons.construction_outlined),
+  ('kedl', 'KEDL', Icons.description_outlined),
+  ('service', 'Service', Icons.build_circle_outlined),
+];
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -14,2468 +59,1630 @@ class LoginScreen extends StatefulWidget {
   State<LoginScreen> createState() => _LoginScreenState();
 }
 
-class _LoginScreenState extends State<LoginScreen> {
-  // Page Controller for sliding between portals (0: Client, 1: Vendor, 2: Admin)
-  final PageController _pageController = PageController(initialPage: 0);
-  int _currentPortal = 0; // 0: Client, 1: Vendor, 2: Admin
+class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin {
+  _Stage _stage = _Stage.portal;
+  _Portal _portal = _Portal.client;
+  _Method _method = _Method.password;
+  bool _forward = true;
 
-  // Client Controllers
-  final _clientPhoneController = TextEditingController();
-  final _clientOtpController = TextEditingController();
-  final _clientEmailController = TextEditingController();
-  final _clientPasswordController = TextEditingController();
-  int _clientAuthMethod = 0; // 0: Phone & OTP, 1: Email & Password
-  bool _clientOtpSent = false;
-  int _clientOtpCooldown = 0;
+  // Sign in
+  final _identifierCtrl = TextEditingController();
+  final _passwordCtrl = TextEditingController();
+  final _phoneCtrl = TextEditingController();
+  final _otpCtrl = TextEditingController();
+  bool _obscure = true;
 
-  // Vendor Controllers
-  final _vendorEmailController = TextEditingController();
-  final _vendorPasswordController = TextEditingController();
-  final _vendorPhoneController = TextEditingController();
-  final _vendorOtpController = TextEditingController();
-  int _vendorAuthMethod = 1; // Default to Email & Password for vendors
-  bool _vendorOtpSent = false;
-  int _vendorOtpCooldown = 0;
+  // Register
+  final _regNameCtrl = TextEditingController();
+  final _regPhoneCtrl = TextEditingController();
+  final _regEmailCtrl = TextEditingController();
+  final _regPasswordCtrl = TextEditingController();
+  String _regDepartment = 'sales';
 
-  // Admin Controllers
-  final _adminEmailController = TextEditingController();
-  final _adminPasswordController = TextEditingController();
-
-  // Common UI State
   bool _isLoading = false;
-  bool _obscurePassword = true;
-  String? _errorMessage;
+  String? _error;
+  int _cooldown = 0;
+  Timer? _cooldownTimer;
+
+  late final AnimationController _shake =
+      AnimationController(vsync: this, duration: const Duration(milliseconds: 420));
+  late final AnimationController _success =
+      AnimationController(vsync: this, duration: const Duration(milliseconds: 900));
+
+  @override
+  void initState() {
+    super.initState();
+    _identifierCtrl.addListener(() => setState(() {}));
+  }
 
   @override
   void dispose() {
-    _pageController.dispose();
-    _clientPhoneController.dispose();
-    _clientOtpController.dispose();
-    _clientEmailController.dispose();
-    _clientPasswordController.dispose();
-    _vendorEmailController.dispose();
-    _vendorPasswordController.dispose();
-    _vendorPhoneController.dispose();
-    _vendorOtpController.dispose();
-    _adminEmailController.dispose();
-    _adminPasswordController.dispose();
+    for (final c in [
+      _identifierCtrl, _passwordCtrl, _phoneCtrl, _otpCtrl,
+      _regNameCtrl, _regPhoneCtrl, _regEmailCtrl, _regPasswordCtrl,
+    ]) {
+      c.dispose();
+    }
+    _cooldownTimer?.cancel();
+    _shake.dispose();
+    _success.dispose();
     super.dispose();
   }
 
-  void _onPortalSelected(int index) {
+  // ── Navigation between stages ─────────────────────────────────────────────
+
+  void _go(_Stage stage, {bool forward = true}) {
+    FocusScope.of(context).unfocus();
     setState(() {
-      _currentPortal = index;
-      _errorMessage = null;
+      _forward = forward;
+      _stage = stage;
+      _error = null;
     });
-    _pageController.animateToPage(
-      index,
-      duration: const Duration(milliseconds: 350),
-      curve: Curves.easeInOutCubic,
-    );
   }
 
-  // ── Authentication Handlers ──────────────────────────────────────────────────
-
-  Future<void> _handlePasswordLogin({
-    required String email,
-    required String password,
-    required String expectedRole,
-  }) async {
-    final cleanEmail = email.trim();
-    if (cleanEmail.isEmpty || password.isEmpty) {
-      setState(() => _errorMessage = 'Please enter both email and password');
-      return;
+  void _back() {
+    switch (_stage) {
+      case _Stage.signIn:
+        _go(_Stage.portal, forward: false);
+      case _Stage.otp:
+      case _Stage.register:
+        _go(_Stage.signIn, forward: false);
+      case _Stage.portal:
+        break;
     }
+  }
+
+  void _choosePortal(_Portal p) {
+    _portal = p;
+    _method = _Method.password;
+    _go(_Stage.signIn);
+  }
+
+  void _fail(String message) {
+    setState(() {
+      _isLoading = false;
+      _error = message.replaceFirst('Exception: ', '');
+    });
+    HapticFeedback.mediumImpact();
+    _shake.forward(from: 0);
+  }
+
+  // ── Auth handlers ─────────────────────────────────────────────────────────
+
+  Future<void> _handlePasswordLogin() async {
+    final id = _identifierCtrl.text.trim();
+    final pw = _passwordCtrl.text;
+    if (id.isEmpty || pw.isEmpty) return _fail('Please enter your email/mobile and password');
 
     setState(() {
       _isLoading = true;
-      _errorMessage = null;
+      _error = null;
     });
-
     try {
-      final res = await ApiClient().loginWithPassword(cleanEmail, password);
-      if (mounted) {
-        setState(() => _isLoading = false);
-        _showSuccessSnack('Welcome back, ${res?['user']?['name'] ?? 'User'}!');
-        _navigateUser(res, expectedRole);
-      }
+      final res = await ApiClient().loginWithPassword(id, pw);
+      if (!mounted) return;
+      setState(() => _isLoading = false);
+      await _playSuccessAndNavigate(res);
     } on EmailVerificationRequiredException catch (ev) {
-      if (mounted) {
-        setState(() => _isLoading = false);
-        _showEmailVerificationModal(ev.email ?? cleanEmail, pendingPassword: password);
-      }
+      if (!mounted) return;
+      setState(() => _isLoading = false);
+      _showEmailVerificationSheet(ev.email ?? id);
     } catch (e) {
-      if (mounted) {
-        setState(() {
-          _isLoading = false;
-          _errorMessage = e.toString().replaceFirst('Exception: ', '');
-        });
-      }
+      if (mounted) _fail(e.toString());
     }
   }
 
-  Future<void> _handleSendOtp({
-    required String phone,
-    required VoidCallback onSentSuccess,
-  }) async {
-    final cleanPhone = phone.trim();
-    if (cleanPhone.isEmpty || cleanPhone.length < 10) {
-      setState(() => _errorMessage = 'Please enter a valid 10-digit mobile number');
-      return;
-    }
+  Future<void> _handleSendOtp() async {
+    final phone = _phoneCtrl.text.trim();
+    if (phone.length < 10) return _fail('Please enter a valid 10-digit mobile number');
 
     setState(() {
       _isLoading = true;
-      _errorMessage = null;
+      _error = null;
     });
-
     try {
-      final res = await ApiClient().requestOtp(cleanPhone);
-      if (mounted) {
-        setState(() => _isLoading = false);
-        final email = res?['email'] as String?;
-        _clientOtpController.clear();
-        _vendorOtpController.clear();
-        onSentSuccess();
-        final emailNotice = email != null ? ' and $email' : '';
-        _showSuccessSnack('Verification OTP sent to +91 $cleanPhone$emailNotice. Please enter it below.');
-      }
+      final res = await ApiClient().requestOtp(phone);
+      if (!mounted) return;
+      setState(() => _isLoading = false);
+      _otpCtrl.clear();
+      _startCooldown();
+      if (_stage != _Stage.otp) _go(_Stage.otp);
+      _snack(res?['message']?.toString() ?? 'If this number is registered, a code is on its way.');
     } catch (e) {
-      if (mounted) {
-        setState(() {
-          _isLoading = false;
-          _errorMessage = e.toString().replaceFirst('Exception: ', '');
-        });
-      }
+      if (mounted) _fail(e.toString());
     }
   }
 
-  Future<void> _handleVerifyOtp({
-    required String phone,
-    required String otp,
-    required String expectedRole,
-  }) async {
-    final cleanPhone = phone.trim();
-    final cleanOtp = otp.trim();
-    if (cleanOtp.length != 6) {
-      setState(() => _errorMessage = 'Please enter the complete 6-digit OTP');
-      return;
-    }
+  Future<void> _handleVerifyOtp() async {
+    final otp = _otpCtrl.text.trim();
+    if (otp.length != 6) return _fail('Please enter the complete 6-digit code');
 
     setState(() {
       _isLoading = true;
-      _errorMessage = null;
+      _error = null;
     });
-
     try {
-      final res = await ApiClient().verifyOtp(cleanPhone, cleanOtp);
-      if (mounted) {
-        setState(() => _isLoading = false);
-        _navigateUser(res, expectedRole);
-      }
+      final res = await ApiClient().verifyOtp(_phoneCtrl.text.trim(), otp);
+      if (!mounted) return;
+      setState(() => _isLoading = false);
+      await _playSuccessAndNavigate(res);
     } on EmailVerificationRequiredException catch (ev) {
-      if (mounted) {
-        setState(() => _isLoading = false);
-        _showEmailVerificationModal(ev.email ?? '');
-      }
+      if (!mounted) return;
+      setState(() => _isLoading = false);
+      _showEmailVerificationSheet(ev.email ?? '');
     } catch (e) {
-      if (mounted) {
-        setState(() {
-          _isLoading = false;
-          _errorMessage = e.toString().replaceFirst('Exception: ', '');
-        });
-      }
+      if (mounted) _fail(e.toString());
     }
   }
 
-  void _startCooldownTimer(Function(int) onTick, VoidCallback onFinished) {
-    Future.doWhile(() async {
-      await Future.delayed(const Duration(seconds: 1));
-      if (!mounted) return false;
-      int next = 0;
-      setState(() {
-        if (_clientOtpCooldown > 0) {
-          _clientOtpCooldown--;
-          next = _clientOtpCooldown;
-        } else if (_vendorOtpCooldown > 0) {
-          _vendorOtpCooldown--;
-          next = _vendorOtpCooldown;
-        }
-      });
-      return next > 0;
+  Future<void> _handleRegister() async {
+    final name = _regNameCtrl.text.trim();
+    final phone = _regPhoneCtrl.text.trim();
+    final email = _regEmailCtrl.text.trim();
+    final password = _regPasswordCtrl.text;
+
+    if (name.isEmpty) return _fail('Please enter your full name');
+    if (phone.length < 10) return _fail('Please enter a valid 10-digit mobile number');
+    if (!email.contains('@')) return _fail('A valid email address is required');
+    if (password.length < 8 || !RegExp(r'[A-Za-z]').hasMatch(password) || !RegExp(r'\d').hasMatch(password)) {
+      return _fail('Password must be at least 8 characters with letters and numbers');
+    }
+
+    if (_portal == _Portal.admin) return _fail('Admin accounts are created by the Super Admin.');
+    final role = _portal == _Portal.client ? 'client' : _regDepartment;
+
+    setState(() {
+      _isLoading = true;
+      _error = null;
+    });
+    try {
+      await ApiClient().registerUser(name: name, phone: phone, email: email, password: password, role: role);
+      if (!mounted) return;
+      setState(() => _isLoading = false);
+      if (_portal == _Portal.client) {
+        _showEmailVerificationSheet(email);
+      } else {
+        _showPendingApprovalDialog();
+      }
+    } catch (e) {
+      if (mounted) _fail(e.toString());
+    }
+  }
+
+  void _startCooldown() {
+    _cooldownTimer?.cancel();
+    setState(() => _cooldown = 30);
+    _cooldownTimer = Timer.periodic(const Duration(seconds: 1), (t) {
+      if (!mounted) return t.cancel();
+      setState(() => _cooldown--);
+      if (_cooldown <= 0) t.cancel();
     });
   }
 
-  void _navigateUser(Map<String, dynamic>? authData, String fallbackRole) async {
+  /// Video-A style hand-off: an amber disc swells over the screen, then the
+  /// dashboard route fades in underneath via the global page transition.
+  Future<void> _playSuccessAndNavigate(Map<String, dynamic>? authData) async {
+    HapticFeedback.heavyImpact();
+    await _success.forward(from: 0);
+    if (mounted) await _navigateUser(authData);
+  }
+
+  Future<void> _navigateUser(Map<String, dynamic>? authData) async {
     final prefs = await SharedPreferences.getInstance();
-    final userMap = authData?['user'] as Map<String, dynamic>?;
-    final role = (userMap?['role'] ??
-            prefs.getString(AppConstants.kUserRole) ??
-            fallbackRole)
+    final user = authData?['user'] as Map<String, dynamic>?;
+    final role = (user?['role'] ?? prefs.getString(AppConstants.kUserRole) ?? _portal.fallbackRole)
         .toString()
         .toLowerCase();
-    final team = (userMap?['team'] ??
-            userMap?['team_type'] ??
-            prefs.getString('user_team'))
-        ?.toString();
+    final team = (user?['team'] ?? user?['team_type'] ?? prefs.getString('user_team'))?.toString();
+    if (!mounted) return;
 
-    if (mounted) {
-      final target = resolveRoleHomeRoute(role, teamType: team);
-      if (target != AppRoutes.unsupportedRole) {
-        context.go(target);
-      } else {
-        if (_currentPortal == 0 || role == 'client') {
-          context.go(AppRoutes.clientDash);
-        } else if (_currentPortal == 1) {
-          context.go(AppRoutes.employeeSalesman);
-        } else {
-          context.go(AppRoutes.vendorDash);
-        }
-      }
+    final target = resolveRoleHomeRoute(role, teamType: team);
+    if (target != AppRoutes.unsupportedRole) {
+      context.go(target);
+    } else {
+      context.go(switch (_portal) {
+        _Portal.client => AppRoutes.clientDash,
+        _Portal.employee => AppRoutes.employeeSalesman,
+        _Portal.admin => AppRoutes.vendorDash,
+      });
     }
   }
 
-  void _showSuccessSnack(String message) {
+  // ── Helpers ───────────────────────────────────────────────────────────────
+
+  String _maskPhone(String p) =>
+      p.length < 4 ? p : '${p.substring(0, 2)}${'*' * (p.length - 4)}${p.substring(p.length - 2)}';
+
+  void _snack(String message) {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Row(
           children: [
-            const Icon(Icons.check_circle_rounded, color: AppColors.green400, size: 20),
+            const Icon(Icons.check_circle_rounded, color: AppColors.gold300, size: 20),
             const SizedBox(width: 10),
-            Expanded(child: Text(message, style: const TextStyle(color: Colors.white))),
+            Expanded(child: Text(message, style: const TextStyle(color: AppColors.white))),
           ],
         ),
-        backgroundColor: AppColors.navy700,
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-        duration: const Duration(seconds: 3),
       ),
     );
   }
 
-  /// Bypass login for rapid testing without credentials
-  Future<void> _bypassEmployeeLogin({
-    String role = 'salesman',
-    String? team,
-    String? customName,
-    String? route,
-  }) async {
-    final prefs = await SharedPreferences.getInstance();
-    final name = customName ?? (role == 'vendor' ? 'Operations Manager' : 'Test Employee');
-    final email = '${role.replaceAll(' ', '_').toLowerCase()}@solarpro.com';
-
-    await prefs.setString(AppConstants.kAccessToken, 'test_mock_jwt_token_${DateTime.now().millisecondsSinceEpoch}');
-    await prefs.setString(AppConstants.kRefreshToken, 'test_mock_refresh_token');
-    await prefs.setString(AppConstants.kUserId, 'test-emp-999');
-    await prefs.setString(AppConstants.kUserName, name);
-    await prefs.setString(AppConstants.kUserPhone, '9876543210');
-    await prefs.setString('user_email', email);
-    await prefs.setString(AppConstants.kUserRole, role);
-    if (team != null) {
-      await prefs.setString('user_team', team);
-    } else {
-      await prefs.remove('user_team');
-    }
-
-    if (!mounted) return;
-
-    _showSuccessSnack('Opened $name without credentials (Test Mode)');
-
-    final targetRoute = route ?? resolveRoleHomeRoute(role, teamType: team);
-    context.go(targetRoute);
-  }
-
-  // ── Build UI ─────────────────────────────────────────────────────────────────
+  // ── Build ─────────────────────────────────────────────────────────────────
 
   @override
   Widget build(BuildContext context) {
-    final size = MediaQuery.of(context).size;
-    final isDesktop = size.width > 700;
+    final wide = MediaQuery.of(context).size.width >= 900;
+    return PopScope(
+      canPop: _stage == _Stage.portal,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop) _back();
+      },
+      child: Scaffold(
+        body: Stack(
+          children: [
+            PixelBackdrop(child: wide ? _buildWide() : _buildNarrow()),
+            _SuccessOverlay(animation: _success),
+          ],
+        ),
+      ),
+    );
+  }
 
-    return Scaffold(
-      backgroundColor: AppColors.navy900,
-      body: Stack(
-        children: [
-          // Ambient Radial Aura Gradients
-          Positioned(
-            top: -120,
-            right: -100,
-            child: Container(
-              width: 400,
-              height: 400,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                gradient: RadialGradient(
-                  colors: [
-                    AppColors.gold500.withValues(alpha: 0.18),
-                    AppColors.gold400.withValues(alpha: 0.04),
-                    Colors.transparent,
-                  ],
-                ),
-              ),
-            ),
-          ),
-          Positioned(
-            bottom: -100,
-            left: -80,
-            child: Container(
-              width: 340,
-              height: 340,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                gradient: RadialGradient(
-                  colors: [
-                    AppColors.teal500.withValues(alpha: 0.12),
-                    Colors.transparent,
-                  ],
-                ),
-              ),
-            ),
-          ),
-
-          SafeArea(
+  Widget _buildNarrow() {
+    return SafeArea(
+      child: LayoutBuilder(
+        builder: (context, c) => SingleChildScrollView(
+          padding: const EdgeInsets.symmetric(horizontal: 24),
+          child: ConstrainedBox(
+            constraints: BoxConstraints(minHeight: c.maxHeight),
             child: Center(
-              child: SingleChildScrollView(
-                physics: const BouncingScrollPhysics(),
-                padding: EdgeInsets.symmetric(
-                  horizontal: isDesktop ? (size.width - 540) / 2 : 20,
-                  vertical: 16,
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 420),
+                child: _buildStageSwitcher(),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// Split layout: illustration panel + form. The panel glides to the other
+  /// side for sign-up, like the Qubstudio reference.
+  Widget _buildWide() {
+    final panelRight = _stage == _Stage.register;
+    return SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.all(28),
+        child: LayoutBuilder(
+          builder: (context, c) {
+            final half = c.maxWidth / 2;
+            return Stack(
+              children: [
+                AnimatedPositioned(
+                  duration: const Duration(milliseconds: 700),
+                  curve: AppMotion.emphasized,
+                  left: panelRight ? half : 0,
+                  top: 0,
+                  bottom: 0,
+                  width: half,
+                  child: _IllustrationPanel(stage: _stage),
                 ),
+                AnimatedPositioned(
+                  duration: const Duration(milliseconds: 700),
+                  curve: AppMotion.emphasized,
+                  left: panelRight ? 0 : half,
+                  top: 0,
+                  bottom: 0,
+                  width: half,
+                  child: Center(
+                    child: SingleChildScrollView(
+                      padding: const EdgeInsets.symmetric(horizontal: 40, vertical: 12),
+                      child: ConstrainedBox(
+                        constraints: const BoxConstraints(maxWidth: 420),
+                        child: _buildStageSwitcher(),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            );
+          },
+        ),
+      ),
+    );
+  }
+
+  Widget _buildStageSwitcher() {
+    return AnimatedBuilder(
+      animation: _shake,
+      builder: (context, child) => Transform.translate(
+        offset: Offset(math.sin(_shake.value * math.pi * 6) * 10 * (1 - _shake.value), 0),
+        child: child,
+      ),
+      child: AnimatedSwitcher(
+        duration: AppMotion.slow,
+        switchInCurve: AppMotion.emphasized,
+        switchOutCurve: Curves.easeInCubic,
+        layoutBuilder: (current, previous) => Stack(
+          alignment: Alignment.topCenter,
+          children: [...previous, if (current != null) current],
+        ),
+        transitionBuilder: (child, anim) {
+          final isIncoming = child.key == ValueKey(_stage);
+          final dir = (_forward ? 1.0 : -1.0) * (isIncoming ? 1 : -1);
+          return FadeTransition(
+            opacity: anim,
+            child: AnimatedBuilder(
+              animation: anim,
+              child: child,
+              builder: (context, child) => Transform(
+                alignment: Alignment.center,
+                transform: Matrix4.identity()
+                  ..setEntry(3, 2, 0.0012)
+                  ..translateByDouble(dir * 70 * (1 - anim.value), 0, 0, 1)
+                  ..rotateY(dir * 0.35 * (1 - anim.value)),
+                child: child,
+              ),
+            ),
+          );
+        },
+        child: KeyedSubtree(
+          key: ValueKey(_stage),
+          child: switch (_stage) {
+            _Stage.portal => _buildPortalStage(),
+            _Stage.signIn => _buildSignInStage(),
+            _Stage.otp => _buildOtpStage(),
+            _Stage.register => _buildRegisterStage(),
+          },
+        ),
+      ),
+    );
+  }
+
+  // ── Stage: choose portal ──────────────────────────────────────────────────
+
+  Widget _buildPortalStage() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        const SizedBox(height: 28),
+        const SpEntrance(child: Center(child: SolarProLogo(size: 26))),
+        const SizedBox(height: 26),
+        SpEntrance(
+          index: 1,
+          child: Text('Choose Your Portal',
+              textAlign: TextAlign.center, style: AppTextStyles.displaySmall.copyWith(fontSize: 28)),
+        ),
+        const SizedBox(height: 6),
+        SpEntrance(
+          index: 2,
+          child: Text('One app. Three experiences.',
+              textAlign: TextAlign.center, style: AppTextStyles.bodyMedium.copyWith(color: AppColors.grey400)),
+        ),
+        const SizedBox(height: 28),
+        for (final (i, p) in _Portal.values.indexed) ...[
+          SpEntrance(
+            index: 3 + i,
+            step: const Duration(milliseconds: 90),
+            from: const Offset(40, 0),
+            child: _PortalCard(portal: p, onTap: () => _choosePortal(p)),
+          ),
+          const SizedBox(height: 14),
+        ],
+        const SizedBox(height: 18),
+        SpEntrance(
+          index: 7,
+          child: Text('Secured with end-to-end encryption',
+              textAlign: TextAlign.center, style: AppTextStyles.caption),
+        ),
+        const SizedBox(height: 28),
+      ],
+    );
+  }
+
+  // ── Stage: sign in ────────────────────────────────────────────────────────
+
+  Widget _buildSignInStage() {
+    final usesPassword = _method == _Method.password;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _TopBar(onBack: _back, trailing: _PortalBadge(portal: _portal)),
+        const SizedBox(height: 18),
+        const SpEntrance(child: Center(child: SolarProLogo(size: 24))),
+        const SizedBox(height: 22),
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  SpEntrance(
+                    index: 1,
+                    child: Row(
+                      children: [
+                        Text('Welcome Back', style: AppTextStyles.displaySmall.copyWith(fontSize: 27)),
+                        const SizedBox(width: 6),
+                        const _WavingHand(),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  SpEntrance(
+                    index: 2,
+                    child: Text('Sign in to your ${_portal.title.toLowerCase()} portal',
+                        style: AppTextStyles.bodyMedium.copyWith(color: AppColors.grey400)),
+                  ),
+                ],
+              ),
+            ),
+            _MorphAvatar(text: usesPassword ? _identifierCtrl.text : '', portal: _portal),
+          ],
+        ),
+        const SizedBox(height: 22),
+        if (_portal != _Portal.admin) ...[
+          SpEntrance(
+            index: 3,
+            child: _MethodToggle(
+              value: _method,
+              onChanged: (m) => setState(() {
+                _method = m;
+                _error = null;
+              }),
+            ),
+          ),
+          const SizedBox(height: 16),
+        ],
+        _ErrorBanner(message: _error),
+        AnimatedSize(
+          duration: AppMotion.medium,
+          curve: AppMotion.emphasized,
+          alignment: Alignment.topCenter,
+          child: usesPassword
+              ? Column(
+                  key: const ValueKey('pw'),
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    SpEntrance(
+                      index: 4,
+                      child: _PixelField(
+                        controller: _identifierCtrl,
+                        hint: 'Email or Mobile',
+                        icon: Icons.mail_outline_rounded,
+                        keyboardType: TextInputType.emailAddress,
+                        autofillHints: const [AutofillHints.username, AutofillHints.email],
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+                    SpEntrance(
+                      index: 5,
+                      child: _PixelField(
+                        controller: _passwordCtrl,
+                        hint: 'Password',
+                        icon: Icons.lock_outline_rounded,
+                        obscure: _obscure,
+                        autofillHints: const [AutofillHints.password],
+                        onSubmitted: (_) => _handlePasswordLogin(),
+                        suffix: IconButton(
+                          onPressed: () => setState(() => _obscure = !_obscure),
+                          icon: AnimatedSwitcher(
+                            duration: AppMotion.fast,
+                            transitionBuilder: (c, a) => RotationTransition(turns: a, child: FadeTransition(opacity: a, child: c)),
+                            child: Icon(
+                              _obscure ? Icons.visibility_outlined : Icons.visibility_off_outlined,
+                              key: ValueKey(_obscure),
+                              color: AppColors.ink700,
+                              size: 20,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                    if (_portal != _Portal.admin)
+                      Align(
+                        alignment: Alignment.centerRight,
+                        child: TextButton(
+                          onPressed: () => setState(() => _method = _Method.otp),
+                          child: Text(
+                            'Forgot Password? Use OTP',
+                            style: AppTextStyles.labelMedium.copyWith(
+                              color: AppColors.ink900,
+                              decoration: TextDecoration.underline,
+                            ),
+                          ),
+                        ),
+                      )
+                    else
+                      const SizedBox(height: 18),
+                    const SizedBox(height: 6),
+                    SpEntrance(
+                      index: 6,
+                      child: SpPixelButton(label: 'Login', isLoading: _isLoading, onPressed: _handlePasswordLogin),
+                    ),
+                  ],
+                )
+              : Column(
+                  key: const ValueKey('otp'),
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    _PixelField(
+                      controller: _phoneCtrl,
+                      hint: 'Mobile number',
+                      icon: Icons.phone_iphone_rounded,
+                      prefixText: '+91  ',
+                      keyboardType: TextInputType.phone,
+                      maxLength: 10,
+                      digitsOnly: true,
+                      onSubmitted: (_) => _handleSendOtp(),
+                    ),
+                    const SizedBox(height: 10),
+                    Text("We'll text you a 6-digit code to sign in securely.", style: AppTextStyles.bodySmall),
+                    const SizedBox(height: 20),
+                    SpPixelButton(
+                      label: 'Send OTP',
+                      trailingIcon: Icons.arrow_forward_rounded,
+                      isLoading: _isLoading,
+                      onPressed: _handleSendOtp,
+                    ),
+                  ],
+                ),
+        ),
+        const SizedBox(height: 26),
+        if (_portal != _Portal.admin)
+        SpEntrance(
+          index: 7,
+          child: Center(
+            child: Text.rich(
+              TextSpan(
+                style: AppTextStyles.bodyMedium.copyWith(color: AppColors.grey400),
+                children: [
+                  const TextSpan(text: "Don't have an account? "),
+                  WidgetSpan(
+                    alignment: PlaceholderAlignment.middle,
+                    child: SpPressable(
+                      onTap: () => _go(_Stage.register),
+                      child: Text('Register',
+                          style: AppTextStyles.labelLarge.copyWith(color: AppColors.ink900, fontWeight: FontWeight.w800)),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+        const SizedBox(height: 28),
+      ],
+    );
+  }
+
+  // ── Stage: OTP ────────────────────────────────────────────────────────────
+
+  Widget _buildOtpStage() {
+    final mm = (_cooldown ~/ 60).toString().padLeft(2, '0');
+    final ss = (_cooldown % 60).toString().padLeft(2, '0');
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _TopBar(onBack: _back),
+        const SizedBox(height: 12),
+        Center(child: SpEntrance(from: const Offset(0, -20), child: PixelScenes.sunCloud(size: 76))),
+        const SizedBox(height: 14),
+        SpEntrance(index: 1, child: Text('Verify OTP', style: AppTextStyles.displaySmall.copyWith(fontSize: 28))),
+        const SizedBox(height: 6),
+        SpEntrance(
+          index: 2,
+          child: Text.rich(
+            TextSpan(
+              style: AppTextStyles.bodyMedium.copyWith(color: AppColors.grey400),
+              children: [
+                const TextSpan(text: 'Enter the 6-digit code sent to\n'),
+                TextSpan(
+                  text: '+91 ${_maskPhone(_phoneCtrl.text.trim())}',
+                  style: AppTextStyles.labelLarge.copyWith(color: AppColors.ink900),
+                ),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(height: 24),
+        _ErrorBanner(message: _error),
+        SpEntrance(
+          index: 3,
+          child: _PixelOtpField(
+            controller: _otpCtrl,
+            onCompleted: (_) => _handleVerifyOtp(),
+          ),
+        ),
+        const SizedBox(height: 18),
+        SpEntrance(
+          index: 4,
+          child: Center(
+            child: AnimatedSwitcher(
+              duration: AppMotion.medium,
+              child: _cooldown > 0
+                  ? Row(
+                      key: const ValueKey('wait'),
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(Icons.timer_outlined, size: 16, color: AppColors.grey400),
+                        const SizedBox(width: 6),
+                        Text('Resend OTP in ', style: AppTextStyles.bodyMedium.copyWith(color: AppColors.grey400)),
+                        Text('$mm:$ss', style: AppTextStyles.labelLarge.copyWith(color: AppColors.ink900)),
+                      ],
+                    )
+                  : TextButton.icon(
+                      key: const ValueKey('resend'),
+                      onPressed: _isLoading ? null : _handleSendOtp,
+                      icon: const Icon(Icons.refresh_rounded, size: 18),
+                      label: const Text('Resend OTP'),
+                    ),
+            ),
+          ),
+        ),
+        const SizedBox(height: 22),
+        SpEntrance(
+          index: 5,
+          child: SpPixelButton(label: 'Verify', isLoading: _isLoading, onPressed: _handleVerifyOtp),
+        ),
+        const SizedBox(height: 28),
+      ],
+    );
+  }
+
+  // ── Stage: register ───────────────────────────────────────────────────────
+
+  Widget _buildRegisterStage() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _TopBar(onBack: _back, trailing: _PortalBadge(portal: _portal)),
+        const SizedBox(height: 14),
+        SpEntrance(child: Text('Create Account', style: AppTextStyles.displaySmall.copyWith(fontSize: 28))),
+        const SizedBox(height: 4),
+        SpEntrance(
+          index: 1,
+          child: Text(
+            switch (_portal) {
+              _Portal.client => 'Join SolarPro and track your solar journey',
+              _Portal.employee => 'Your account is activated once an admin approves it',
+              _Portal.admin => 'Admin accounts are created by the Super Admin',
+            },
+            style: AppTextStyles.bodyMedium.copyWith(color: AppColors.grey400),
+          ),
+        ),
+        const SizedBox(height: 20),
+        if (_portal == _Portal.employee) ...[
+          SpEntrance(index: 2, child: Text('Department', style: AppTextStyles.labelLarge)),
+          const SizedBox(height: 10),
+          SpEntrance(
+            index: 2,
+            child: Wrap(
+              spacing: 10,
+              runSpacing: 10,
+              children: [
+                for (final (key, label, icon) in _departments)
+                  _DepartmentChip(
+                    label: label,
+                    icon: icon,
+                    selected: _regDepartment == key,
+                    onTap: () => setState(() => _regDepartment = key),
+                  ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 18),
+        ],
+        _ErrorBanner(message: _error),
+        SpEntrance(
+          index: 3,
+          child: _PixelField(controller: _regNameCtrl, hint: 'Full name', icon: Icons.person_outline_rounded,
+              autofillHints: const [AutofillHints.name]),
+        ),
+        const SizedBox(height: 12),
+        SpEntrance(
+          index: 4,
+          child: _PixelField(
+            controller: _regPhoneCtrl,
+            hint: 'Mobile number',
+            icon: Icons.phone_iphone_rounded,
+            prefixText: '+91  ',
+            keyboardType: TextInputType.phone,
+            maxLength: 10,
+            digitsOnly: true,
+          ),
+        ),
+        const SizedBox(height: 12),
+        SpEntrance(
+          index: 5,
+          child: _PixelField(
+            controller: _regEmailCtrl,
+            hint: 'Email address',
+            icon: Icons.mail_outline_rounded,
+            keyboardType: TextInputType.emailAddress,
+            autofillHints: const [AutofillHints.email],
+          ),
+        ),
+        const SizedBox(height: 12),
+        SpEntrance(
+          index: 6,
+          child: _PixelField(
+            controller: _regPasswordCtrl,
+            hint: 'Password (8+ letters & numbers)',
+            icon: Icons.lock_outline_rounded,
+            obscure: true,
+            autofillHints: const [AutofillHints.newPassword],
+            onSubmitted: (_) => _handleRegister(),
+          ),
+        ),
+        const SizedBox(height: 22),
+        SpEntrance(
+          index: 7,
+          child: SpPixelButton(label: 'Create Account', isLoading: _isLoading, onPressed: _handleRegister),
+        ),
+        const SizedBox(height: 18),
+        Center(
+          child: TextButton(
+            onPressed: () => _go(_Stage.signIn, forward: false),
+            child: Text('Already have an account? Sign in',
+                style: AppTextStyles.labelMedium.copyWith(color: AppColors.ink900)),
+          ),
+        ),
+        const SizedBox(height: 24),
+      ],
+    );
+  }
+
+  // ── Sheets & dialogs ──────────────────────────────────────────────────────
+
+  void _showPendingApprovalDialog() {
+    showGeneralDialog(
+      context: context,
+      barrierDismissible: true,
+      barrierLabel: 'Close',
+      barrierColor: AppColors.ink900.withValues(alpha: 0.35),
+      transitionDuration: AppMotion.slow,
+      transitionBuilder: (ctx, a, _, child) => ScaleTransition(
+        scale: CurvedAnimation(parent: a, curve: Curves.easeOutBack),
+        child: FadeTransition(opacity: a, child: child),
+      ),
+      pageBuilder: (ctx, _, __) => Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 380),
+            child: Material(
+              color: Colors.transparent,
+              child: SpCard(
+                padding: const EdgeInsets.fromLTRB(22, 24, 22, 20),
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    // Brand Header
-                    _buildBrandHeader(),
-                    const SizedBox(height: 18),
-
-                    // Portal Navigation Slider Bar (Client ➔ Employee ➔ Admin)
-                    _buildPortalSlider(),
-                    const SizedBox(height: 10),
-
-                    // Swipe Hint Helper
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        const Icon(Icons.swipe_rounded, color: AppColors.grey500, size: 14),
-                        const SizedBox(width: 6),
-                        Text(
-                          'Swipe horizontally or tap above to switch portals',
-                          style: AppTextStyles.caption.copyWith(
-                            color: AppColors.grey500,
-                            fontSize: 11,
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 14),
-
-                    // Error Banner if present
-                    if (_errorMessage != null) ...[
-                      _buildErrorBanner(),
-                      const SizedBox(height: 12),
-                    ],
-
-                    // PageView Card containing the 3 portals
-                    SizedBox(
-                      height: 570,
-                      child: PageView(
-                        controller: _pageController,
-                        onPageChanged: (idx) {
-                          setState(() {
-                            _currentPortal = idx;
-                            _errorMessage = null;
-                          });
-                        },
-                        children: [
-                          _buildClientPortalPage(),
-                          _buildVendorPortalPage(),
-                          _buildAdminPortalPage(),
-                        ],
-                      ),
-                    ),
-
-                    const SizedBox(height: 16),
-
-                    // Account Creation Option (for clients)
-                    _buildRegisterFooter(),
+                    PixelScenes.sunCloud(size: 64),
+                    const SizedBox(height: 12),
+                    Text('Request Submitted', style: AppTextStyles.displaySmall.copyWith(fontSize: 22)),
                     const SizedBox(height: 8),
+                    Text(
+                      'Your ${_portal == _Portal.employee ? 'employee' : 'admin'} account is awaiting approval. '
+                      "You'll be able to sign in once an administrator activates it.",
+                      textAlign: TextAlign.center,
+                      style: AppTextStyles.bodyMedium,
+                    ),
+                    const SizedBox(height: 20),
+                    SpPixelButton(
+                      label: 'Got it',
+                      onPressed: () {
+                        Navigator.of(ctx).pop();
+                        _go(_Stage.signIn, forward: false);
+                      },
+                    ),
                   ],
                 ),
               ),
             ),
           ),
+        ),
+      ),
+    );
+  }
+
+  void _showEmailVerificationSheet(String email) {
+    final codeCtrl = TextEditingController();
+    bool verifying = false;
+    bool resending = false;
+    String? sheetError;
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (sheetCtx) => StatefulBuilder(
+        builder: (ctx, setSheet) {
+          Future<void> verify() async {
+            final code = codeCtrl.text.trim();
+            if (code.length != 6) {
+              setSheet(() => sheetError = 'Please enter the complete 6-digit code');
+              return;
+            }
+            setSheet(() {
+              verifying = true;
+              sheetError = null;
+            });
+            try {
+              final res = await ApiClient().verifyEmail(email, code);
+              if (!sheetCtx.mounted) return;
+              Navigator.pop(sheetCtx);
+              await _playSuccessAndNavigate(res);
+            } catch (e) {
+              if (!sheetCtx.mounted) return;
+              setSheet(() {
+                verifying = false;
+                sheetError = e.toString().replaceFirst('Exception: ', '');
+              });
+            }
+          }
+
+          return Container(
+            padding: EdgeInsets.fromLTRB(24, 14, 24, MediaQuery.of(ctx).viewInsets.bottom + 28),
+            decoration: const BoxDecoration(
+              color: AppColors.navy800,
+              borderRadius: BorderRadius.vertical(top: Radius.circular(AppRadius.xxl)),
+              border: Border(top: BorderSide(color: AppColors.navy500, width: 1.4)),
+            ),
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Center(
+                    child: Container(
+                      width: 44,
+                      height: 5,
+                      decoration: BoxDecoration(color: AppColors.navy500, borderRadius: BorderRadius.circular(3)),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  Center(child: PixelScenes.sunCloud(size: 60)),
+                  const SizedBox(height: 10),
+                  Text('Verify your email', textAlign: TextAlign.center,
+                      style: AppTextStyles.displaySmall.copyWith(fontSize: 22)),
+                  const SizedBox(height: 6),
+                  Text.rich(
+                    TextSpan(
+                      style: AppTextStyles.bodyMedium.copyWith(color: AppColors.grey400),
+                      children: [
+                        const TextSpan(text: 'We sent a 6-digit code to\n'),
+                        TextSpan(text: email, style: AppTextStyles.labelLarge.copyWith(color: AppColors.ink900)),
+                      ],
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+                  const SizedBox(height: 20),
+                  _ErrorBanner(message: sheetError),
+                  _PixelOtpField(controller: codeCtrl, onCompleted: (_) => verify()),
+                  const SizedBox(height: 20),
+                  SpPixelButton(label: 'Verify & Continue', isLoading: verifying, onPressed: verify),
+                  const SizedBox(height: 8),
+                  Center(
+                    child: TextButton.icon(
+                      icon: resending
+                          ? const SizedBox(width: 30, height: 12, child: SpPixelLoader(size: 5))
+                          : const Icon(Icons.refresh_rounded, size: 18),
+                      label: Text(resending ? 'Sending…' : 'Resend code'),
+                      onPressed: resending
+                          ? null
+                          : () async {
+                              setSheet(() => resending = true);
+                              final ok = await ApiClient().sendEmailVerification(email);
+                              if (!sheetCtx.mounted) return;
+                              setSheet(() {
+                                resending = false;
+                                sheetError = ok ? null : 'Could not resend the code. Please try again.';
+                              });
+                              if (ok) _snack('New code sent to $email');
+                            },
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
+      ),
+    ).whenComplete(codeCtrl.dispose);
+  }
+}
+
+// ═══ Pieces ═══════════════════════════════════════════════════════════════════
+
+class _TopBar extends StatelessWidget {
+  final VoidCallback onBack;
+  final Widget? trailing;
+  const _TopBar({required this.onBack, this.trailing});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(top: 12),
+      child: Row(
+        children: [
+          SpPressable(
+            onTap: onBack,
+            child: Container(
+              width: 42,
+              height: 42,
+              decoration: AppDecor.card(radius: AppRadius.md, shadowOffset: 2),
+              child: const Icon(Icons.arrow_back_rounded, color: AppColors.ink900, size: 20),
+            ),
+          ),
+          const Spacer(),
+          if (trailing != null) trailing!,
         ],
       ),
     );
   }
+}
 
-  // ── Brand Header ─────────────────────────────────────────────────────────────
+class _PortalBadge extends StatelessWidget {
+  final _Portal portal;
+  const _PortalBadge({required this.portal});
 
-  Widget _buildBrandHeader() {
-    return Column(
-      children: [
-        Container(
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+      decoration: BoxDecoration(
+        color: portal.tint.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(AppRadius.pill),
+        border: Border.all(color: portal.tint.withValues(alpha: 0.5)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(portal.icon, size: 15, color: AppColors.ink900),
+          const SizedBox(width: 6),
+          Text('${portal.title} portal', style: AppTextStyles.labelMedium.copyWith(color: AppColors.ink900)),
+        ],
+      ),
+    );
+  }
+}
+
+class _PortalCard extends StatelessWidget {
+  final _Portal portal;
+  final VoidCallback onTap;
+  const _PortalCard({required this.portal, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return SpCard(
+      onTap: onTap,
+      padding: const EdgeInsets.fromLTRB(14, 14, 10, 14),
+      child: Row(
+        children: [
+          Container(
+            width: 52,
+            height: 52,
+            decoration: BoxDecoration(
+              color: portal.tint.withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(AppRadius.md),
+              border: Border.all(color: portal.tint.withValues(alpha: 0.45), width: 1.2),
+            ),
+            child: Icon(portal.icon, color: AppColors.ink900, size: 26),
+          ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(portal.title, style: AppTextStyles.headlineSmall.copyWith(fontSize: 17)),
+                const SizedBox(height: 2),
+                Text(portal.blurb, style: AppTextStyles.bodySmall.copyWith(color: AppColors.grey300)),
+              ],
+            ),
+          ),
+          const _NudgeArrow(),
+        ],
+      ),
+    );
+  }
+}
+
+/// Chevron that nudges right on a loop, hinting the card is tappable.
+class _NudgeArrow extends StatefulWidget {
+  const _NudgeArrow();
+  @override
+  State<_NudgeArrow> createState() => _NudgeArrowState();
+}
+
+class _NudgeArrowState extends State<_NudgeArrow> with SingleTickerProviderStateMixin {
+  late final AnimationController _c =
+      AnimationController(vsync: this, duration: const Duration(milliseconds: 1600))..repeat();
+
+  @override
+  void dispose() {
+    _c.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _c,
+      builder: (context, child) {
+        final v = _c.value < 0.3 ? math.sin(_c.value / 0.3 * math.pi) * 4 : 0.0;
+        return Transform.translate(offset: Offset(v, 0), child: child);
+      },
+      child: const Icon(Icons.chevron_right_rounded, color: AppColors.ink900, size: 26),
+    );
+  }
+}
+
+class _WavingHand extends StatefulWidget {
+  const _WavingHand();
+  @override
+  State<_WavingHand> createState() => _WavingHandState();
+}
+
+class _WavingHandState extends State<_WavingHand> with SingleTickerProviderStateMixin {
+  late final AnimationController _c =
+      AnimationController(vsync: this, duration: const Duration(milliseconds: 2200))..repeat();
+
+  @override
+  void dispose() {
+    _c.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _c,
+      builder: (context, child) {
+        final t = _c.value;
+        final angle = t < 0.5 ? math.sin(t / 0.5 * math.pi * 4) * 0.35 : 0.0;
+        return Transform.rotate(angle: angle, alignment: Alignment.bottomRight, child: child);
+      },
+      child: const Text('👋', style: TextStyle(fontSize: 24)),
+    );
+  }
+}
+
+/// Avatar that morphs as the user types (Cleveroad reference): empty outline
+/// ring → filled gradient disc showing their initial.
+class _MorphAvatar extends StatelessWidget {
+  final String text;
+  final _Portal portal;
+  const _MorphAvatar({required this.text, required this.portal});
+
+  @override
+  Widget build(BuildContext context) {
+    final filled = text.trim().length >= 3;
+    final initial = filled ? text.trim()[0].toUpperCase() : '';
+    return TweenAnimationBuilder<double>(
+      tween: Tween(end: filled ? 1 : 0),
+      duration: const Duration(milliseconds: 520),
+      curve: Curves.easeOutBack,
+      builder: (context, v, _) {
+        final f = v.clamp(0.0, 1.0);
+        return Container(
           width: 64,
           height: 64,
           decoration: BoxDecoration(
             shape: BoxShape.circle,
-            gradient: const LinearGradient(
-              colors: [Color(0xFFF5A623), Color(0xFFFF8C00)],
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-            ),
+            color: Color.lerp(AppColors.white, AppColors.gold500, f),
+            border: Border.all(color: AppColors.ink900, width: 1.6),
             boxShadow: [
-              BoxShadow(
-                color: AppColors.gold500.withValues(alpha: 0.4),
-                blurRadius: 20,
-                spreadRadius: 2,
+              BoxShadow(color: AppColors.navy500.withValues(alpha: 0.6), offset: const Offset(0, 3)),
+            ],
+          ),
+          child: Stack(
+            alignment: Alignment.center,
+            children: [
+              Opacity(
+                opacity: 1 - f,
+                child: Transform.scale(scale: 1 - 0.4 * f, child: Icon(portal.icon, color: AppColors.ink700, size: 28)),
+              ),
+              Opacity(
+                opacity: f,
+                child: Transform.scale(
+                  scale: 0.4 + 0.6 * v,
+                  child: Text(initial, style: AppTextStyles.displaySmall.copyWith(fontSize: 28)),
+                ),
               ),
             ],
           ),
-          child: const Center(
-            child: Icon(
-              Icons.wb_sunny_rounded,
-              color: AppColors.navy900,
-              size: 36,
-            ),
-          ),
-        ).animate().scale(duration: 400.ms, curve: Curves.easeOutBack),
-        const SizedBox(height: 10),
-        Text(
-          'SolarPro',
-          style: AppTextStyles.displaySmall.copyWith(
-            fontWeight: FontWeight.w800,
-            letterSpacing: 0.5,
-          ),
-        ),
-        const SizedBox(height: 2),
-        Text(
-          'Clean Energy Command Platform',
-          style: AppTextStyles.bodyMedium.copyWith(
-            color: AppColors.gold300,
-            fontSize: 12,
-            fontWeight: FontWeight.w500,
-          ),
-        ),
-      ],
+        );
+      },
     );
   }
+}
 
-  // ── Portal Slider Tabs ───────────────────────────────────────────────────────
+class _MethodToggle extends StatelessWidget {
+  final _Method value;
+  final ValueChanged<_Method> onChanged;
+  const _MethodToggle({required this.value, required this.onChanged});
 
-  Widget _buildPortalSlider() {
-    final portals = [
-      {'title': 'Client', 'icon': Icons.solar_power_rounded, 'color': AppColors.gold500},
-      {'title': 'Employee', 'icon': Icons.badge_rounded, 'color': AppColors.teal500},
-      {'title': 'Admin', 'icon': Icons.admin_panel_settings_rounded, 'color': AppColors.orange500},
-    ];
-
+  @override
+  Widget build(BuildContext context) {
     return Container(
+      height: 46,
       padding: const EdgeInsets.all(4),
       decoration: BoxDecoration(
-        color: AppColors.navy800,
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: AppColors.navy600),
+        color: AppColors.navy700,
+        borderRadius: BorderRadius.circular(AppRadius.lg),
+        border: Border.all(color: AppColors.navy600, width: 1.2),
       ),
-      child: Row(
-        children: List.generate(portals.length, (i) {
-          final isSelected = _currentPortal == i;
-          final p = portals[i];
-          final color = p['color'] as Color;
-
-          return Expanded(
-            child: GestureDetector(
-              onTap: () => _onPortalSelected(i),
-              behavior: HitTestBehavior.opaque,
-              child: AnimatedContainer(
-                duration: const Duration(milliseconds: 250),
-                curve: Curves.easeInOut,
-                padding: const EdgeInsets.symmetric(vertical: 10),
-                decoration: BoxDecoration(
-                  gradient: isSelected
-                      ? LinearGradient(
-                          colors: [
-                            color.withValues(alpha: 0.3),
-                            color.withValues(alpha: 0.15),
+      child: LayoutBuilder(
+        builder: (context, c) {
+          final w = c.maxWidth / 2;
+          return Stack(
+            children: [
+              AnimatedPositioned(
+                duration: AppMotion.medium,
+                curve: Curves.easeOutBack,
+                left: value == _Method.password ? 0 : w,
+                width: w,
+                top: 0,
+                bottom: 0,
+                child: Container(decoration: AppDecor.card(radius: AppRadius.md, shadowOffset: 2)),
+              ),
+              Row(
+                children: [
+                  for (final (m, label, icon) in [
+                    (_Method.password, 'Password', Icons.key_rounded),
+                    (_Method.otp, 'Mobile OTP', Icons.sms_outlined),
+                  ])
+                    Expanded(
+                      child: GestureDetector(
+                        behavior: HitTestBehavior.opaque,
+                        onTap: () => onChanged(m),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(icon, size: 16, color: value == m ? AppColors.ink900 : AppColors.grey500),
+                            const SizedBox(width: 6),
+                            AnimatedDefaultTextStyle(
+                              duration: AppMotion.fast,
+                              style: AppTextStyles.labelLarge.copyWith(
+                                fontSize: 13,
+                                color: value == m ? AppColors.ink900 : AppColors.grey500,
+                              ),
+                              child: Text(label),
+                            ),
                           ],
-                        )
-                      : null,
-                  color: isSelected ? null : Colors.transparent,
-                  borderRadius: BorderRadius.circular(16),
-                  border: isSelected
-                      ? Border.all(color: color.withValues(alpha: 0.8), width: 1.5)
-                      : Border.all(color: Colors.transparent),
-                ),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Icon(
-                      p['icon'] as IconData,
-                      size: 16,
-                      color: isSelected ? color : AppColors.grey500,
-                    ),
-                    const SizedBox(width: 6),
-                    Text(
-                      p['title'] as String,
-                      style: TextStyle(
-                        fontSize: 13,
-                        fontWeight: isSelected ? FontWeight.w800 : FontWeight.w500,
-                        color: isSelected ? Colors.white : AppColors.grey400,
+                        ),
                       ),
                     ),
-                  ],
-                ),
+                ],
               ),
-            ),
+            ],
           );
-        }),
+        },
       ),
     );
   }
+}
 
-  // ── Error Banner ─────────────────────────────────────────────────────────────
+class _PixelField extends StatefulWidget {
+  final TextEditingController controller;
+  final String hint;
+  final IconData icon;
+  final bool obscure;
+  final Widget? suffix;
+  final String? prefixText;
+  final TextInputType? keyboardType;
+  final int? maxLength;
+  final bool digitsOnly;
+  final Iterable<String>? autofillHints;
+  final ValueChanged<String>? onSubmitted;
 
-  Widget _buildErrorBanner() {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+  const _PixelField({
+    required this.controller,
+    required this.hint,
+    required this.icon,
+    this.obscure = false,
+    this.suffix,
+    this.prefixText,
+    this.keyboardType,
+    this.maxLength,
+    this.digitsOnly = false,
+    this.autofillHints,
+    this.onSubmitted,
+  });
+
+  @override
+  State<_PixelField> createState() => _PixelFieldState();
+}
+
+class _PixelFieldState extends State<_PixelField> {
+  final _focus = FocusNode();
+
+  @override
+  void initState() {
+    super.initState();
+    _focus.addListener(() => setState(() {}));
+  }
+
+  @override
+  void dispose() {
+    _focus.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final focused = _focus.hasFocus;
+    return AnimatedContainer(
+      duration: AppMotion.medium,
+      curve: AppMotion.emphasized,
+      transform: Matrix4.translationValues(0, focused ? -2 : 0, 0),
       decoration: BoxDecoration(
-        color: AppColors.error.withValues(alpha: 0.15),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: AppColors.error.withValues(alpha: 0.4)),
+        color: AppColors.white,
+        borderRadius: BorderRadius.circular(AppRadius.lg),
+        border: Border.all(color: focused ? AppColors.violet500 : AppColors.navy500, width: focused ? 1.8 : 1.4),
+        boxShadow: [
+          BoxShadow(
+            color: (focused ? AppColors.violet500 : AppColors.navy500).withValues(alpha: focused ? 0.35 : 0.5),
+            offset: Offset(0, focused ? 4 : 2),
+          ),
+        ],
       ),
       child: Row(
         children: [
-          const Icon(Icons.error_outline_rounded, color: AppColors.error, size: 18),
-          const SizedBox(width: 8),
+          const SizedBox(width: 14),
+          AnimatedScale(
+            duration: AppMotion.medium,
+            curve: Curves.easeOutBack,
+            scale: focused ? 1.15 : 1,
+            child: Icon(widget.icon, size: 20, color: focused ? AppColors.violet500 : AppColors.ink700),
+          ),
           Expanded(
-            child: Text(
-              _errorMessage!,
-              style: const TextStyle(color: Colors.white, fontSize: 12),
+            child: TextField(
+              controller: widget.controller,
+              focusNode: _focus,
+              obscureText: widget.obscure,
+              keyboardType: widget.keyboardType,
+              autofillHints: widget.autofillHints,
+              maxLength: widget.maxLength,
+              onSubmitted: widget.onSubmitted,
+              cursorColor: AppColors.violet500,
+              inputFormatters: widget.digitsOnly ? [FilteringTextInputFormatter.digitsOnly] : null,
+              style: AppTextStyles.bodyLarge.copyWith(color: AppColors.ink900, fontWeight: FontWeight.w600, fontSize: 15),
+              decoration: InputDecoration(
+                hintText: widget.hint,
+                prefixText: widget.prefixText,
+                prefixStyle: AppTextStyles.bodyLarge.copyWith(color: AppColors.ink900, fontWeight: FontWeight.w700, fontSize: 15),
+                counterText: '',
+                filled: false,
+                border: InputBorder.none,
+                enabledBorder: InputBorder.none,
+                focusedBorder: InputBorder.none,
+                contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 16),
+              ),
             ),
           ),
+          if (widget.suffix != null) widget.suffix!,
+          const SizedBox(width: 4),
         ],
       ),
     );
   }
+}
 
-  // ── Portal 0: Client Login (Main Landing Page) ───────────────────────────────
+/// Six chunky boxes over a hidden field; the active box glows and filled boxes pop.
+class _PixelOtpField extends StatefulWidget {
+  final TextEditingController controller;
+  final ValueChanged<String> onCompleted;
+  const _PixelOtpField({required this.controller, required this.onCompleted});
 
-  Widget _buildClientPortalPage() {
-    return _buildPortalCard(
-      badgeLabel: 'CLIENT PORTAL',
-      badgeColor: AppColors.gold500,
-      headline: 'Welcome, Solar Owner',
-      subtitle: 'Monitor rooftop generation, net metering & service tickets',
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+  @override
+  State<_PixelOtpField> createState() => _PixelOtpFieldState();
+}
+
+class _PixelOtpFieldState extends State<_PixelOtpField> {
+  final _focus = FocusNode();
+
+  @override
+  void initState() {
+    super.initState();
+    widget.controller.addListener(_onChange);
+    _focus.addListener(() => setState(() {}));
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _focus.requestFocus();
+    });
+  }
+
+  void _onChange() {
+    setState(() {});
+    if (widget.controller.text.length == 6) widget.onCompleted(widget.controller.text);
+  }
+
+  @override
+  void dispose() {
+    widget.controller.removeListener(_onChange);
+    _focus.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final code = widget.controller.text;
+    return GestureDetector(
+      onTap: () => _focus.requestFocus(),
+      child: Stack(
         children: [
-          // Sub-tabs: Phone OTP vs Email Password
-          _buildMethodSwitch(
-            selectedIndex: _clientAuthMethod,
-            tab1: 'Mobile & OTP',
-            tab2: 'Email & Password',
-            onChanged: (idx) => setState(() {
-              _clientAuthMethod = idx;
-              _errorMessage = null;
+          Opacity(
+            opacity: 0,
+            child: TextField(
+              controller: widget.controller,
+              focusNode: _focus,
+              keyboardType: TextInputType.number,
+              maxLength: 6,
+              autofillHints: const [AutofillHints.oneTimeCode],
+              inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+              decoration: const InputDecoration(counterText: '', border: InputBorder.none),
+            ),
+          ),
+          Row(
+            children: List.generate(6, (i) {
+              final filled = i < code.length;
+              final active = _focus.hasFocus && i == code.length.clamp(0, 5) && code.length < 6;
+              return Expanded(
+                child: Padding(
+                  padding: EdgeInsets.only(right: i == 5 ? 0 : 8),
+                  child: AspectRatio(
+                    aspectRatio: 0.86,
+                    child: AnimatedContainer(
+                      duration: AppMotion.medium,
+                      curve: Curves.easeOutBack,
+                      transform: Matrix4.translationValues(0, active ? -4 : 0, 0),
+                      decoration: BoxDecoration(
+                        color: filled ? AppColors.gold100 : AppColors.white,
+                        borderRadius: BorderRadius.circular(AppRadius.md),
+                        border: Border.all(
+                          color: active ? AppColors.violet500 : (filled ? AppColors.goldDeep : AppColors.navy500),
+                          width: active ? 2 : 1.4,
+                        ),
+                        boxShadow: [
+                          BoxShadow(
+                            color: (active ? AppColors.violet500 : AppColors.navy500).withValues(alpha: 0.45),
+                            offset: Offset(0, active ? 5 : 2),
+                          ),
+                        ],
+                      ),
+                      alignment: Alignment.center,
+                      child: AnimatedSwitcher(
+                        duration: AppMotion.medium,
+                        transitionBuilder: (c, a) => ScaleTransition(
+                          scale: CurvedAnimation(parent: a, curve: Curves.easeOutBack),
+                          child: c,
+                        ),
+                        child: filled
+                            ? Text(code[i],
+                                key: ValueKey('d$i${code[i]}'),
+                                style: AppTextStyles.displaySmall.copyWith(fontSize: 24))
+                            : active
+                                ? const _BlinkCursor()
+                                : const SizedBox.shrink(),
+                      ),
+                    ),
+                  ),
+                ),
+              );
             }),
           ),
-          const SizedBox(height: 18),
-
-          if (_clientAuthMethod == 0) ...[
-            // Phone & OTP Flow
-            _buildFieldLabel('Mobile Number'),
-            const SizedBox(height: 6),
-            TextField(
-              controller: _clientPhoneController,
-              keyboardType: TextInputType.phone,
-              inputFormatters: [
-                FilteringTextInputFormatter.digitsOnly,
-                LengthLimitingTextInputFormatter(10),
-              ],
-              style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
-              decoration: _inputDecoration(
-                hintText: 'Enter 10-digit mobile number',
-                prefixWidget: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 12),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: const [
-                      Icon(Icons.phone_iphone_rounded, color: AppColors.gold400, size: 18),
-                      SizedBox(width: 6),
-                      Text('+91', style: TextStyle(color: AppColors.gold400, fontWeight: FontWeight.bold)),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-            const SizedBox(height: 12),
-
-            if (!_clientOtpSent) ...[
-              _buildPrimaryButton(
-                text: 'Send Login OTP',
-                icon: Icons.send_rounded,
-                onPressed: () {
-                  _handleSendOtp(
-                    phone: _clientPhoneController.text,
-                    onSentSuccess: () {
-                      setState(() {
-                        _clientOtpSent = true;
-                        _clientOtpCooldown = 60;
-                      });
-                      _startCooldownTimer((t) {}, () {});
-                    },
-                  );
-                },
-              ),
-            ] else ...[
-              _buildFieldLabel('Enter 6-Digit OTP'),
-              const SizedBox(height: 6),
-              TextField(
-                controller: _clientOtpController,
-                keyboardType: TextInputType.number,
-                textAlign: TextAlign.center,
-                maxLength: 6,
-                style: const TextStyle(
-                  color: AppColors.gold400,
-                  fontSize: 22,
-                  fontWeight: FontWeight.w800,
-                  letterSpacing: 6,
-                ),
-                decoration: _inputDecoration(
-                  hintText: '• • • • • •',
-                  counterText: '',
-                ),
-              ),
-              const SizedBox(height: 6),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text(
-                    _clientOtpCooldown > 0 ? 'Resend in ${_clientOtpCooldown}s' : 'Didn\'t get OTP?',
-                    style: AppTextStyles.caption.copyWith(color: AppColors.grey400),
-                  ),
-                  GestureDetector(
-                    onTap: _clientOtpCooldown == 0
-                        ? () {
-                            _handleSendOtp(
-                              phone: _clientPhoneController.text,
-                              onSentSuccess: () {
-                                setState(() => _clientOtpCooldown = 60);
-                                _startCooldownTimer((t) {}, () {});
-                              },
-                            );
-                          }
-                        : null,
-                    child: Text(
-                      'Resend Code',
-                      style: AppTextStyles.caption.copyWith(
-                        color: _clientOtpCooldown == 0 ? AppColors.gold400 : AppColors.grey600,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 14),
-              _buildPrimaryButton(
-                text: 'Verify & Enter Dashboard',
-                icon: Icons.verified_user_rounded,
-                onPressed: () {
-                  _handleVerifyOtp(
-                    phone: _clientPhoneController.text,
-                    otp: _clientOtpController.text,
-                    expectedRole: 'client',
-                  );
-                },
-              ),
-            ],
-          ] else ...[
-            // Email & Password Flow
-            _buildFieldLabel('Client Email Address'),
-            const SizedBox(height: 6),
-            TextField(
-              controller: _clientEmailController,
-              keyboardType: TextInputType.emailAddress,
-              style: const TextStyle(color: Colors.white),
-              decoration: _inputDecoration(
-                hintText: 'name@example.com',
-                prefixIcon: Icons.email_outlined,
-              ),
-            ),
-            const SizedBox(height: 12),
-
-            _buildFieldLabel('Password'),
-            const SizedBox(height: 6),
-            TextField(
-              controller: _clientPasswordController,
-              obscureText: _obscurePassword,
-              style: const TextStyle(color: Colors.white),
-              decoration: _inputDecoration(
-                hintText: 'Enter your account password',
-                prefixIcon: Icons.lock_outline_rounded,
-                suffixIcon: IconButton(
-                  icon: Icon(
-                    _obscurePassword ? Icons.visibility_off_outlined : Icons.visibility_outlined,
-                    color: AppColors.grey500,
-                    size: 20,
-                  ),
-                  onPressed: () => setState(() => _obscurePassword = !_obscurePassword),
-                ),
-              ),
-            ),
-            const SizedBox(height: 18),
-
-            _buildPrimaryButton(
-              text: 'Sign In to Client Portal',
-              icon: Icons.login_rounded,
-              onPressed: () {
-                _handlePasswordLogin(
-                  email: _clientEmailController.text,
-                  password: _clientPasswordController.text,
-                  expectedRole: 'client',
-                );
-              },
-            ),
-          ],
-          const SizedBox(height: 16),
-          Row(
-            children: [
-              Expanded(child: Container(height: 1, color: AppColors.navy600)),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 10),
-                child: Text(
-                  'OR',
-                  style: TextStyle(color: AppColors.grey500, fontSize: 11, fontWeight: FontWeight.bold),
-                ),
-              ),
-              Expanded(child: Container(height: 1, color: AppColors.navy600)),
-            ],
-          ),
-          const SizedBox(height: 14),
-          SizedBox(
-            width: double.infinity,
-            height: 48,
-            child: OutlinedButton.icon(
-              style: OutlinedButton.styleFrom(
-                foregroundColor: AppColors.gold400,
-                side: BorderSide(color: AppColors.gold500.withValues(alpha: 0.6), width: 1.5),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-                backgroundColor: AppColors.gold500.withValues(alpha: 0.08),
-              ),
-              icon: const Icon(Icons.person_add_alt_1_rounded, size: 20),
-              label: const Text(
-                'Register Client Account',
-                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
-              ),
-              onPressed: _showRegisterModal,
-            ),
-          ),
         ],
       ),
     );
   }
+}
 
-  // ── Portal 1: Employee Portal Page ──────────────────────────────────────────
+class _BlinkCursor extends StatefulWidget {
+  const _BlinkCursor();
+  @override
+  State<_BlinkCursor> createState() => _BlinkCursorState();
+}
 
-  Widget _buildVendorPortalPage() {
-    return _buildPortalCard(
-      badgeLabel: 'EMPLOYEES',
-      badgeColor: AppColors.teal500,
-      headline: 'Operations Console',
-      subtitle: 'Manage site installations, technician teams & inventory items',
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          _buildMethodSwitch(
-            selectedIndex: _vendorAuthMethod,
-            tab1: 'Mobile & OTP',
-            tab2: 'Email & Password',
-            onChanged: (idx) => setState(() {
-              _vendorAuthMethod = idx;
-              _errorMessage = null;
-            }),
-          ),
-          const SizedBox(height: 18),
+class _BlinkCursorState extends State<_BlinkCursor> with SingleTickerProviderStateMixin {
+  late final AnimationController _c =
+      AnimationController(vsync: this, duration: const Duration(milliseconds: 900))..repeat(reverse: true);
 
-          if (_vendorAuthMethod == 1) ...[
-            _buildFieldLabel('Employee Email'),
-            const SizedBox(height: 6),
-            TextField(
-              controller: _vendorEmailController,
-              keyboardType: TextInputType.emailAddress,
-              style: const TextStyle(color: Colors.white),
-              decoration: _inputDecoration(
-                hintText: 'employee@solarpro.com',
-                prefixIcon: Icons.badge_outlined,
-              ),
-            ),
-            const SizedBox(height: 12),
-
-            _buildFieldLabel('Password'),
-            const SizedBox(height: 6),
-            TextField(
-              controller: _vendorPasswordController,
-              obscureText: _obscurePassword,
-              style: const TextStyle(color: Colors.white),
-              decoration: _inputDecoration(
-                hintText: 'Enter account password',
-                prefixIcon: Icons.lock_outline_rounded,
-                suffixIcon: IconButton(
-                  icon: Icon(
-                    _obscurePassword ? Icons.visibility_off_outlined : Icons.visibility_outlined,
-                    color: AppColors.grey500,
-                    size: 20,
-                  ),
-                  onPressed: () => setState(() => _obscurePassword = !_obscurePassword),
-                ),
-              ),
-            ),
-            const SizedBox(height: 18),
-
-            _buildPrimaryButton(
-              text: 'Access Employee Portal',
-              icon: Icons.badge_outlined,
-              onPressed: () {
-                _handlePasswordLogin(
-                  email: _vendorEmailController.text,
-                  password: _vendorPasswordController.text,
-                  expectedRole: 'salesman',
-                );
-              },
-            ),
-          ] else ...[
-            _buildFieldLabel('Registered Mobile Number'),
-            const SizedBox(height: 6),
-            TextField(
-              controller: _vendorPhoneController,
-              keyboardType: TextInputType.phone,
-              inputFormatters: [
-                FilteringTextInputFormatter.digitsOnly,
-                LengthLimitingTextInputFormatter(10),
-              ],
-              style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
-              decoration: _inputDecoration(
-                hintText: '10-digit mobile number',
-                prefixWidget: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 12),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: const [
-                      Icon(Icons.phone_android_rounded, color: AppColors.teal400, size: 18),
-                      SizedBox(width: 6),
-                      Text('+91', style: TextStyle(color: AppColors.teal400, fontWeight: FontWeight.bold)),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-            const SizedBox(height: 12),
-
-            if (!_vendorOtpSent) ...[
-              _buildPrimaryButton(
-                text: 'Send Employee OTP',
-                icon: Icons.send_rounded,
-                onPressed: () {
-                  _handleSendOtp(
-                    phone: _vendorPhoneController.text,
-                    onSentSuccess: () {
-                      setState(() {
-                        _vendorOtpSent = true;
-                        _vendorOtpCooldown = 60;
-                      });
-                      _startCooldownTimer((t) {}, () {});
-                    },
-                  );
-                },
-              ),
-            ] else ...[
-              _buildFieldLabel('Enter 6-Digit OTP'),
-              const SizedBox(height: 6),
-              TextField(
-                controller: _vendorOtpController,
-                keyboardType: TextInputType.number,
-                textAlign: TextAlign.center,
-                maxLength: 6,
-                style: const TextStyle(
-                  color: AppColors.teal400,
-                  fontSize: 22,
-                  fontWeight: FontWeight.w800,
-                  letterSpacing: 6,
-                ),
-                decoration: _inputDecoration(
-                  hintText: '• • • • • •',
-                  counterText: '',
-                ),
-              ),
-              const SizedBox(height: 6),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text(
-                    _vendorOtpCooldown > 0 ? 'Resend in ${_vendorOtpCooldown}s' : 'Didn\'t get OTP?',
-                    style: AppTextStyles.caption.copyWith(color: AppColors.grey400),
-                  ),
-                  GestureDetector(
-                    onTap: _vendorOtpCooldown == 0
-                        ? () {
-                            _handleSendOtp(
-                              phone: _vendorPhoneController.text,
-                              onSentSuccess: () {
-                                setState(() => _vendorOtpCooldown = 60);
-                                _startCooldownTimer((t) {}, () {});
-                              },
-                            );
-                          }
-                        : null,
-                    child: Text(
-                      'Resend Code',
-                      style: AppTextStyles.caption.copyWith(
-                        color: _vendorOtpCooldown == 0 ? AppColors.teal400 : AppColors.grey600,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 14),
-              _buildPrimaryButton(
-                text: 'Verify & Enter Console',
-                icon: Icons.verified_user_rounded,
-                onPressed: () {
-                  _handleVerifyOtp(
-                    phone: _vendorPhoneController.text,
-                    otp: _vendorOtpController.text,
-                    expectedRole: 'salesman',
-                  );
-                },
-              ),
-            ],
-          ],
-
-          const SizedBox(height: 14),
-
-          // Testing Bypass: Open Employee without credentials
-          _buildEmployeeTestBypassSection(),
-
-          const SizedBox(height: 14),
-          Center(
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Text(
-                  'New employee or staff? ',
-                  style: AppTextStyles.bodySmall.copyWith(color: AppColors.grey400),
-                ),
-                GestureDetector(
-                  onTap: () => _showStaffRegisterModal(isEmployee: true),
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 2),
-                    child: Text(
-                      'Apply for Access',
-                      style: AppTextStyles.bodySmall.copyWith(
-                        color: AppColors.teal400,
-                        fontWeight: FontWeight.w700,
-                        decoration: TextDecoration.underline,
-                      ),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
+  @override
+  void dispose() {
+    _c.dispose();
+    super.dispose();
   }
 
-  // ── Testing Bypass Widget ──────────────────────────────────────────────────
+  @override
+  Widget build(BuildContext context) =>
+      FadeTransition(opacity: _c, child: Container(width: 12, height: 3, color: AppColors.ink900));
+}
 
-  Widget _buildEmployeeTestBypassSection() {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: AppColors.teal500.withValues(alpha: 0.08),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(
-          color: AppColors.teal400.withValues(alpha: 0.35),
-          width: 1.2,
-        ),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
-                decoration: BoxDecoration(
-                  color: AppColors.teal400.withValues(alpha: 0.2),
-                  borderRadius: BorderRadius.circular(6),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: const [
-                    Icon(Icons.science_outlined, color: AppColors.teal400, size: 12),
-                    SizedBox(width: 4),
-                    Text(
-                      'TEST MODE',
-                      style: TextStyle(
-                        color: AppColors.teal400,
-                        fontSize: 10,
-                        fontWeight: FontWeight.w800,
-                        letterSpacing: 0.8,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(width: 8),
-              const Expanded(
-                child: Text(
-                  'Bypass Credentials (Testing)',
-                  style: TextStyle(
-                    color: Colors.white70,
-                    fontSize: 11,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 10),
-          SizedBox(
-            width: double.infinity,
-            height: 46,
-            child: ElevatedButton.icon(
-              style: ElevatedButton.styleFrom(
-                backgroundColor: AppColors.teal400,
-                foregroundColor: AppColors.navy900,
-                elevation: 0,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                padding: const EdgeInsets.symmetric(horizontal: 14),
-              ),
-              icon: const Icon(Icons.bolt_rounded, size: 20),
-              label: const Text(
-                'Open Employee (No Credentials)',
-                style: TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w800,
-                  letterSpacing: 0.2,
-                ),
-              ),
-              onPressed: () => _bypassEmployeeLogin(
-                role: 'salesman',
-                customName: 'Sales Executive (Test)',
-              ),
-            ),
-          ),
-          const SizedBox(height: 10),
-          const Text(
-            'Quick switch test portal:',
-            style: TextStyle(
-              color: AppColors.grey400,
-              fontSize: 10,
-              fontWeight: FontWeight.w500,
-            ),
-          ),
-          const SizedBox(height: 6),
-          Wrap(
-            spacing: 6,
-            runSpacing: 6,
-            children: [
-              _buildRoleChip(
-                label: 'Sales',
-                icon: Icons.person_pin_rounded,
-                onTap: () => _bypassEmployeeLogin(
-                  role: 'salesman',
-                  customName: 'Sales Executive (Test)',
-                ),
-              ),
-              _buildRoleChip(
-                label: 'Site Team',
-                icon: Icons.build_rounded,
-                onTap: () => _bypassEmployeeLogin(
-                  role: 'electrician',
-                  team: 'electrical',
-                  customName: 'Site Technician (Test)',
-                ),
-              ),
-              _buildRoleChip(
-                label: 'KEDL Discom',
-                icon: Icons.electric_bolt_rounded,
-                onTap: () => _bypassEmployeeLogin(
-                  role: 'kedl',
-                  customName: 'KEDL Officer (Test)',
-                ),
-              ),
-              _buildRoleChip(
-                label: 'Service Desk',
-                icon: Icons.handyman_rounded,
-                onTap: () => _bypassEmployeeLogin(
-                  role: 'service',
-                  customName: 'Service Tech (Test)',
-                ),
-              ),
-              _buildRoleChip(
-                label: 'Operations',
-                icon: Icons.dashboard_customize_rounded,
-                onTap: () => _bypassEmployeeLogin(
-                  role: 'vendor',
-                  customName: 'Operations Lead (Test)',
-                ),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
+class _DepartmentChip extends StatelessWidget {
+  final String label;
+  final IconData icon;
+  final bool selected;
+  final VoidCallback onTap;
+  const _DepartmentChip({required this.label, required this.icon, required this.selected, required this.onTap});
 
-  Widget _buildRoleChip({
-    required String label,
-    required IconData icon,
-    required VoidCallback onTap,
-  }) {
-    return InkWell(
+  @override
+  Widget build(BuildContext context) {
+    return SpPressable(
       onTap: onTap,
-      borderRadius: BorderRadius.circular(8),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+      child: AnimatedContainer(
+        duration: AppMotion.medium,
+        curve: AppMotion.emphasized,
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
         decoration: BoxDecoration(
-          color: AppColors.navy800,
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(
-            color: AppColors.teal400.withValues(alpha: 0.35),
-            width: 1,
-          ),
+          color: selected ? AppColors.gold100 : AppColors.white,
+          borderRadius: BorderRadius.circular(AppRadius.md),
+          border: Border.all(color: selected ? AppColors.goldDeep : AppColors.navy500, width: selected ? 1.6 : 1.2),
+          boxShadow: [
+            BoxShadow(
+              color: (selected ? AppColors.gold500 : AppColors.navy500).withValues(alpha: 0.5),
+              offset: Offset(0, selected ? 3 : 2),
+            ),
+          ],
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(icon, size: 12, color: AppColors.teal400),
-            const SizedBox(width: 4),
-            Text(
-              label,
-              style: const TextStyle(
-                color: Colors.white,
-                fontSize: 11,
-                fontWeight: FontWeight.w600,
-              ),
+            Icon(icon, size: 17, color: AppColors.ink900),
+            const SizedBox(width: 6),
+            Text(label, style: AppTextStyles.labelLarge.copyWith(fontSize: 13)),
+            AnimatedSize(
+              duration: AppMotion.medium,
+              child: selected
+                  ? const Padding(
+                      padding: EdgeInsets.only(left: 6),
+                      child: Icon(Icons.check_circle_rounded, size: 16, color: AppColors.goldDeep),
+                    )
+                  : const SizedBox.shrink(),
             ),
           ],
         ),
       ),
     );
   }
+}
 
-  // ── Portal 2: Admin Console Page ─────────────────────────────────────────────
+class _ErrorBanner extends StatelessWidget {
+  final String? message;
+  const _ErrorBanner({required this.message});
 
-  Widget _buildAdminPortalPage() {
-    return _buildPortalCard(
-      badgeLabel: 'ADMIN CONSOLE',
-      badgeColor: AppColors.orange500,
-      headline: 'Executive Command',
-      subtitle: 'System administration, DISCOM liaison approvals & user directory',
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedSize(
+      duration: AppMotion.medium,
+      curve: AppMotion.emphasized,
+      child: message == null
+          ? const SizedBox(width: double.infinity)
+          : Padding(
+              padding: const EdgeInsets.only(bottom: 14),
+              child: Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
+                decoration: BoxDecoration(
+                  color: AppColors.error.withValues(alpha: 0.08),
+                  borderRadius: BorderRadius.circular(AppRadius.md),
+                  border: Border.all(color: AppColors.error.withValues(alpha: 0.5), width: 1.2),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.error_outline_rounded, color: AppColors.error, size: 18),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(message!, style: AppTextStyles.bodySmall.copyWith(color: AppColors.ink900)),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+    );
+  }
+}
+
+/// Left/right panel on wide screens.
+class _IllustrationPanel extends StatelessWidget {
+  final _Stage stage;
+  const _IllustrationPanel({required this.stage});
+
+  @override
+  Widget build(BuildContext context) {
+    final register = stage == _Stage.register;
+    return Container(
+      decoration: BoxDecoration(
+        gradient: AppColors.skyGradient,
+        borderRadius: BorderRadius.circular(AppRadius.xxl + 8),
+        border: Border.all(color: AppColors.navy500, width: 1.4),
+      ),
+      clipBehavior: Clip.antiAlias,
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Container(
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: AppColors.orange500.withValues(alpha: 0.1),
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: AppColors.orange500.withValues(alpha: 0.3)),
-            ),
-            child: Row(
-              children: const [
-                Icon(Icons.security_rounded, color: AppColors.orange500, size: 20),
-                SizedBox(width: 10),
-                Expanded(
-                  child: Text(
-                    'Administrative sign-in requires authorized SolarPro credentials.',
-                    style: TextStyle(color: Colors.white, fontSize: 12),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 18),
-
-          _buildFieldLabel('Administrator Email'),
-          const SizedBox(height: 6),
-          TextField(
-            controller: _adminEmailController,
-            keyboardType: TextInputType.emailAddress,
-            style: const TextStyle(color: Colors.white),
-            decoration: _inputDecoration(
-              hintText: 'admin@solarpro.com',
-              prefixIcon: Icons.admin_panel_settings_outlined,
-            ),
-          ),
-          const SizedBox(height: 14),
-
-          _buildFieldLabel('Password'),
-          const SizedBox(height: 6),
-          TextField(
-            controller: _adminPasswordController,
-            obscureText: _obscurePassword,
-            style: const TextStyle(color: Colors.white),
-            decoration: _inputDecoration(
-              hintText: 'Enter admin password',
-              prefixIcon: Icons.key_rounded,
-              suffixIcon: IconButton(
-                icon: Icon(
-                  _obscurePassword ? Icons.visibility_off_outlined : Icons.visibility_outlined,
-                  color: AppColors.grey500,
-                  size: 20,
-                ),
-                onPressed: () => setState(() => _obscurePassword = !_obscurePassword),
-              ),
-            ),
-          ),
-          const SizedBox(height: 24),
-
-          _buildPrimaryButton(
-            text: 'Sign In as Administrator',
-            icon: Icons.vpn_key_rounded,
-            onPressed: () {
-              _handlePasswordLogin(
-                email: _adminEmailController.text,
-                password: _adminPasswordController.text,
-                expectedRole: 'admin',
-              );
-            },
-          ),
-
-          const SizedBox(height: 18),
-          Center(
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Text(
-                  'Need administrative access? ',
-                  style: AppTextStyles.bodySmall.copyWith(color: AppColors.grey400),
-                ),
-                GestureDetector(
-                  onTap: () => _showStaffRegisterModal(isEmployee: false),
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 2),
-                    child: Text(
-                      'Request Admin Access',
-                      style: AppTextStyles.bodySmall.copyWith(
-                        color: AppColors.orange400,
-                        fontWeight: FontWeight.w700,
-                        decoration: TextDecoration.underline,
-                      ),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  // ── Portal Card Wrapper ──────────────────────────────────────────────────────
-
-  Widget _buildPortalCard({
-    required String badgeLabel,
-    required Color badgeColor,
-    required String headline,
-    required String subtitle,
-    required Widget child,
-  }) {
-    return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 4),
-      padding: const EdgeInsets.all(22),
-      decoration: BoxDecoration(
-        color: AppColors.navy800.withValues(alpha: 0.9),
-        borderRadius: BorderRadius.circular(24),
-        border: Border.all(
-          color: badgeColor.withValues(alpha: 0.25),
-          width: 1.2,
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.4),
-            blurRadius: 26,
-            offset: const Offset(0, 10),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // Header Badge
-          Row(
-            children: [
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                decoration: BoxDecoration(
-                  color: badgeColor.withValues(alpha: 0.15),
-                  borderRadius: BorderRadius.circular(AppRadius.pill),
-                  border: Border.all(color: badgeColor.withValues(alpha: 0.4)),
-                ),
-                child: Text(
-                  badgeLabel,
-                  style: TextStyle(
-                    fontSize: 10,
-                    fontWeight: FontWeight.w800,
-                    color: badgeColor,
-                    letterSpacing: 0.8,
-                  ),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 10),
-          Text(headline, style: AppTextStyles.headlineSmall.copyWith(fontWeight: FontWeight.w700)),
-          const SizedBox(height: 4),
-          Text(
-            subtitle,
-            style: AppTextStyles.caption.copyWith(color: AppColors.grey400, height: 1.3),
-          ),
-          const SizedBox(height: 18),
-          Expanded(child: SingleChildScrollView(child: child)),
-        ],
-      ),
-    );
-  }
-
-  // ── Sub-Method Switcher (e.g. Phone vs Email) ────────────────────────────────
-
-  Widget _buildMethodSwitch({
-    required int selectedIndex,
-    required String tab1,
-    required String tab2,
-    required Function(int) onChanged,
-  }) {
-    return Container(
-      padding: const EdgeInsets.all(3),
-      decoration: BoxDecoration(
-        color: AppColors.navy900,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: AppColors.navy700),
-      ),
-      child: Row(
-        children: [
-          Expanded(
-            child: GestureDetector(
-              onTap: () => onChanged(0),
-              behavior: HitTestBehavior.opaque,
-              child: AnimatedContainer(
-                duration: const Duration(milliseconds: 200),
-                padding: const EdgeInsets.symmetric(vertical: 8),
-                decoration: BoxDecoration(
-                  color: selectedIndex == 0 ? AppColors.navy700 : Colors.transparent,
-                  borderRadius: BorderRadius.circular(9),
-                ),
-                child: Center(
-                  child: Text(
-                    tab1,
-                    style: TextStyle(
-                      fontSize: 12,
-                      fontWeight: selectedIndex == 0 ? FontWeight.bold : FontWeight.w500,
-                      color: selectedIndex == 0 ? AppColors.gold400 : AppColors.grey400,
-                    ),
-                  ),
-                ),
-              ),
-            ),
-          ),
-          Expanded(
-            child: GestureDetector(
-              onTap: () => onChanged(1),
-              behavior: HitTestBehavior.opaque,
-              child: AnimatedContainer(
-                duration: const Duration(milliseconds: 200),
-                padding: const EdgeInsets.symmetric(vertical: 8),
-                decoration: BoxDecoration(
-                  color: selectedIndex == 1 ? AppColors.navy700 : Colors.transparent,
-                  borderRadius: BorderRadius.circular(9),
-                ),
-                child: Center(
-                  child: Text(
-                    tab2,
-                    style: TextStyle(
-                      fontSize: 12,
-                      fontWeight: selectedIndex == 1 ? FontWeight.bold : FontWeight.w500,
-                      color: selectedIndex == 1 ? AppColors.gold400 : AppColors.grey400,
-                    ),
-                  ),
-                ),
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  // ── Helper Inputs & Buttons ──────────────────────────────────────────────────
-
-  Widget _buildFieldLabel(String label) {
-    return Text(
-      label,
-      style: AppTextStyles.labelMedium.copyWith(
-        color: AppColors.grey300,
-        fontSize: 12,
-        fontWeight: FontWeight.w600,
-      ),
-    );
-  }
-
-  Widget _buildRoleSelectorTile({
-    required String label,
-    required String subtitle,
-    required IconData icon,
-    required Color color,
-    required bool isSelected,
-    required VoidCallback onTap,
-  }) {
-    return GestureDetector(
-      onTap: onTap,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 180),
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
-        decoration: BoxDecoration(
-          color: isSelected ? color.withValues(alpha: 0.18) : AppColors.navy800,
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(
-            color: isSelected ? color : AppColors.navy600,
-            width: isSelected ? 1.6 : 1,
-          ),
-        ),
-        child: Row(
-          children: [
-            Container(
-              padding: const EdgeInsets.all(6),
-              decoration: BoxDecoration(
-                color: isSelected ? color.withValues(alpha: 0.25) : AppColors.navy700,
-                shape: BoxShape.circle,
-              ),
-              child: Icon(icon, color: isSelected ? color : AppColors.grey400, size: 16),
-            ),
-            const SizedBox(width: 8),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    label,
-                    style: TextStyle(
-                      color: isSelected ? Colors.white : AppColors.grey300,
-                      fontWeight: FontWeight.bold,
-                      fontSize: 12,
-                    ),
-                  ),
-                  Text(
-                    subtitle,
-                    style: TextStyle(
-                      color: isSelected ? color : AppColors.grey500,
-                      fontSize: 9,
-                      fontWeight: FontWeight.w500,
-                    ),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ],
-              ),
-            ),
-            if (isSelected)
-              Icon(Icons.check_circle_rounded, color: color, size: 14),
-          ],
-        ),
-      ),
-    );
-  }
-
-  InputDecoration _inputDecoration({
-    required String hintText,
-    String? counterText,
-    IconData? prefixIcon,
-    Widget? prefixWidget,
-    Widget? suffixIcon,
-  }) {
-    return InputDecoration(
-      hintText: hintText,
-      counterText: counterText,
-      hintStyle: const TextStyle(color: AppColors.grey500, fontSize: 13),
-      filled: true,
-      fillColor: AppColors.navy900,
-      prefixIcon: prefixWidget ?? (prefixIcon != null ? Icon(prefixIcon, color: AppColors.gold400, size: 18) : null),
-      suffixIcon: suffixIcon,
-      contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
-      border: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(14),
-        borderSide: const BorderSide(color: AppColors.navy700),
-      ),
-      enabledBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(14),
-        borderSide: const BorderSide(color: AppColors.navy700),
-      ),
-      focusedBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(14),
-        borderSide: const BorderSide(color: AppColors.gold500, width: 1.5),
-      ),
-    );
-  }
-
-  Widget _buildPrimaryButton({
-    required String text,
-    required IconData icon,
-    required VoidCallback onPressed,
-  }) {
-    if (_isLoading) {
-      return Container(
-        height: 48,
-        width: double.infinity,
-        decoration: BoxDecoration(
-          color: AppColors.navy700,
-          borderRadius: BorderRadius.circular(14),
-        ),
-        child: const Center(
-          child: SizedBox(
-            width: 20,
-            height: 20,
-            child: CircularProgressIndicator(color: AppColors.gold500, strokeWidth: 2.2),
-          ),
-        ),
-      );
-    }
-
-    return Container(
-      width: double.infinity,
-      height: 48,
-      decoration: BoxDecoration(
-        gradient: AppColors.goldGradient,
-        borderRadius: BorderRadius.circular(14),
-        boxShadow: [
-          BoxShadow(
-            color: AppColors.gold500.withValues(alpha: 0.3),
-            blurRadius: 14,
-            offset: const Offset(0, 3),
-          ),
-        ],
-      ),
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          borderRadius: BorderRadius.circular(14),
-          onTap: onPressed,
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(icon, color: AppColors.navy900, size: 18),
-              const SizedBox(width: 8),
-              Text(
-                text,
-                style: const TextStyle(
-                  color: AppColors.navy900,
-                  fontWeight: FontWeight.w800,
-                  fontSize: 14,
-                  letterSpacing: 0.2,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  // ── Register / Account Creation Modal ────────────────────────────────────────
-
-  Widget _buildRegisterFooter() {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.center,
-      children: [
-        Text(
-          'New Solar Customer?',
-          style: AppTextStyles.bodySmall.copyWith(color: AppColors.grey400),
-        ),
-        const SizedBox(width: 6),
-        GestureDetector(
-          behavior: HitTestBehavior.opaque,
-          onTap: _showRegisterModal,
-          child: Padding(
-            padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 2),
+          const SizedBox(height: 40),
+          AnimatedSwitcher(
+            duration: AppMotion.slow,
             child: Text(
-              'Create Client Account',
-              style: AppTextStyles.bodySmall.copyWith(
-                color: AppColors.gold400,
-                fontWeight: FontWeight.w700,
-                decoration: TextDecoration.underline,
+              register ? 'Join the\nGreen Shift' : 'Clean Energy\nfor a Brighter\nTomorrow',
+              key: ValueKey(register),
+              textAlign: TextAlign.center,
+              style: AppTextStyles.displayMedium.copyWith(fontSize: 34),
+            ),
+          ),
+          const SizedBox(height: 12),
+          Text('Install · Monitor · Manage', style: AppTextStyles.bodyLarge),
+          Expanded(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 40, vertical: 16),
+              child: AnimatedSwitcher(
+                duration: AppMotion.slow,
+                transitionBuilder: (c, a) => ScaleTransition(
+                  scale: Tween(begin: 0.85, end: 1.0).animate(CurvedAnimation(parent: a, curve: Curves.easeOutBack)),
+                  child: FadeTransition(opacity: a, child: c),
+                ),
+                child: register
+                    ? KeyedSubtree(key: const ValueKey('earth'), child: PixelScenes.earth())
+                    : KeyedSubtree(key: const ValueKey('house'), child: PixelScenes.house()),
               ),
             ),
           ),
-        ),
-      ],
-    );
-  }
-
-  void _showRegisterModal() {
-    final nameCtrl = TextEditingController();
-    final phoneCtrl = TextEditingController();
-    final emailCtrl = TextEditingController();
-    final passCtrl = TextEditingController();
-    bool isRegLoading = false;
-    String? modalError;
-
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (bottomSheetCtx) {
-        return StatefulBuilder(
-          builder: (modalCtx, setModalState) {
-            return Container(
-              padding: EdgeInsets.only(
-                left: 24,
-                right: 24,
-                top: 24,
-                bottom: MediaQuery.of(modalCtx).viewInsets.bottom + 24,
-              ),
-              decoration: BoxDecoration(
-                color: AppColors.navy900,
-                borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
-                border: Border.all(color: AppColors.gold500.withValues(alpha: 0.35), width: 1.5),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withValues(alpha: 0.65),
-                    blurRadius: 30,
-                    offset: const Offset(0, -10),
-                  ),
-                ],
-              ),
-              child: SingleChildScrollView(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Center(
-                      child: Container(
-                        width: 44,
-                        height: 4,
-                        decoration: BoxDecoration(
-                          color: Colors.white24,
-                          borderRadius: BorderRadius.circular(2),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 18),
-                    Row(
-                      children: [
-                        Container(
-                          padding: const EdgeInsets.all(10),
-                          decoration: BoxDecoration(
-                            shape: BoxShape.circle,
-                            color: AppColors.gold500.withValues(alpha: 0.15),
-                            border: Border.all(color: AppColors.gold500.withValues(alpha: 0.5), width: 1.5),
-                          ),
-                          child: const Icon(
-                            Icons.person_add_alt_1_rounded,
-                            color: AppColors.gold500,
-                            size: 24,
-                          ),
-                        ),
-                        const SizedBox(width: 14),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                'Create Client Account',
-                                style: AppTextStyles.headlineMedium.copyWith(
-                                  fontWeight: FontWeight.w800,
-                                  color: Colors.white,
-                                ),
-                              ),
-                              const SizedBox(height: 2),
-                              Text(
-                                'Register to monitor generation & solar assets.',
-                                style: AppTextStyles.caption.copyWith(color: AppColors.grey400),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 18),
-
-                    if (modalError != null) ...[
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                        decoration: BoxDecoration(
-                          color: AppColors.error.withValues(alpha: 0.15),
-                          borderRadius: BorderRadius.circular(10),
-                          border: Border.all(color: AppColors.error.withValues(alpha: 0.4)),
-                        ),
-                        child: Row(
-                          children: [
-                            const Icon(Icons.error_outline_rounded, color: AppColors.error, size: 18),
-                            const SizedBox(width: 8),
-                            Expanded(
-                              child: Text(
-                                modalError!,
-                                style: const TextStyle(color: Colors.white, fontSize: 12),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(height: 14),
-                    ],
-
-                    _buildFieldLabel('Full Name'),
-                    const SizedBox(height: 6),
-                    TextField(
-                      controller: nameCtrl,
-                      style: const TextStyle(color: Colors.white),
-                      decoration: _inputDecoration(
-                        hintText: 'e.g. Aryan Singh',
-                        prefixIcon: Icons.person_outline_rounded,
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-
-                    _buildFieldLabel('Mobile Number'),
-                    const SizedBox(height: 6),
-                    TextField(
-                      controller: phoneCtrl,
-                      keyboardType: TextInputType.phone,
-                      inputFormatters: [
-                        FilteringTextInputFormatter.digitsOnly,
-                        LengthLimitingTextInputFormatter(10),
-                      ],
-                      style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
-                      decoration: _inputDecoration(
-                        hintText: '10-digit mobile number',
-                        prefixWidget: Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 12),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: const [
-                              Icon(Icons.phone_iphone_rounded, color: AppColors.gold400, size: 18),
-                              SizedBox(width: 6),
-                              Text('+91', style: TextStyle(color: AppColors.gold400, fontWeight: FontWeight.bold)),
-                            ],
-                          ),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-
-                    _buildFieldLabel('Email Address (for 6-digit verification code)'),
-                    const SizedBox(height: 6),
-                    TextField(
-                      controller: emailCtrl,
-                      keyboardType: TextInputType.emailAddress,
-                      style: const TextStyle(color: Colors.white),
-                      decoration: _inputDecoration(
-                        hintText: 'e.g. aryan@gmail.com',
-                        prefixIcon: Icons.email_outlined,
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-
-                    _buildFieldLabel('Set Password'),
-                    const SizedBox(height: 6),
-                    TextField(
-                      controller: passCtrl,
-                      obscureText: true,
-                      style: const TextStyle(color: Colors.white),
-                      decoration: _inputDecoration(
-                        hintText: 'Min 6 characters',
-                        prefixIcon: Icons.lock_outline_rounded,
-                      ),
-                    ),
-                    const SizedBox(height: 22),
-
-                    SizedBox(
-                      width: double.infinity,
-                      height: 50,
-                      child: ElevatedButton(
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: AppColors.gold500,
-                          foregroundColor: AppColors.navy900,
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-                          elevation: 3,
-                        ),
-                        onPressed: isRegLoading
-                            ? null
-                            : () async {
-                                final phone = phoneCtrl.text.trim();
-                                final email = emailCtrl.text.trim();
-                                final password = passCtrl.text;
-                                final name = nameCtrl.text.trim();
-
-                                if (name.isEmpty) {
-                                  setModalState(() => modalError = 'Please enter your full name');
-                                  return;
-                                }
-
-                                if (phone.length < 10) {
-                                  setModalState(() => modalError = 'Please enter a valid 10-digit mobile number');
-                                  return;
-                                }
-
-                                if (email.isEmpty || !email.contains('@') || !email.contains('.')) {
-                                  setModalState(() => modalError = 'A valid email address is required for verification');
-                                  return;
-                                }
-
-                                if (password.length < 6) {
-                                  setModalState(() => modalError = 'Password must be at least 6 characters');
-                                  return;
-                                }
-
-                                setModalState(() {
-                                  isRegLoading = true;
-                                  modalError = null;
-                                });
-
-                                try {
-                                  await ApiClient().registerUser(
-                                    name: name,
-                                    phone: phone,
-                                    email: email,
-                                    password: password,
-                                    role: 'client',
-                                  );
-
-                                  if (!bottomSheetCtx.mounted) return;
-                                  Navigator.pop(bottomSheetCtx);
-                                  _showEmailVerificationModal(email, pendingPassword: password);
-                                  _showSuccessSnack('Account created! Verification code sent to $email');
-                                } catch (e) {
-                                  if (!modalCtx.mounted) return;
-                                  setModalState(() {
-                                    isRegLoading = false;
-                                    modalError = e.toString().replaceFirst("Exception: ", "");
-                                  });
-                                }
-                              },
-                        child: isRegLoading
-                            ? const SizedBox(
-                                width: 22,
-                                height: 22,
-                                child: CircularProgressIndicator(strokeWidth: 2.2, color: AppColors.navy900),
-                              )
-                            : const Text(
-                                'Register Client Account',
-                                style: TextStyle(fontWeight: FontWeight.w800, fontSize: 15),
-                              ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            );
-          },
-        );
-      },
-    );
-  }
-
-  // ── Employee & Admin Registration Modal (Super Admin Authorization) ─────────
-
-  void _showStaffRegisterModal({required bool isEmployee}) {
-    final nameCtrl = TextEditingController();
-    final phoneCtrl = TextEditingController();
-    final emailCtrl = TextEditingController();
-    final passCtrl = TextEditingController();
-    String selectedRole = 'sales';
-    bool isSubmitting = false;
-    String? modalError;
-
-    final title = isEmployee ? 'Register as Employee' : 'Apply for Admin Access';
-    final subtitle = isEmployee
-        ? 'Submit registration request to Super Admin for authorization.'
-        : 'Request executive credentials verified by the Super Admin.';
-    final themeColor = isEmployee ? AppColors.teal400 : AppColors.orange400;
-
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (bottomSheetCtx) {
-        return StatefulBuilder(
-          builder: (modalCtx, setModalState) {
-            return Container(
-              padding: EdgeInsets.only(
-                left: 24,
-                right: 24,
-                top: 24,
-                bottom: MediaQuery.of(modalCtx).viewInsets.bottom + 24,
-              ),
-              decoration: BoxDecoration(
-                color: AppColors.navy900,
-                borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
-                border: Border.all(color: themeColor.withValues(alpha: 0.35), width: 1.5),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withValues(alpha: 0.65),
-                    blurRadius: 30,
-                    offset: const Offset(0, -10),
-                  ),
-                ],
-              ),
-              child: SingleChildScrollView(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Center(
-                      child: Container(
-                        width: 44,
-                        height: 4,
-                        decoration: BoxDecoration(
-                          color: Colors.white24,
-                          borderRadius: BorderRadius.circular(2),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 18),
-                    Row(
-                      children: [
-                        Container(
-                          padding: const EdgeInsets.all(10),
-                          decoration: BoxDecoration(
-                            shape: BoxShape.circle,
-                            color: themeColor.withValues(alpha: 0.15),
-                            border: Border.all(color: themeColor.withValues(alpha: 0.5), width: 1.5),
-                          ),
-                          child: Icon(
-                            isEmployee ? Icons.badge_rounded : Icons.admin_panel_settings_rounded,
-                            color: themeColor,
-                            size: 24,
-                          ),
-                        ),
-                        const SizedBox(width: 14),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                title,
-                                style: AppTextStyles.headlineMedium.copyWith(
-                                  fontWeight: FontWeight.w800,
-                                  color: Colors.white,
-                                ),
-                              ),
-                              const SizedBox(height: 2),
-                              Text(
-                                subtitle,
-                                style: AppTextStyles.caption.copyWith(color: AppColors.grey400),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 18),
-
-                    if (modalError != null) ...[
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                        decoration: BoxDecoration(
-                          color: AppColors.error.withValues(alpha: 0.15),
-                          borderRadius: BorderRadius.circular(10),
-                          border: Border.all(color: AppColors.error.withValues(alpha: 0.4)),
-                        ),
-                        child: Row(
-                          children: [
-                            const Icon(Icons.error_outline_rounded, color: AppColors.error, size: 18),
-                            const SizedBox(width: 8),
-                            Expanded(
-                              child: Text(
-                                modalError!,
-                                style: const TextStyle(color: Colors.white, fontSize: 12),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(height: 14),
-                    ],
-
-                    if (isEmployee) ...[
-                      _buildFieldLabel('Select Role / Department'),
-                      const SizedBox(height: 8),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: _buildRoleSelectorTile(
-                              label: 'Sales',
-                              subtitle: 'Leads & Deals',
-                              icon: Icons.trending_up_rounded,
-                              color: AppColors.gold500,
-                              isSelected: selectedRole == 'sales',
-                              onTap: () => setModalState(() => selectedRole = 'sales'),
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: _buildRoleSelectorTile(
-                              label: 'KEDL',
-                              subtitle: 'Net Metering',
-                              icon: Icons.description_rounded,
-                              color: AppColors.purple500,
-                              isSelected: selectedRole == 'kedl',
-                              onTap: () => setModalState(() => selectedRole = 'kedl'),
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 8),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: _buildRoleSelectorTile(
-                              label: 'Service',
-                              subtitle: 'Maintenance',
-                              icon: Icons.build_rounded,
-                              color: AppColors.teal400,
-                              isSelected: selectedRole == 'service',
-                              onTap: () => setModalState(() => selectedRole = 'service'),
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: _buildRoleSelectorTile(
-                              label: 'Site Work',
-                              subtitle: 'Installation',
-                              icon: Icons.construction_rounded,
-                              color: AppColors.orange400,
-                              isSelected: selectedRole == 'site',
-                              onTap: () => setModalState(() => selectedRole = 'site'),
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 14),
-                    ],
-
-                    _buildFieldLabel('Full Name'),
-                    const SizedBox(height: 6),
-                    TextField(
-                      controller: nameCtrl,
-                      style: const TextStyle(color: Colors.white),
-                      decoration: _inputDecoration(
-                        hintText: isEmployee ? 'e.g. Ramesh Sharma' : 'e.g. Administrative Lead',
-                        prefixIcon: Icons.person_outline_rounded,
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-
-                    _buildFieldLabel('Mobile Number'),
-                    const SizedBox(height: 6),
-                    TextField(
-                      controller: phoneCtrl,
-                      keyboardType: TextInputType.phone,
-                      inputFormatters: [
-                        FilteringTextInputFormatter.digitsOnly,
-                        LengthLimitingTextInputFormatter(10),
-                      ],
-                      style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
-                      decoration: _inputDecoration(
-                        hintText: '10-digit mobile number',
-                        prefixWidget: Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 12),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Icon(Icons.phone_iphone_rounded, color: themeColor, size: 18),
-                              const SizedBox(width: 6),
-                              Text('+91', style: TextStyle(color: themeColor, fontWeight: FontWeight.bold)),
-                            ],
-                          ),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-
-                    _buildFieldLabel('Official Email Address'),
-                    const SizedBox(height: 6),
-                    TextField(
-                      controller: emailCtrl,
-                      keyboardType: TextInputType.emailAddress,
-                      style: const TextStyle(color: Colors.white),
-                      decoration: _inputDecoration(
-                        hintText: isEmployee ? 'employee@solarpro.com' : 'admin@solarpro.com',
-                        prefixIcon: Icons.email_outlined,
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-
-                    _buildFieldLabel('Set Password'),
-                    const SizedBox(height: 6),
-                    TextField(
-                      controller: passCtrl,
-                      obscureText: true,
-                      style: const TextStyle(color: Colors.white),
-                      decoration: _inputDecoration(
-                        hintText: 'Min 6 characters',
-                        prefixIcon: Icons.lock_outline_rounded,
-                      ),
-                    ),
-                    const SizedBox(height: 22),
-
-                    SizedBox(
-                      width: double.infinity,
-                      height: 50,
-                      child: ElevatedButton(
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: themeColor,
-                          foregroundColor: AppColors.navy900,
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-                          elevation: 3,
-                        ),
-                        onPressed: isSubmitting
-                            ? null
-                            : () async {
-                                final phone = phoneCtrl.text.trim();
-                                final email = emailCtrl.text.trim();
-                                final password = passCtrl.text;
-                                final name = nameCtrl.text.trim();
-
-                                if (name.isEmpty) {
-                                  setModalState(() => modalError = 'Please enter your full name');
-                                  return;
-                                }
-
-                                if (phone.length < 10) {
-                                  setModalState(() => modalError = 'Please enter a valid 10-digit mobile number');
-                                  return;
-                                }
-
-                                if (email.isEmpty || !email.contains('@')) {
-                                  setModalState(() => modalError = 'A valid official email is required');
-                                  return;
-                                }
-
-                                if (password.length < 6) {
-                                  setModalState(() => modalError = 'Password must be at least 6 characters');
-                                  return;
-                                }
-
-                                setModalState(() {
-                                  isSubmitting = true;
-                                  modalError = null;
-                                });
-
-                                try {
-                                  await ApiClient().registerUser(
-                                    name: name,
-                                    phone: phone,
-                                    email: email,
-                                    password: password,
-                                    role: isEmployee ? selectedRole : 'admin',
-                                  );
-
-                                  if (!bottomSheetCtx.mounted) return;
-                                  Navigator.pop(bottomSheetCtx);
-                                  _showApprovalSubmittedDialog(isEmployee: isEmployee);
-                                } catch (e) {
-                                  if (!modalCtx.mounted) return;
-                                  setModalState(() {
-                                    isSubmitting = false;
-                                    modalError = e.toString().replaceFirst("Exception: ", "");
-                                  });
-                                }
-                              },
-                        child: isSubmitting
-                            ? const SizedBox(
-                                width: 22,
-                                height: 22,
-                                child: CircularProgressIndicator(strokeWidth: 2.2, color: AppColors.navy900),
-                              )
-                            : Text(
-                                isEmployee ? 'Submit Employee Application' : 'Submit Admin Application',
-                                style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 15),
-                              ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            );
-          },
-        );
-      },
-    );
-  }
-
-  void _showApprovalSubmittedDialog({required bool isEmployee}) {
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: AppColors.navy800,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        title: Row(
-          children: [
-            Icon(Icons.hourglass_top_rounded, color: isEmployee ? AppColors.teal400 : AppColors.orange400),
-            const SizedBox(width: 10),
-            const Text('Request Submitted', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 18)),
-          ],
-        ),
-        content: const Text(
-          'Your registration request has been submitted to the Super Admin for authorization.\n\nYou will be able to log in once your application is approved.',
-          style: TextStyle(color: AppColors.grey300, height: 1.5),
-        ),
-        actions: [
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(
-              backgroundColor: isEmployee ? AppColors.teal500 : AppColors.orange500,
-              foregroundColor: AppColors.navy900,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-            ),
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('Understood', style: TextStyle(fontWeight: FontWeight.bold)),
-          ),
+          PixelScenes.landscape(height: 120),
         ],
       ),
     );
   }
+}
 
-  // ── Client Email Verification Modal ──────────────────────────────────────────
+/// Amber disc that swells from the centre to cover the screen on success.
+class _SuccessOverlay extends StatelessWidget {
+  final Animation<double> animation;
+  const _SuccessOverlay({required this.animation});
 
-  void _showEmailVerificationModal(String email, {String? pendingPassword}) {
-    final codeCtrl = TextEditingController();
-    bool isVerifying = false;
-    bool isResending = false;
-    String? modalError;
-
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (modalCtx) {
-        return StatefulBuilder(
-          builder: (ctx, setModalState) {
-            return Container(
-              padding: EdgeInsets.only(
-                left: 24,
-                right: 24,
-                top: 24,
-                bottom: MediaQuery.of(ctx).viewInsets.bottom + 28,
+  @override
+  Widget build(BuildContext context) {
+    return IgnorePointer(
+      ignoring: true,
+      child: AnimatedBuilder(
+        animation: animation,
+        builder: (context, _) {
+          final v = animation.value;
+          if (v == 0) return const SizedBox.shrink();
+          final size = MediaQuery.of(context).size;
+          final maxR = math.sqrt(size.width * size.width + size.height * size.height);
+          final r = Curves.easeInOutCubic.transform((v / 0.75).clamp(0.0, 1.0)) * maxR;
+          final logo = Curves.easeOutBack.transform(((v - 0.45) / 0.55).clamp(0.0, 1.0));
+          return Stack(
+            children: [
+              Positioned.fill(
+                child: CustomPaint(painter: _DiscPainter(r)),
               ),
-              decoration: BoxDecoration(
-                color: AppColors.navy900,
-                borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
-                border: Border.all(color: AppColors.gold500.withValues(alpha: 0.35), width: 1.5),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withValues(alpha: 0.65),
-                    blurRadius: 30,
-                    offset: const Offset(0, -10),
-                  ),
-                ],
-              ),
-              child: SingleChildScrollView(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Container(
-                      width: 44,
-                      height: 4,
-                      decoration: BoxDecoration(
-                        color: Colors.white24,
-                        borderRadius: BorderRadius.circular(2),
-                      ),
-                    ),
-                    const SizedBox(height: 20),
-
-                    Container(
-                      width: 64,
-                      height: 64,
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        color: AppColors.gold500.withValues(alpha: 0.15),
-                        border: Border.all(color: AppColors.gold500.withValues(alpha: 0.5), width: 2),
-                      ),
-                      child: const Icon(
-                        Icons.mark_email_read_rounded,
-                        color: AppColors.gold500,
-                        size: 32,
-                      ),
-                    ),
-                    const SizedBox(height: 14),
-
-                    const Text(
-                      'Verify Client Email',
-                      style: TextStyle(
-                        fontSize: 20,
-                        fontWeight: FontWeight.w800,
-                        color: Colors.white,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-
-                    RichText(
-                      textAlign: TextAlign.center,
-                      text: TextSpan(
-                        style: const TextStyle(fontSize: 13, color: AppColors.grey300, height: 1.4),
-                        children: [
-                          const TextSpan(text: 'A 6-digit verification code has been dispatched to\n'),
-                          TextSpan(
-                            text: email,
-                            style: const TextStyle(
-                              color: AppColors.gold400,
-                              fontWeight: FontWeight.w700,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(height: 20),
-
-                    if (modalError != null) ...[
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                        decoration: BoxDecoration(
-                          color: AppColors.error.withValues(alpha: 0.15),
-                          borderRadius: BorderRadius.circular(10),
-                          border: Border.all(color: AppColors.error.withValues(alpha: 0.4)),
-                        ),
-                        child: Row(
-                          children: [
-                            const Icon(Icons.error_outline_rounded, color: AppColors.error, size: 18),
-                            const SizedBox(width: 8),
-                            Expanded(
-                              child: Text(
-                                modalError!,
-                                style: const TextStyle(color: Colors.white, fontSize: 12),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(height: 16),
-                    ],
-
-                    _buildFieldLabel('Enter 6-Digit Verification Code'),
-                    const SizedBox(height: 8),
-                    TextField(
-                      controller: codeCtrl,
-                      keyboardType: TextInputType.number,
-                      textAlign: TextAlign.center,
-                      maxLength: 6,
-                      style: const TextStyle(
-                        color: AppColors.gold400,
-                        fontFamily: 'monospace',
-                        fontSize: 24,
-                        fontWeight: FontWeight.w800,
-                        letterSpacing: 8,
-                      ),
-                      decoration: InputDecoration(
-                        counterText: '',
-                        filled: true,
-                        fillColor: AppColors.navy800,
-                        hintText: '• • • • • •',
-                        hintStyle: const TextStyle(color: Colors.white24, letterSpacing: 8, fontSize: 20),
-                        contentPadding: const EdgeInsets.symmetric(vertical: 14),
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(14),
-                          borderSide: BorderSide(color: Colors.white.withValues(alpha: 0.15)),
-                        ),
-                        focusedBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(14),
-                          borderSide: const BorderSide(color: AppColors.gold500, width: 2),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 20),
-
-                    SizedBox(
-                      width: double.infinity,
-                      height: 50,
-                      child: ElevatedButton(
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: AppColors.gold500,
-                          foregroundColor: AppColors.navy900,
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-                        ),
-                        onPressed: isVerifying
-                            ? null
-                            : () async {
-                                final code = codeCtrl.text.trim();
-                                if (code.length != 6) {
-                                  setModalState(() => modalError = 'Please enter the complete 6-digit code');
-                                  return;
-                                }
-                                setModalState(() {
-                                  isVerifying = true;
-                                  modalError = null;
-                                });
-                                try {
-                                  final res = await ApiClient().verifyEmail(email, code);
-                                  if (!modalCtx.mounted) return;
-                                  Navigator.pop(modalCtx);
-                                  _showSuccessSnack('Email verified successfully! Welcome to SolarPro.');
-                                  _navigateUser(res, 'client');
-                                } catch (e) {
-                                  if (!modalCtx.mounted) return;
-                                  setModalState(() {
-                                    isVerifying = false;
-                                    modalError = e.toString().replaceFirst('Exception: ', '');
-                                  });
-                                }
-                              },
-                        child: isVerifying
-                            ? const SizedBox(
-                                width: 22,
-                                height: 22,
-                                child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.navy900),
-                              )
-                            : const Text('Verify & Open Dashboard', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 15)),
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-
-                    TextButton.icon(
-                      icon: isResending
-                          ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 1.5, color: AppColors.gold400))
-                          : const Icon(Icons.refresh_rounded, size: 18, color: AppColors.gold400),
-                      label: Text(
-                        isResending ? 'Sending...' : 'Resend Verification Code',
-                        style: const TextStyle(color: AppColors.gold400, fontWeight: FontWeight.w600, fontSize: 13),
-                      ),
-                      onPressed: isResending
-                          ? null
-                          : () async {
-                              setModalState(() => isResending = true);
-                              try {
-                                await ApiClient().sendEmailVerification(email);
-                                if (!modalCtx.mounted) return;
-                                setModalState(() {
-                                  isResending = false;
-                                  modalError = null;
-                                });
-                                _showSuccessSnack('New verification code sent to $email');
-                              } catch (e) {
-                                if (!modalCtx.mounted) return;
-                                setModalState(() {
-                                  isResending = false;
-                                  modalError = e.toString().replaceFirst('Exception: ', '');
-                                });
-                              }
-                            },
-                    ),
-                  ],
+              Center(
+                child: Opacity(
+                  opacity: logo.clamp(0.0, 1.0),
+                  child: Transform.scale(scale: 0.6 + 0.4 * logo, child: const SolarProLogo(size: 34)),
                 ),
               ),
-            );
-          },
-        );
-      },
+            ],
+          );
+        },
+      ),
     );
   }
+}
+
+class _DiscPainter extends CustomPainter {
+  final double r;
+  _DiscPainter(this.r);
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final c = size.center(Offset.zero);
+    canvas.drawCircle(c, r, Paint()..color = AppColors.gold500);
+    canvas.drawCircle(c, r * 0.82, Paint()..color = AppColors.navy900);
+  }
+
+  @override
+  bool shouldRepaint(covariant _DiscPainter old) => old.r != r;
 }

@@ -80,7 +80,7 @@ class BrandSelectorField extends StatelessWidget {
                   child: Text(
                     hasValue ? value! : (hintText ?? 'Select or add $label'),
                     style: TextStyle(
-                      color: hasValue ? Colors.white : AppColors.grey500,
+                      color: hasValue ? AppColors.fg : AppColors.grey500,
                       fontSize: 14,
                       fontWeight: hasValue ? FontWeight.w600 : FontWeight.normal,
                     ),
@@ -189,7 +189,7 @@ class _BrandSelectionSheetState extends State<_BrandSelectionSheet> {
                 child: Text(
                   'Select ${widget.title}',
                   style: const TextStyle(
-                    color: Colors.white,
+                    color: AppColors.fg,
                     fontSize: 18,
                     fontWeight: FontWeight.w700,
                   ),
@@ -205,7 +205,7 @@ class _BrandSelectionSheetState extends State<_BrandSelectionSheet> {
           // Search box
           TextField(
             controller: _searchController,
-            style: const TextStyle(color: Colors.white, fontSize: 14),
+            style: const TextStyle(color: AppColors.fg, fontSize: 14),
             decoration: InputDecoration(
               hintText: 'Search or filter brands...',
               hintStyle: const TextStyle(color: AppColors.grey500),
@@ -248,7 +248,7 @@ class _BrandSelectionSheetState extends State<_BrandSelectionSheet> {
                         child: TextField(
                           controller: _customBrandController,
                           autofocus: true,
-                          style: const TextStyle(color: Colors.white, fontSize: 14),
+                          style: const TextStyle(color: AppColors.fg, fontSize: 14),
                           decoration: InputDecoration(
                             hintText: 'Enter new brand name',
                             hintStyle: const TextStyle(color: AppColors.grey500),
@@ -271,7 +271,7 @@ class _BrandSelectionSheetState extends State<_BrandSelectionSheet> {
                         },
                         style: ElevatedButton.styleFrom(
                           backgroundColor: AppColors.teal500,
-                          foregroundColor: Colors.white,
+                          foregroundColor: AppColors.fg,
                           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
                         ),
                         child: const Text('Add'),
@@ -357,7 +357,7 @@ class _BrandSelectionSheetState extends State<_BrandSelectionSheet> {
                         title: Text(
                           brand,
                           style: TextStyle(
-                            color: isSelected ? AppColors.teal500 : Colors.white,
+                            color: isSelected ? AppColors.teal500 : AppColors.fg,
                             fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
                             fontSize: 14,
                           ),

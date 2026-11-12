@@ -151,7 +151,7 @@ class _ServiceTicketDetailScreenState extends State<ServiceTicketDetailScreen> {
             Align(
               alignment: Alignment.topRight,
               child: IconButton(
-                icon: const Icon(Icons.close, color: Colors.white, size: 24),
+                icon: const Icon(Icons.close, color: AppColors.fg, size: 24),
                 onPressed: () => Navigator.of(ctx).pop(),
               ),
             ),
@@ -166,7 +166,7 @@ class _ServiceTicketDetailScreenState extends State<ServiceTicketDetailScreen> {
                     children: [
                       const Icon(Icons.broken_image_outlined, color: AppColors.gold500, size: 48),
                       const SizedBox(height: 10),
-                      Text(image.fileKey, style: const TextStyle(color: Colors.white, fontSize: 13)),
+                      Text(image.fileKey, style: const TextStyle(color: AppColors.fg, fontSize: 13)),
                     ],
                   ),
                 ),
@@ -189,7 +189,7 @@ class _ServiceTicketDetailScreenState extends State<ServiceTicketDetailScreen> {
         elevation: 0,
         title: Text(
           _ticket.ticketNo,
-          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16),
+          style: const TextStyle(color: AppColors.fg, fontWeight: FontWeight.bold, fontSize: 16),
         ),
       ),
       body: _isLoading
@@ -227,7 +227,7 @@ class _ServiceTicketDetailScreenState extends State<ServiceTicketDetailScreen> {
                                 children: [
                                   Text(
                                     _ticket.type.displayName,
-                                    style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
+                                    style: const TextStyle(color: AppColors.fg, fontSize: 16, fontWeight: FontWeight.bold),
                                   ),
                                   Text(
                                     'Priority: ${_ticket.priority.displayName}',
@@ -256,7 +256,7 @@ class _ServiceTicketDetailScreenState extends State<ServiceTicketDetailScreen> {
                         const SizedBox(height: 12),
                         Text(
                           _ticket.title,
-                          style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
+                          style: const TextStyle(color: AppColors.fg, fontSize: 16, fontWeight: FontWeight.bold),
                         ),
                         const SizedBox(height: 6),
                         Text(
@@ -304,11 +304,11 @@ class _ServiceTicketDetailScreenState extends State<ServiceTicketDetailScreen> {
                           children: [
                             Icon(Icons.person_pin_circle_rounded, color: AppColors.gold500, size: 18),
                             SizedBox(width: 8),
-                            Text('Customer & Site Information', style: TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.bold)),
+                            Text('Customer & Site Information', style: TextStyle(color: AppColors.fg, fontSize: 14, fontWeight: FontWeight.bold)),
                           ],
                         ),
                         const SizedBox(height: 12),
-                        Text(_ticket.customerName, style: const TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.bold)),
+                        Text(_ticket.customerName, style: const TextStyle(color: AppColors.fg, fontSize: 15, fontWeight: FontWeight.bold)),
                         const SizedBox(height: 6),
                         Row(
                           children: [
@@ -326,7 +326,7 @@ class _ServiceTicketDetailScreenState extends State<ServiceTicketDetailScreen> {
                               label: const Text('Call'),
                               style: ElevatedButton.styleFrom(
                                 backgroundColor: AppColors.teal500,
-                                foregroundColor: Colors.white,
+                                foregroundColor: AppColors.fg,
                                 minimumSize: Size.zero,
                                 tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                                 padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
@@ -382,7 +382,7 @@ class _ServiceTicketDetailScreenState extends State<ServiceTicketDetailScreen> {
                           children: [
                             Icon(Icons.verified_user_rounded, color: AppColors.teal500, size: 18),
                             SizedBox(width: 8),
-                            Text('System & Warranty Coverage', style: TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.bold)),
+                            Text('System & Warranty Coverage', style: TextStyle(color: AppColors.fg, fontSize: 14, fontWeight: FontWeight.bold)),
                           ],
                         ),
                         SizedBox(height: 12),
@@ -395,7 +395,7 @@ class _ServiceTicketDetailScreenState extends State<ServiceTicketDetailScreen> {
                                 'Growatt 5kW Grid-Tie Inverter',
                                 textAlign: TextAlign.end,
                                 overflow: TextOverflow.ellipsis,
-                                style: TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w600),
+                                style: TextStyle(color: AppColors.fg, fontSize: 12, fontWeight: FontWeight.w600),
                               ),
                             ),
                           ],
@@ -454,7 +454,7 @@ class _ServiceTicketDetailScreenState extends State<ServiceTicketDetailScreen> {
                             ],
                           ),
                           const SizedBox(height: 6),
-                          Text(_ticket.resolutionNote!, style: const TextStyle(color: Colors.white, fontSize: 13, height: 1.4)),
+                          Text(_ticket.resolutionNote!, style: const TextStyle(color: AppColors.fg, fontSize: 13, height: 1.4)),
                           if (_ticket.resolvedAt != null) ...[
                             const SizedBox(height: 6),
                             Text('Resolved on ${dateFormat.format(_ticket.resolvedAt!)}', style: const TextStyle(color: AppColors.grey400, fontSize: 11)),
@@ -474,7 +474,7 @@ class _ServiceTicketDetailScreenState extends State<ServiceTicketDetailScreen> {
                         child: Text(
                           'Photo Gallery (${_ticket.images.length})',
                           overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.bold),
+                          style: const TextStyle(color: AppColors.fg, fontSize: 15, fontWeight: FontWeight.bold),
                         ),
                       ),
                       if (_ticket.status != TicketStatus.resolved)
@@ -531,7 +531,7 @@ class _ServiceTicketDetailScreenState extends State<ServiceTicketDetailScreen> {
                     children: [
                       const Icon(Icons.chat_bubble_outline_rounded, color: AppColors.teal500, size: 18),
                       const SizedBox(width: 8),
-                      Text('Conversation Thread (${_ticket.comments.length})', style: const TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.bold)),
+                      Text('Conversation Thread (${_ticket.comments.length})', style: const TextStyle(color: AppColors.fg, fontSize: 15, fontWeight: FontWeight.bold)),
                     ],
                   ),
                   const SizedBox(height: 10),
@@ -554,14 +554,14 @@ class _ServiceTicketDetailScreenState extends State<ServiceTicketDetailScreen> {
                               Container(
                                 padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                                 decoration: BoxDecoration(color: AppColors.navy600, borderRadius: BorderRadius.circular(AppRadius.pill)),
-                                child: Text(c.authorRole.toUpperCase(), style: const TextStyle(color: Colors.white, fontSize: 9)),
+                                child: Text(c.authorRole.toUpperCase(), style: const TextStyle(color: AppColors.fg, fontSize: 9)),
                               ),
                               const Spacer(),
                               Text(dateFormat.format(c.createdAt), style: const TextStyle(color: AppColors.grey500, fontSize: 10)),
                             ],
                           ),
                           const SizedBox(height: 6),
-                          Text(c.message, style: const TextStyle(color: Colors.white, fontSize: 13, height: 1.3)),
+                          Text(c.message, style: const TextStyle(color: AppColors.fg, fontSize: 13, height: 1.3)),
                         ],
                       ),
                     ),
@@ -573,7 +573,7 @@ class _ServiceTicketDetailScreenState extends State<ServiceTicketDetailScreen> {
                       Expanded(
                         child: TextField(
                           controller: _commentController,
-                          style: const TextStyle(color: Colors.white, fontSize: 13),
+                          style: const TextStyle(color: AppColors.fg, fontSize: 13),
                           decoration: InputDecoration(
                             hintText: 'Type a message to customer...',
                             hintStyle: const TextStyle(color: AppColors.grey500, fontSize: 13),
@@ -612,7 +612,7 @@ class _ServiceTicketDetailScreenState extends State<ServiceTicketDetailScreen> {
                     label: const Text('Start Work On-Site'),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: AppColors.gold500,
-                      foregroundColor: AppColors.navy900,
+                      foregroundColor: AppColors.ink900,
                       padding: const EdgeInsets.symmetric(vertical: 14),
                       textStyle: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
                     ),
@@ -626,7 +626,7 @@ class _ServiceTicketDetailScreenState extends State<ServiceTicketDetailScreen> {
                     label: const Text('Resolve Ticket (Note Required)'),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: AppColors.success,
-                      foregroundColor: Colors.white,
+                      foregroundColor: AppColors.fg,
                       padding: const EdgeInsets.symmetric(vertical: 14),
                       textStyle: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
                     ),

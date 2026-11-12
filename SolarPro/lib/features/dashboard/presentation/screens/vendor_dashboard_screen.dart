@@ -1,4 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:solar_pro/shared/widgets/sp_greeting_header.dart';
+import 'package:solar_pro/shared/animations/motion.dart';
+import 'package:solar_pro/shared/widgets/sp_bottom_nav.dart';
 import 'package:go_router/go_router.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:solar_pro/core/constants/app_constants.dart';
@@ -84,7 +87,7 @@ class _VendorDashboardScreenState extends State<VendorDashboardScreen> {
     ];
 
     return Scaffold(
-      backgroundColor: const Color(0xFF060D19),
+      backgroundColor: const Color(0xFFF6F4FD),
       body: Row(
         children: [
           DesktopSidebar(
@@ -106,7 +109,7 @@ class _VendorDashboardScreenState extends State<VendorDashboardScreen> {
                 Expanded(
                   child: Container(
                     color: AppColors.navy900,
-                    child: IndexedStack(
+                    child: SpAnimatedIndexedStack(
                       index: _selectedDesktopIndex,
                       children: desktopPages,
                     ),
@@ -135,11 +138,11 @@ class _VendorDashboardScreenState extends State<VendorDashboardScreen> {
 
     return Scaffold(
       backgroundColor: AppColors.navy900,
-      body: IndexedStack(
+      body: SpAnimatedIndexedStack(
         index: _selectedIndex,
         children: mobilePages,
       ),
-      bottomNavigationBar: _SpBottomNav(
+      bottomNavigationBar: SpBottomNav(
         selectedIndex: _selectedIndex,
         onTap: (i) => setState(() => _selectedIndex = i),
       ),
@@ -147,85 +150,6 @@ class _VendorDashboardScreenState extends State<VendorDashboardScreen> {
   }
 }
 
-// ── Bottom Nav ──────────────────────────────────────────────────────────────
-class _SpBottomNav extends StatelessWidget {
-  final int selectedIndex;
-  final ValueChanged<int> onTap;
-  const _SpBottomNav({required this.selectedIndex, required this.onTap});
-
-  static const _items = [
-    (Icons.dashboard_rounded, 'Home'),
-    (Icons.people_rounded, 'Leads'),
-    (Icons.person_rounded, 'Customers'),
-    (Icons.inventory_2_rounded, 'Inventory'),
-    (Icons.menu_rounded, 'More'),
-  ];
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      decoration: BoxDecoration(
-        color: AppColors.navy800,
-        border: const Border(top: BorderSide(color: AppColors.navy600, width: 1)),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.3),
-            blurRadius: 24,
-            offset: const Offset(0, -4),
-          ),
-        ],
-      ),
-      child: SafeArea(
-        child: SizedBox(
-          height: 64,
-          child: Row(
-            children: _items.asMap().entries.map((e) {
-              final isSelected = selectedIndex == e.key;
-              return Expanded(
-                child: GestureDetector(
-                  behavior: HitTestBehavior.opaque,
-                  onTap: () => onTap(e.key),
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      AnimatedContainer(
-                        duration: const Duration(milliseconds: 220),
-                        padding: const EdgeInsets.all(6),
-                        decoration: BoxDecoration(
-                          color: isSelected
-                              ? AppColors.gold500.withValues(alpha: 0.15)
-                              : Colors.transparent,
-                          borderRadius: BorderRadius.circular(AppRadius.sm),
-                        ),
-                        child: Icon(
-                          e.value.$1,
-                          size: 22,
-                          color: isSelected ? AppColors.gold500 : AppColors.grey500,
-                        ),
-                      ),
-                      const SizedBox(height: 2),
-                      AnimatedDefaultTextStyle(
-                        duration: const Duration(milliseconds: 220),
-                        style: TextStyle(
-                          fontFamily: 'Outfit',
-                          fontSize: 10,
-                          color: isSelected ? AppColors.gold400 : AppColors.grey600,
-                          fontWeight:
-                              isSelected ? FontWeight.w600 : FontWeight.w400,
-                        ),
-                        child: Text(e.value.$2),
-                      ),
-                    ],
-                  ),
-                ),
-              );
-            }).toList(),
-          ),
-        ),
-      ),
-    );
-  }
-}
 
 void _showAdminLogoutDialog(BuildContext context) {
   showDialog(
@@ -238,7 +162,7 @@ void _showAdminLogoutDialog(BuildContext context) {
       ),
       title: const Text(
         'Log Out',
-        style: TextStyle(color: AppColors.white, fontWeight: FontWeight.bold),
+        style: TextStyle(color: AppColors.fg, fontWeight: FontWeight.bold),
       ),
       content: const Text(
         'Are you sure you want to log out of your admin account?',
@@ -252,13 +176,15 @@ void _showAdminLogoutDialog(BuildContext context) {
         ElevatedButton(
           style: ElevatedButton.styleFrom(
             backgroundColor: AppColors.error,
-            foregroundColor: Colors.white,
+            foregroundColor: AppColors.fg,
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(AppRadius.md),
             ),
           ),
-          onPressed: () {
+          onPressed: () async {
             Navigator.of(ctx).pop();
+            await ApiClient().logout();
+            if (!context.mounted) return;
             context.go(AppRoutes.login);
             ScaffoldMessenger.of(context).showSnackBar(
               const SnackBar(
@@ -272,6 +198,23 @@ void _showAdminLogoutDialog(BuildContext context) {
       ],
     ),
   );
+}
+
+class _HeaderDelegate extends SliverPersistentHeaderDelegate {
+  final double topInset;
+  final SpGreetingHeader header;
+  _HeaderDelegate(this.topInset, this.header);
+
+  @override
+  double get minExtent => header.preferredSize.height + topInset;
+  @override
+  double get maxExtent => header.preferredSize.height + topInset;
+
+  @override
+  Widget build(BuildContext context, double shrinkOffset, bool overlapsContent) => header;
+
+  @override
+  bool shouldRebuild(covariant _HeaderDelegate old) => true;
 }
 
 // ── Home Tab ─────────────────────────────────────────────────────────────────
@@ -310,112 +253,17 @@ class _DashboardHomeState extends State<_DashboardHome> {
       physics: const BouncingScrollPhysics(),
       slivers: [
         // ── App Bar ─────────────────────────────────────────────────────────
-        SliverAppBar(
-          expandedHeight: 125,
+        SliverPersistentHeader(
           pinned: true,
-          backgroundColor: AppColors.navy900,
-          flexibleSpace: FlexibleSpaceBar(
-            background: Container(
-              decoration: const BoxDecoration(gradient: AppColors.heroGradient),
-              child: SafeArea(
-                child: Padding(
-                  padding: const EdgeInsets.fromLTRB(20, 10, 20, 0),
-                  child: Row(
-                    children: [
-                      Container(
-                        width: 44,
-                        height: 44,
-                        margin: const EdgeInsets.only(right: 12),
-                        decoration: BoxDecoration(
-                          borderRadius: BorderRadius.circular(12),
-                          boxShadow: [
-                            BoxShadow(
-                              color: AppColors.gold500.withValues(alpha: 0.35),
-                              blurRadius: 14,
-                              spreadRadius: 2,
-                            ),
-                          ],
-                        ),
-                        child: ClipRRect(
-                          borderRadius: BorderRadius.circular(12),
-                          child: Image.asset(AppAssets.logo, fit: BoxFit.cover),
-                        ),
-                      ),
-                      Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Text('Good Evening 👋',
-                              style: AppTextStyles.bodyMedium
-                                  .copyWith(color: AppColors.gold400)),
-                          const SizedBox(height: 2),
-                          Text('SolarPro Admin',
-                              style: AppTextStyles.headlineLarge),
-                        ],
-                      ),
-                      const Spacer(),
-                      // Logout button
-                      GestureDetector(
-                        onTap: () => _showAdminLogoutDialog(context),
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                          decoration: BoxDecoration(
-                            color: AppColors.error.withValues(alpha: 0.15),
-                            borderRadius: BorderRadius.circular(AppRadius.pill),
-                            border: Border.all(color: AppColors.error.withValues(alpha: 0.4)),
-                          ),
-                          child: Row(
-                            children: [
-                              const Icon(Icons.logout_rounded,
-                                  color: AppColors.error, size: 14),
-                              const SizedBox(width: 4),
-                              Text('Logout',
-                                  style: AppTextStyles.caption.copyWith(
-                                      color: AppColors.error, fontWeight: FontWeight.w600)),
-                            ],
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 10),
-                      // Notification bell
-                      GestureDetector(
-                        onTap: () => context.push(AppRoutes.notifications),
-                        child: Stack(
-                          children: [
-                            Container(
-                              width: 44,
-                              height: 44,
-                              decoration: BoxDecoration(
-                                color: AppColors.navy700,
-                                borderRadius:
-                                    BorderRadius.circular(AppRadius.md),
-                                border:
-                                    Border.all(color: AppColors.navy500),
-                              ),
-                              child: const Icon(
-                                  Icons.notifications_rounded,
-                                  color: AppColors.grey300,
-                                  size: 22),
-                            ),
-                            Positioned(
-                              right: 10,
-                              top: 10,
-                              child: Container(
-                                width: 8,
-                                height: 8,
-                                decoration: const BoxDecoration(
-                                  color: AppColors.gold500,
-                                  shape: BoxShape.circle,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
+          delegate: _HeaderDelegate(
+            MediaQuery.paddingOf(context).top,
+            SpGreetingHeader(
+              name: 'Admin',
+              role: 'Administrator',
+              badge: _pendingCount > 0 ? '$_pendingCount pending' : null,
+              unread: _pendingCount,
+              onBell: () => context.push(AppRoutes.notifications),
+              onLogout: () => _showAdminLogoutDialog(context),
             ),
           ),
         ),
@@ -456,7 +304,7 @@ class _DashboardHomeState extends State<_DashboardHome> {
                           children: [
                             Text(
                               '$_pendingCount New Employee Registration${_pendingCount > 1 ? "s" : ""} Pending',
-                              style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13),
+                              style: const TextStyle(color: AppColors.fg, fontWeight: FontWeight.bold, fontSize: 13),
                             ),
                             const SizedBox(height: 2),
                             const Text(
@@ -470,7 +318,7 @@ class _DashboardHomeState extends State<_DashboardHome> {
                       ElevatedButton(
                         style: ElevatedButton.styleFrom(
                           backgroundColor: AppColors.orange500,
-                          foregroundColor: Colors.white,
+                          foregroundColor: AppColors.fg,
                           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                           textStyle: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
                           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
@@ -488,6 +336,7 @@ class _DashboardHomeState extends State<_DashboardHome> {
               // ── Stats Grid ─────────────────────────────────────────────
               GridView.count(
                 crossAxisCount: 2,
+                padding: EdgeInsets.zero,
                 shrinkWrap: true,
                 physics: const NeverScrollableScrollPhysics(),
                 crossAxisSpacing: 12,
@@ -992,7 +841,7 @@ class _QuickActionCard extends StatelessWidget {
                 child: Text(
                   badgeText!,
                   style: const TextStyle(
-                    color: Colors.white,
+                    color: AppColors.fg,
                     fontSize: 9,
                     fontWeight: FontWeight.bold,
                   ),
@@ -1225,7 +1074,7 @@ class _DashboardEmployeesColumnState extends State<_DashboardEmployeesColumn> {
                                 child: Text(
                                   emp.name,
                                   style: const TextStyle(
-                                    color: Colors.white,
+                                    color: AppColors.fg,
                                     fontSize: 14,
                                     fontWeight: FontWeight.bold,
                                   ),

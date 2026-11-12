@@ -10,13 +10,15 @@ class Settings(BaseSettings):
         env_file_encoding="utf-8",
         case_sensitive=False,
         extra="ignore",
+        # Never print secrets from the environment in validation errors / logs
+        hide_input_in_errors=True,
     )
 
     # Environment
     ENV: Literal["dev", "prod", "test"] = "dev"
-    DEBUG: bool = True
+    DEBUG: bool = False
     APP_NAME: str = "Solar Rooftop Management API"
-    APP_VERSION: str = "0.1.0"
+    APP_VERSION: str = "0.2.0"
 
     # Business / presentation settings
     TICKET_NUMBER_PREFIX: str = "TCK"
@@ -25,29 +27,39 @@ class Settings(BaseSettings):
     # Server
     HOST: str = "0.0.0.0"
     PORT: int = 8000
-    # Explicit origins only; wildcard supported for mobile/web apps
-    CORS_ORIGINS: List[str] = Field(
-        default=["http://localhost:3000", "http://localhost:8000", "http://localhost:8080", "*"]
-    )
+    # Browser origins allowed to call the API. Native mobile/desktop apps do not
+    # send an Origin header and are unaffected. Never use "*" in production.
+    CORS_ORIGINS: List[str] = Field(default_factory=list)
+    # Only honour X-Real-IP / X-Forwarded-For when the API sits behind our nginx.
+    TRUST_PROXY_HEADERS: bool = False
 
     # Database
     DATABASE_URL: str = ""
     TEST_DATABASE_URL: str = ""
     MONGODB_URI: str = ""
+    MONGODB_DB_NAME: str = "solar_app_db"
     DB_ECHO: bool = False
     DB_POOL_SIZE: int = 5
     DB_MAX_OVERFLOW: int = 10
 
     # Security & JWT
     JWT_SECRET: str = ""
-    JWT_ALGORITHM: str = "HS256"
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = 60
+    JWT_ALGORITHM: Literal["HS256"] = "HS256"
+    JWT_ISSUER: str = "solarpro-api"
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
     REFRESH_TOKEN_EXPIRE_DAYS: int = 30
 
-    # Real SMS Gateway Providers (for texting physical SIM cards)
+    # Brute-force / abuse limits
+    LOGIN_MAX_FAILURES: int = 5           # per identifier per window
+    LOGIN_FAILURE_WINDOW_SECONDS: int = 900
+    OTP_RESEND_COOLDOWN_SECONDS: int = 60
+    OTP_MAX_PER_HOUR: int = 5
+    OTP_MAX_VERIFY_FAILURES_PER_HOUR: int = 10
+
+    # SMS gateway providers
     OTP_EXPIRE_SECONDS: int = 300
     OTP_LENGTH: int = 6
-    TWO_FACTOR_API_KEY: str = "8a431cc1-d959-11f1-ac3e-0200cd936042"
+    TWO_FACTOR_API_KEY: str = ""
     FAST2SMS_API_KEY: str = ""
     MSG91_AUTH_KEY: str = ""
     MSG91_TEMPLATE_ID: str = ""
@@ -55,15 +67,13 @@ class Settings(BaseSettings):
     TWILIO_AUTH_TOKEN: str = ""
     TWILIO_FROM_NUMBER: str = ""
 
-    # Super Admin Configuration (seeded in DB via ENV)
+    # Super Admin (seeded on first start only; existing passwords are never overwritten)
     SUPER_ADMIN_NAME: str = "Super Admin"
-    SUPER_ADMIN_EMAIL: str = "admin@solarpro.com"
-    SUPER_ADMIN_PHONE: str = "9876543210"
-    # Secret: used only when creating the admin on first seed (existing DB passwords are never overwritten)
+    SUPER_ADMIN_EMAIL: str = ""
+    SUPER_ADMIN_PHONE: str = ""
     SUPER_ADMIN_PASSWORD: str = ""
 
-    # Email & Delivery Settings (Resend HTTP API + SMTP Fallback)
-    # Secrets (RESEND_API_KEY, SMTP_USER, SMTP_PASSWORD) must come from environment / .env
+    # Email delivery (Resend HTTP API + SMTP fallback). Secrets come from the environment only.
     RESEND_API_KEY: str = ""
     RESEND_FROM_EMAIL: str = "SolarPro <onboarding@resend.dev>"
     SMTP_HOST: str = "smtp.gmail.com"
@@ -76,7 +86,11 @@ class Settings(BaseSettings):
     EMAILS_FROM_NAME: str = "SolarPro Verification"
     EMAIL_VERIFICATION_EXPIRE_SECONDS: int = 600
 
-    # Storage (MinIO / S3)
+    # Uploaded files (KYC documents, receipts, site photos, KEDL papers)
+    UPLOAD_DIR: str = "uploads"
+    MAX_UPLOAD_MB: int = 10
+
+    # Storage (MinIO / S3) — legacy, unused in Mongo mode
     STORAGE_PROVIDER: Literal["minio", "s3"] = "minio"
     STORAGE_ENDPOINT: str = "http://localhost:9000"
     STORAGE_ACCESS_KEY: str = ""
@@ -88,14 +102,25 @@ class Settings(BaseSettings):
     # Push Notifications (Firebase Cloud Messaging)
     FCM_SERVER_KEY: str = ""
 
+    @property
+    def is_prod(self) -> bool:
+        return self.ENV == "prod"
 
     @model_validator(mode="after")
     def _validate_secrets(self) -> "Settings":
-        if not self.JWT_SECRET:
-            self.JWT_SECRET = secrets.token_urlsafe(32)
+        if self.ENV == "prod":
+            # Fail fast: every gunicorn worker must share one strong secret, otherwise
+            # tokens signed by one worker are rejected by the next.
+            if len(self.JWT_SECRET) < 32:
+                raise ValueError("JWT_SECRET must be set to at least 32 random characters when ENV=prod")
+            if any(o.strip() == "*" for o in self.CORS_ORIGINS):
+                raise ValueError("CORS_ORIGINS must list explicit origins when ENV=prod (no '*')")
+            if self.DEBUG:
+                raise ValueError("DEBUG must be false when ENV=prod")
+        elif not self.JWT_SECRET:
+            # Dev/test only: ephemeral per-process secret (single worker).
+            self.JWT_SECRET = secrets.token_urlsafe(48)
         return self
 
 
 settings = Settings()
-
-

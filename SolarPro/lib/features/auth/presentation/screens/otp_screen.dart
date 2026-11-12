@@ -104,7 +104,7 @@ class _OtpScreenState extends State<OtpScreen> {
                 IconButton(
                   onPressed: () => context.go(AppRoutes.login),
                   icon: const Icon(Icons.arrow_back_ios_rounded,
-                      color: AppColors.white),
+                      color: AppColors.fg),
                   padding: EdgeInsets.zero,
                 ),
                 const SizedBox(height: 30),
@@ -191,7 +191,7 @@ class _OtpScreenState extends State<OtpScreen> {
                   ),
                   enableActiveFill: true,
                   textStyle: AppTextStyles.headlineSmall.copyWith(
-                    color: AppColors.white,
+                    color: AppColors.fg,
                     fontWeight: FontWeight.bold,
                   ),
                 )
@@ -213,12 +213,12 @@ class _OtpScreenState extends State<OtpScreen> {
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
                         Icon(Icons.check_circle_rounded,
-                            color: Colors.white, size: 22),
+                            color: AppColors.fg, size: 22),
                         SizedBox(width: 8),
                         Text(
                           'Verified! Entering Portal...',
                           style: TextStyle(
-                            color: Colors.white,
+                            color: AppColors.fg,
                             fontSize: 17,
                             fontWeight: FontWeight.w600,
                           ),
@@ -258,7 +258,7 @@ class _OtpScreenState extends State<OtpScreen> {
                                 width: 24,
                                 height: 24,
                                 child: CircularProgressIndicator(
-                                  color: Color(0xFF0A1628),
+                                  color: Color(0xFFF6F4FD),
                                   strokeWidth: 2.5,
                                 ),
                               )

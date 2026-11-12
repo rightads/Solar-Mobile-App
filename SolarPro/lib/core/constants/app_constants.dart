@@ -8,18 +8,18 @@ class AppConstants {
   static const String appTagline = 'Powering India\'s Solar Future';
   static const String companyName = 'SolarPro Management';
 
-  // Production Hosted Backend Configuration (Hostinger VPS)
-  static const String serverHost = 'http://82.29.165.43:8000';
-  static const String serverBaseUrl = 'http://82.29.165.43:8000/api/v1';
+  // Production API (TLS only). Override per build with
+  //   --dart-define=API_BASE_URL=https://<host>/api/v1
+  //   --dart-define=API_LIVE_HOST=https://<host>
+  // Release builds refuse non-https URLs (see ApiClient).
+  static const String serverHost = 'https://api.solarpro-app.in';
+  static const String serverBaseUrl = 'https://api.solarpro-app.in/api/v1';
 
-  // Build-time override: pass --dart-define=API_BASE_URL=http://.../api/v1
-  // and --dart-define=API_LIVE_HOST=http://... at build time if overriding.
   static const String _apiBaseUrlOverride =
       String.fromEnvironment('API_BASE_URL');
   static const String _apiLiveHostOverride =
       String.fromEnvironment('API_LIVE_HOST');
 
-  // API - Always defaults to production Hostinger VPS http://82.29.165.43:8000
   static String get baseUrl =>
       _apiBaseUrlOverride.isNotEmpty ? _apiBaseUrlOverride : serverBaseUrl;
   static String get liveHost =>

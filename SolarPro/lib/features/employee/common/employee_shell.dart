@@ -1,5 +1,7 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:solar_pro/shared/widgets/sp_greeting_header.dart';
+import 'package:solar_pro/shared/animations/motion.dart';
 import 'package:go_router/go_router.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:solar_pro/core/constants/app_constants.dart';
@@ -128,7 +130,7 @@ class _EmployeeShellState extends State<EmployeeShell> {
         ),
         title: const Text(
           'Confirm Logout',
-          style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
+          style: TextStyle(color: AppColors.fg, fontWeight: FontWeight.w700),
         ),
         content: const Text(
           'Are you sure you want to log out of your employee account?',
@@ -143,7 +145,7 @@ class _EmployeeShellState extends State<EmployeeShell> {
             onPressed: () => Navigator.of(ctx).pop(true),
             style: ElevatedButton.styleFrom(
               backgroundColor: AppColors.error,
-              foregroundColor: Colors.white,
+              foregroundColor: AppColors.fg,
             ),
             child: const Text('Log Out'),
           ),
@@ -300,7 +302,7 @@ class _EmployeeShellState extends State<EmployeeShell> {
           children: [
             const Text(
               'Field Device Permissions',
-              style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w700),
+              style: TextStyle(color: AppColors.fg, fontSize: 18, fontWeight: FontWeight.w700),
             ),
             const SizedBox(height: 4),
             const Text(
@@ -311,7 +313,7 @@ class _EmployeeShellState extends State<EmployeeShell> {
             ...PermissionType.values.map((p) => ListTile(
                   contentPadding: EdgeInsets.zero,
                   leading: Icon(p.icon, color: AppColors.gold500),
-                  title: Text(p.title, style: const TextStyle(color: Colors.white, fontSize: 14)),
+                  title: Text(p.title, style: const TextStyle(color: AppColors.fg, fontSize: 14)),
                   subtitle: Text(
                     p.rationale,
                     style: const TextStyle(color: AppColors.grey500, fontSize: 11),
@@ -379,7 +381,7 @@ class _EmployeeShellState extends State<EmployeeShell> {
                       Text(
                         _userName,
                         style: AppTextStyles.headlineMedium.copyWith(
-                          color: Colors.white,
+                          color: AppColors.fg,
                           fontWeight: FontWeight.w700,
                         ),
                       ),
@@ -445,7 +447,7 @@ class _EmployeeShellState extends State<EmployeeShell> {
               children: [
                 ListTile(
                   leading: const Icon(Icons.cloud_sync_rounded, color: AppColors.gold500),
-                  title: const Text('Offline Sync & Pending Uploads', style: TextStyle(color: Colors.white)),
+                  title: const Text('Offline Sync & Pending Uploads', style: TextStyle(color: AppColors.fg)),
                   subtitle: Text(
                     pendingCount > 0 ? '$pendingCount upload(s) pending sync' : 'All items synced to cloud',
                     style: TextStyle(
@@ -462,7 +464,7 @@ class _EmployeeShellState extends State<EmployeeShell> {
                 const Divider(height: 1, color: AppColors.navy600),
                 ListTile(
                   leading: const Icon(Icons.tune_rounded, color: AppColors.gold500),
-                  title: const Text('Field Device Permissions', style: TextStyle(color: Colors.white)),
+                  title: const Text('Field Device Permissions', style: TextStyle(color: AppColors.fg)),
                   subtitle: const Text('Camera, Gallery, Location & Alerts', style: TextStyle(color: AppColors.grey500, fontSize: 12)),
                   trailing: const Icon(Icons.chevron_right_rounded, color: AppColors.grey500),
                   onTap: () => _showPermissionsSheet(context),
@@ -470,14 +472,14 @@ class _EmployeeShellState extends State<EmployeeShell> {
                 const Divider(height: 1, color: AppColors.navy600),
                 ListTile(
                   leading: const Icon(Icons.notifications_outlined, color: AppColors.gold500),
-                  title: const Text('Notifications', style: TextStyle(color: Colors.white)),
+                  title: const Text('Notifications', style: TextStyle(color: AppColors.fg)),
                   trailing: const Icon(Icons.chevron_right_rounded, color: AppColors.grey500),
                   onTap: () => context.push(AppRoutes.notifications),
                 ),
                 const Divider(height: 1, color: AppColors.navy600),
                 ListTile(
                   leading: const Icon(Icons.security_rounded, color: AppColors.gold500),
-                  title: const Text('Security & Session', style: TextStyle(color: Colors.white)),
+                  title: const Text('Security & Session', style: TextStyle(color: AppColors.fg)),
                   subtitle: const Text('JWT authenticated tokens stored securely', style: TextStyle(color: AppColors.grey500, fontSize: 12)),
                 ),
               ],
@@ -507,144 +509,11 @@ class _EmployeeShellState extends State<EmployeeShell> {
   }
 
   PreferredSizeWidget _buildTopAppBar(BuildContext context) {
-    return PreferredSize(
-      preferredSize: const Size.fromHeight(74),
-      child: Container(
-        decoration: const BoxDecoration(
-          color: AppColors.navy900,
-          gradient: AppColors.heroGradient,
-          border: Border(
-            bottom: BorderSide(color: AppColors.navy700, width: 1),
-          ),
-        ),
-        child: SafeArea(
-          bottom: false,
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            child: Row(
-              children: [
-                // Glowing Solar Logo
-                Container(
-                  width: 44,
-                  height: 44,
-                  margin: const EdgeInsets.only(right: 12),
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(12),
-                    boxShadow: [
-                      BoxShadow(
-                        color: AppColors.gold500.withValues(alpha: 0.35),
-                        blurRadius: 14,
-                        spreadRadius: 2,
-                      ),
-                    ],
-                  ),
-                  child: ClipRRect(
-                    borderRadius: BorderRadius.circular(12),
-                    child: Image.asset(AppAssets.logo, fit: BoxFit.cover),
-                  ),
-                ),
-                // Greeting & Employee Name
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Text(
-                        _userName.isNotEmpty && _userName != 'Employee'
-                            ? _userName
-                            : 'SolarPro ${_getPortalTitle()}',
-                        style: AppTextStyles.headlineMedium.copyWith(
-                          color: Colors.white,
-                          fontSize: 18,
-                          fontWeight: FontWeight.w800,
-                        ),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                      const SizedBox(height: 2),
-                      Text(
-                        _userName.isNotEmpty && _userName != 'Employee'
-                            ? '${_getTimeGreeting()} • ${_getPortalTitle()}'
-                            : _getTimeGreeting(),
-                        style: AppTextStyles.bodyMedium.copyWith(
-                          color: AppColors.gold400,
-                          fontSize: 12,
-                          fontWeight: FontWeight.w600,
-                        ),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(width: 8),
-                // Logout Button
-                GestureDetector(
-                  onTap: _logout,
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                    decoration: BoxDecoration(
-                      color: AppColors.error.withValues(alpha: 0.15),
-                      borderRadius: BorderRadius.circular(AppRadius.pill),
-                      border: Border.all(color: AppColors.error.withValues(alpha: 0.4)),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        const Icon(Icons.logout_rounded, color: AppColors.error, size: 14),
-                        const SizedBox(width: 4),
-                        Text(
-                          'Logout',
-                          style: AppTextStyles.caption.copyWith(
-                            color: AppColors.error,
-                            fontWeight: FontWeight.w700,
-                            fontSize: 11,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 10),
-                // Notification Bell with Gold Dot
-                GestureDetector(
-                  onTap: () => context.push(AppRoutes.notifications),
-                  child: Stack(
-                    children: [
-                      Container(
-                        width: 44,
-                        height: 44,
-                        decoration: BoxDecoration(
-                          color: AppColors.navy800,
-                          shape: BoxShape.circle,
-                          border: Border.all(color: AppColors.navy600),
-                        ),
-                        child: const Icon(
-                          Icons.notifications_rounded,
-                          color: AppColors.grey300,
-                          size: 20,
-                        ),
-                      ),
-                      Positioned(
-                        top: 10,
-                        right: 10,
-                        child: Container(
-                          width: 8,
-                          height: 8,
-                          decoration: const BoxDecoration(
-                            color: AppColors.gold500,
-                            shape: BoxShape.circle,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
+    return SpGreetingHeader(
+      name: _userName == 'Employee' ? '' : _userName,
+      role: '${_getTimeGreeting().replaceAll('👋', '').trim()} · ${_getPortalTitle()}',
+      onBell: () => context.push(AppRoutes.notifications),
+      onLogout: _logout,
     );
   }
 
@@ -656,7 +525,11 @@ class _EmployeeShellState extends State<EmployeeShell> {
     return Scaffold(
       backgroundColor: AppColors.navy900,
       appBar: _buildTopAppBar(context),
-      body: _buildBody(safeIndex),
+      body: SpEntrance(
+        key: ValueKey(safeIndex),
+        from: const Offset(0, 18),
+        child: _buildBody(safeIndex),
+      ),
       bottomNavigationBar: SpBottomNav(
         selectedIndex: safeIndex,
         onTap: (index) => setState(() => _currentIndex = index),

@@ -23,6 +23,11 @@ dependencies:
 
   # Local Storage
   shared_preferences: ^2.2.3
+  flutter_secure_storage: ^11.2.0
+
+  # Real file / camera uploads
+  image_picker: ^1.1.2
+  file_picker: ^13.3.3
 
   # UI / Animations
   animate_do: ^3.3.4

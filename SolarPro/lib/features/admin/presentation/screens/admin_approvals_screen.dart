@@ -65,7 +65,7 @@ class _AdminApprovalsScreenState extends State<AdminApprovalsScreen> {
                 Expanded(
                   child: Text(
                     '${user['name'] ?? 'User'} approved! Account is now active.',
-                    style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
+                    style: const TextStyle(color: AppColors.fg, fontWeight: FontWeight.w600),
                   ),
                 ),
               ],
@@ -102,7 +102,7 @@ class _AdminApprovalsScreenState extends State<AdminApprovalsScreen> {
       builder: (ctx) => AlertDialog(
         backgroundColor: AppColors.navy800,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
-        title: const Text('Reject Registration?', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+        title: const Text('Reject Registration?', style: TextStyle(color: AppColors.fg, fontWeight: FontWeight.bold)),
         content: Text(
           'Are you sure you want to reject registration access for ${user['name'] ?? 'this applicant'}?',
           style: const TextStyle(color: AppColors.grey300),
@@ -115,7 +115,7 @@ class _AdminApprovalsScreenState extends State<AdminApprovalsScreen> {
           ElevatedButton(
             style: ElevatedButton.styleFrom(
               backgroundColor: AppColors.error,
-              foregroundColor: Colors.white,
+              foregroundColor: AppColors.fg,
             ),
             onPressed: () => Navigator.pop(ctx, true),
             child: const Text('Reject'),
@@ -158,9 +158,9 @@ class _AdminApprovalsScreenState extends State<AdminApprovalsScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFF060D19),
+      backgroundColor: const Color(0xFFF6F4FD),
       appBar: AppBar(
-        backgroundColor: const Color(0xFF070F1E),
+        backgroundColor: const Color(0xFFF6F4FD),
         elevation: 0,
         title: Row(
           children: [
@@ -179,7 +179,7 @@ class _AdminApprovalsScreenState extends State<AdminApprovalsScreen> {
               children: const [
                 Text(
                   'Super Admin Authorization',
-                  style: TextStyle(color: Colors.white, fontSize: 17, fontWeight: FontWeight.bold),
+                  style: TextStyle(color: AppColors.fg, fontSize: 17, fontWeight: FontWeight.bold),
                 ),
                 Text(
                   'Review Employee & Admin Sign-up Requests',
@@ -203,10 +203,12 @@ class _AdminApprovalsScreenState extends State<AdminApprovalsScreen> {
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
             decoration: BoxDecoration(
-              color: const Color(0xFF070F1E),
-              border: Border(bottom: BorderSide(color: AppColors.white.withValues(alpha: 0.06))),
+              color: const Color(0xFFF6F4FD),
+              border: Border(bottom: BorderSide(color: AppColors.fg.withValues(alpha: 0.06))),
             ),
-            child: Row(
+            child: SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
               children: [
                 _buildFilterChip('pending', 'Pending Review', Icons.pending_actions_rounded, AppColors.orange500),
                 const SizedBox(width: 8),
@@ -214,6 +216,7 @@ class _AdminApprovalsScreenState extends State<AdminApprovalsScreen> {
                 const SizedBox(width: 8),
                 _buildFilterChip('all', 'All Records', Icons.list_alt_rounded, AppColors.grey400),
               ],
+            ),
             ),
           ),
 
@@ -276,7 +279,7 @@ class _AdminApprovalsScreenState extends State<AdminApprovalsScreen> {
             Text(
               label,
               style: TextStyle(
-                color: isSelected ? Colors.white : AppColors.grey400,
+                color: isSelected ? AppColors.fg : AppColors.grey400,
                 fontSize: 12,
                 fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
               ),
@@ -304,12 +307,12 @@ class _AdminApprovalsScreenState extends State<AdminApprovalsScreen> {
         border: Border.all(
           color: status == 'pending'
               ? AppColors.orange500.withValues(alpha: 0.35)
-              : AppColors.white.withValues(alpha: 0.08),
+              : AppColors.fg.withValues(alpha: 0.08),
           width: status == 'pending' ? 1.4 : 1,
         ),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: 0.35),
+            color: AppColors.shadow.withValues(alpha: 0.35),
             blurRadius: 16,
             offset: const Offset(0, 6),
           ),
@@ -338,7 +341,7 @@ class _AdminApprovalsScreenState extends State<AdminApprovalsScreen> {
                     Text(
                       user['name'] ?? 'Unnamed Applicant',
                       style: const TextStyle(
-                        color: Colors.white,
+                        color: AppColors.fg,
                         fontSize: 16,
                         fontWeight: FontWeight.bold,
                       ),
@@ -373,7 +376,7 @@ class _AdminApprovalsScreenState extends State<AdminApprovalsScreen> {
             ],
           ),
           const SizedBox(height: 14),
-          const Divider(color: Colors.white12, height: 1),
+          const Divider(color: AppColors.fg12, height: 1),
           const SizedBox(height: 12),
 
           // Contact Details
@@ -383,7 +386,7 @@ class _AdminApprovalsScreenState extends State<AdminApprovalsScreen> {
               const SizedBox(width: 8),
               Text(
                 '+91 ${user['phone'] ?? 'N/A'}',
-                style: const TextStyle(color: Colors.white70, fontSize: 13, fontWeight: FontWeight.w500),
+                style: const TextStyle(color: AppColors.fg70, fontSize: 13, fontWeight: FontWeight.w500),
               ),
               const SizedBox(width: 20),
               const Icon(Icons.email_outlined, color: AppColors.grey400, size: 15),
@@ -391,7 +394,7 @@ class _AdminApprovalsScreenState extends State<AdminApprovalsScreen> {
               Expanded(
                 child: Text(
                   user['email'] ?? 'No email provided',
-                  style: const TextStyle(color: Colors.white70, fontSize: 13),
+                  style: const TextStyle(color: AppColors.fg70, fontSize: 13),
                   overflow: TextOverflow.ellipsis,
                 ),
               ),
@@ -407,7 +410,7 @@ class _AdminApprovalsScreenState extends State<AdminApprovalsScreen> {
                   child: ElevatedButton.icon(
                     style: ElevatedButton.styleFrom(
                       backgroundColor: AppColors.green500,
-                      foregroundColor: AppColors.navy900,
+                      foregroundColor: AppColors.ink900,
                       padding: const EdgeInsets.symmetric(vertical: 12),
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                       elevation: 2,
@@ -416,7 +419,7 @@ class _AdminApprovalsScreenState extends State<AdminApprovalsScreen> {
                         ? const SizedBox(
                             width: 16,
                             height: 16,
-                            child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.navy900),
+                            child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.ink900),
                           )
                         : const Icon(Icons.check_rounded, size: 18),
                     label: Text(
@@ -495,14 +498,14 @@ class _AdminApprovalsScreenState extends State<AdminApprovalsScreen> {
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
                 color: AppColors.navy800,
-                border: Border.all(color: AppColors.white.withValues(alpha: 0.08)),
+                border: Border.all(color: AppColors.fg.withValues(alpha: 0.08)),
               ),
               child: const Icon(Icons.fact_check_outlined, size: 48, color: AppColors.gold400),
             ),
             const SizedBox(height: 18),
             const Text(
               'No Pending Registrations',
-              style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
+              style: TextStyle(color: AppColors.fg, fontSize: 18, fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 8),
             Text(
@@ -528,7 +531,7 @@ class _AdminApprovalsScreenState extends State<AdminApprovalsScreen> {
             Text(
               _errorMessage ?? 'Failed to load approvals.',
               textAlign: TextAlign.center,
-              style: const TextStyle(color: Colors.white, fontSize: 14),
+              style: const TextStyle(color: AppColors.fg, fontSize: 14),
             ),
             const SizedBox(height: 18),
             ElevatedButton(

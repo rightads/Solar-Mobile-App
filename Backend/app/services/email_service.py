@@ -14,6 +14,9 @@ class EmailService:
 
     @staticmethod
     def _render_verification_html(code: str, user_name: str) -> str:
+        import html as _html
+        user_name = _html.escape(str(user_name or "there"))
+        code = _html.escape(str(code))
         return f"""
         <!DOCTYPE html>
         <html>
@@ -161,7 +164,7 @@ class EmailService:
                     logger.info("Email delivered via Resend HTTP API", to=to_email, resend_id=resp.json().get("id"))
                     return True
                 else:
-                    logger.error("Resend API rejected email dispatch", status_code=resp.status_code, body=resp.text)
+                    logger.error("Resend API rejected email dispatch", status_code=resp.status_code, status_only=True)
                     return False
         except Exception as e:
             logger.error("Failed to connect to Resend HTTP API", error=str(e))
@@ -191,7 +194,7 @@ class EmailService:
             "email_verification_dispatch",
             to_email=to_email,
             recipient=user_name,
-            code=code,
+            code="******",
             expires_in="10 minutes",
             resend_configured=bool(settings.RESEND_API_KEY),
             smtp_configured=bool(settings.SMTP_HOST and settings.SMTP_USER),

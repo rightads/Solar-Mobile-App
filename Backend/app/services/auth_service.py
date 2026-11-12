@@ -1,574 +1,481 @@
+"""Authentication: registration, password/OTP login, email verification and
+refresh-token sessions — all backed by MongoDB.
+
+Security properties:
+* Generic error messages and constant-time password checks (no user enumeration).
+* Per-identifier lockout and per-IP throttling on every credential endpoint.
+* OTPs/verification codes are stored only as HMACs, are single-use, expire,
+  are invalidated when re-issued, and are capped per hour (no SMS pumping, no
+  brute force by re-requesting codes).
+* Refresh tokens are random, stored hashed, rotated on every use, and reuse of
+  a rotated token revokes the whole session family.
+"""
 from datetime import datetime, timedelta, timezone
-from typing import Optional
-from sqlalchemy import func, select
-from sqlalchemy.ext.asyncio import AsyncSession
+import html
+import uuid
+from typing import Any, Dict, Optional
+import structlog
+from app.core import ratelimit
+from app.core.access import PUBLIC_REGISTRATION_ROLES
 from app.core.config import settings
-from app.core.exceptions import BadRequestException, NotFoundException, UnauthorizedException
+from app.core.deps import assert_can_sign_in, load_user
+from app.core.exceptions import (
+    BadRequestException,
+    EmailVerificationRequiredException,
+    ForbiddenException,
+    UnauthorizedException,
+)
 from app.core.security import (
     create_access_token,
     generate_otp,
     generate_random_token,
+    hash_password,
     hash_token,
+    normalize_email,
+    normalize_phone,
+    validate_password_strength,
+    verify_password,
     verify_token_hash,
 )
-import structlog
-from app.models.auth import OtpCode, RefreshToken
-from app.models.user import User
-from app.schemas.auth import TokenResponse
-from app.services.sms import get_sms_provider
 
 logger = structlog.get_logger()
 
+INVALID_LOGIN = "Invalid email/mobile or password."
+GENERIC_OTP_SENT = "If this mobile number is registered, a verification code has been sent."
+GENERIC_EMAIL_SENT = "If this email needs verification, a code has been sent to it."
+
+
+def _db():
+    from app.db.mongo import get_mongo_db
+    db = get_mongo_db()
+    if db is None:
+        raise BadRequestException("Service temporarily unavailable. Please try again shortly.")
+    return db
+
+
+def _now() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def _find_user(identifier: str) -> Optional[Dict[str, Any]]:
+    """Look up a user by email or phone, regardless of status."""
+    ident = str(identifier).strip()
+    conds = []
+    try:
+        conds.append({"email": normalize_email(ident)})
+    except ValueError:
+        pass
+    try:
+        conds.append({"phone": normalize_phone(ident)})
+    except ValueError:
+        pass
+    if not conds:
+        return None
+    return _db()["users"].find_one({"$or": conds})
+
+
+def _user_payload(doc: Dict[str, Any]) -> Dict[str, Any]:
+    return {
+        "id": str(doc["_id"]),
+        "name": doc.get("name", ""),
+        "phone": doc.get("phone", ""),
+        "email": doc.get("email"),
+        "role": str(doc.get("role", "client")).lower(),
+        "is_active": bool(doc.get("is_active", False)),
+        "is_email_verified": bool(doc.get("is_email_verified", False)),
+        "is_phone_verified": bool(doc.get("is_phone_verified", False)),
+        "employee_no": doc.get("employee_no"),
+        "team": doc.get("team"),
+        "trade": doc.get("trade"),
+    }
+
 
 class AuthService:
-    """Service handling OTP authentication, tokens, and session lifecycles."""
+    # ── Sessions ────────────────────────────────────────────────────────────
 
     @staticmethod
-    async def request_otp(phone: str, db: Optional[AsyncSession] = None) -> dict:
-        """Rate-limited OTP dispatch for users across MongoDB Atlas with Resend email delivery and dev fallback."""
-        now = datetime.now(timezone.utc)
-        from app.core.security import normalize_phone, generate_otp, hash_token
-        from app.db.mongo import mongo_find_user_by_identifier, mongo_store_otp
-        from app.services.email_service import email_service
-
-        try:
-            clean_phone = normalize_phone(phone)
-        except Exception:
-            clean_phone = phone.strip()
-
-        # Generate OTP
-        otp_code = generate_otp(length=settings.OTP_LENGTH)
-        code_hash = hash_token(otp_code)
-        expires_at = now + timedelta(seconds=settings.OTP_EXPIRE_SECONDS)
-
-        # Store in MongoDB for both normalized and raw phone format
-        mongo_store_otp(phone=clean_phone, code_hash=code_hash, expires_at=expires_at)
-        if clean_phone != phone.strip():
-            mongo_store_otp(phone=phone.strip(), code_hash=code_hash, expires_at=expires_at)
-
-        # 1. SMS provider dispatch (console or Msg91)
-        try:
-            sms_provider = get_sms_provider()
-            await sms_provider.send_otp(phone=clean_phone, otp_code=otp_code)
-        except Exception as e:
-            logger.warning("SMS provider dispatch error", error=str(e))
-
-        # 2. Check if user is registered in MongoDB Atlas
-        mongo_user = mongo_find_user_by_identifier(clean_phone) or mongo_find_user_by_identifier(phone.strip())
-        user_email = mongo_user.get("email") if mongo_user else None
-        user_name = mongo_user.get("name", "SolarPro User") if mongo_user else "SolarPro User"
-
-        # 3. Deliver OTP to user's registered email
-        if user_email:
-            try:
-                await email_service.send_verification_email(
-                    to_email=user_email,
-                    code=otp_code,
-                    user_name=user_name,
-                )
-            except Exception as e:
-                logger.warning("Failed to dispatch OTP email", error=str(e), email=user_email)
-
-        logger.info("[OTP] Generated login OTP", phone=clean_phone, otp=otp_code, email=user_email)
-
-        msg = f"Verification OTP sent to +91 {clean_phone}"
-        if user_email:
-            msg += f" and {user_email}"
-
+    def _issue_tokens(doc: Dict[str, Any], device_info: Optional[str] = None, family_id: Optional[str] = None) -> Dict[str, Any]:
+        assert_can_sign_in(doc)
+        db = _db()
+        now = _now()
+        uid = str(doc["_id"])
+        role = str(doc.get("role", "client")).lower()
+        access = create_access_token(subject=uid, role=role, token_version=int(doc.get("token_version", 0) or 0))
+        refresh_plain = generate_random_token()
+        db["refresh_tokens"].insert_one({
+            "_id": hash_token(refresh_plain),
+            "user_id": uid,
+            "family_id": family_id or uuid.uuid4().hex,
+            "device_info": (device_info or "")[:200],
+            "created_at": now,
+            "expires_at": now + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS),
+            "revoked_at": None,
+        })
+        db["users"].update_one({"_id": doc["_id"]}, {"$set": {"last_login_at": now}})
         return {
-            "message": msg,
-            "email": user_email,
-            "dev_otp": None,
+            "access_token": access,
+            "refresh_token": refresh_plain,
+            "token_type": "bearer",
+            "expires_in": settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+            "user": _user_payload(doc),
         }
 
     @staticmethod
-    async def verify_otp(
-        phone: str,
-        otp: str,
-        device_info: Optional[str] = None,
-        db: Optional[AsyncSession] = None,
-    ) -> dict:
-        """Verify OTP, record session, and generate tokens from MongoDB Atlas or SQL."""
-        now = datetime.now(timezone.utc)
-
-        # 1. Check MongoDB Atlas
-        from app.db.mongo import mongo_find_user_by_identifier, mongo_verify_otp, mongo_update_login_timestamp
-        mongo_user = mongo_find_user_by_identifier(phone)
-        if mongo_user:
-            if not mongo_verify_otp(phone, otp):
-                raise BadRequestException("Invalid or expired OTP.")
-
-            role = str(mongo_user.get("role", "client")).lower()
-            is_email_verified = mongo_user.get("is_email_verified", True if role != "client" else False)
-
-            # Client verification: verifying phone OTP automatically confirms client identity
-            if role == "client":
-                from app.db.mongo import mongo_mark_email_verified
-                if not is_email_verified:
-                    mongo_mark_email_verified(mongo_user.get("email") or phone)
-                    is_email_verified = True
-            elif not mongo_user.get("is_superadmin", False):
-                # Employee and Admin roles require Super Admin approval
-                approval_status = mongo_user.get("approval_status", "approved" if mongo_user.get("is_active") else "pending")
-                if approval_status == "pending" or not mongo_user.get("is_active", True):
-                    from app.core.exceptions import ForbiddenException
-                    raise ForbiddenException("Your account registration is pending approval by the Super Admin. You will be able to log in once approved.")
-                if approval_status == "rejected":
-                    from app.core.exceptions import ForbiddenException
-                    raise ForbiddenException("Your account registration was rejected by the Super Admin. Please contact support.")
-
-            mongo_update_login_timestamp(str(mongo_user["_id"]))
-            user_id = str(mongo_user["_id"])
-            access_token = create_access_token(subject=user_id, role=role)
-            refresh_token = generate_random_token()
-            return {
-                "access_token": access_token,
-                "refresh_token": refresh_token,
-                "token_type": "bearer",
-                "user": {
-                    "id": user_id,
-                    "name": mongo_user.get("name", ""),
-                    "phone": mongo_user.get("phone", ""),
-                    "email": mongo_user.get("email"),
-                    "role": role,
-                    "is_active": True,
-                    "is_email_verified": is_email_verified,
-                },
-            }
-
-        # 2. Check SQLAlchemy
-        if db is not None:
-            stmt = (
-                select(OtpCode)
-                .where(
-                    OtpCode.phone == phone,
-                    OtpCode.consumed_at.is_(None),
-                    OtpCode.expires_at > now,
-                )
-                .order_by(OtpCode.created_at.desc())
-                .limit(1)
+    def refresh(refresh_token_plain: str, ip: str) -> Dict[str, Any]:
+        ratelimit.hit(f"refresh:ip:{ip}", 60, 300)
+        db = _db()
+        now = _now()
+        token_id = hash_token(refresh_token_plain or "")
+        record = db["refresh_tokens"].find_one({"_id": token_id})
+        if not record:
+            raise UnauthorizedException("Invalid or expired session. Please sign in again.")
+        if record.get("revoked_at") is not None:
+            # A rotated token was replayed: assume theft and kill the whole family.
+            db["refresh_tokens"].update_many(
+                {"family_id": record.get("family_id"), "revoked_at": None},
+                {"$set": {"revoked_at": now, "revoked_reason": "reuse_detected"}},
             )
-            otp_record = (await db.execute(stmt)).scalar_one_or_none()
-            if not otp_record:
-                raise BadRequestException("Invalid or expired OTP.")
-            if otp_record.attempts >= 5:
-                raise BadRequestException("Maximum OTP attempts exceeded. Please request a new OTP.")
+            logger.warning("refresh_token_reuse_detected", user_id=record.get("user_id"))
+            raise UnauthorizedException("Session expired. Please sign in again.")
+        expires = record["expires_at"]
+        if (expires if expires.tzinfo else expires.replace(tzinfo=timezone.utc)) <= now:
+            raise UnauthorizedException("Session expired. Please sign in again.")
 
-            otp_record.attempts += 1
-            if not verify_token_hash(otp, otp_record.code_hash):
-                await db.commit()
-                raise BadRequestException("Invalid OTP code.")
-
-            otp_record.consumed_at = now
-            user_stmt = select(User).where(
-                User.phone == phone,
-                User.is_deleted == False,
-                User.is_active == True,
-            )
-            user = (await db.execute(user_stmt)).scalar_one_or_none()
-            if not user:
-                raise NotFoundException("Active user not found.")
-
-            user.last_login_at = now
-            access_token = create_access_token(subject=str(user.id), role=user.role.value)
-            plain_refresh_token = generate_random_token()
-            refresh_hash = hash_token(plain_refresh_token)
-            refresh_expires = now + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS)
-
-            refresh_record = RefreshToken(
-                user_id=user.id,
-                token_hash=refresh_hash,
-                expires_at=refresh_expires,
-                device_info=device_info,
-            )
-            db.add(refresh_record)
-            await db.commit()
-            await db.refresh(user)
-
-            return {
-                "access_token": access_token,
-                "refresh_token": plain_refresh_token,
-                "token_type": "bearer",
-                "user": {
-                    "id": str(user.id),
-                    "name": user.name,
-                    "phone": user.phone,
-                    "role": user.role.value,
-                    "is_active": user.is_active,
-                },
-            }
-
-        # Check if the OTP was at least valid
-        from app.db.mongo import mongo_verify_otp
-        if not mongo_verify_otp(phone, otp):
-            raise BadRequestException("Invalid or expired OTP.")
-
-        raise NotFoundException(f"No account is registered with +91 {phone}. Please tap 'Register Client Account' below to sign up.")
-
-    @staticmethod
-    async def refresh_token(
-        db: AsyncSession,
-        refresh_token_plain: str,
-    ) -> TokenResponse:
-        """Rotate refresh token and issue new access token."""
-        now = datetime.now(timezone.utc)
-        token_hash = hash_token(refresh_token_plain)
-
-        stmt = select(RefreshToken).where(
-            RefreshToken.token_hash == token_hash,
-            RefreshToken.revoked_at.is_(None),
-            RefreshToken.expires_at > now,
-        )
-        token_record = (await db.execute(stmt)).scalar_one_or_none()
-
-        if not token_record:
-            raise UnauthorizedException("Invalid, expired, or revoked refresh token.")
-
-        # Fetch associated user
-        user_stmt = select(User).where(
-            User.id == token_record.user_id,
-            User.is_deleted == False,  # noqa: E712
-            User.is_active == True,   # noqa: E712
-        )
-        user = (await db.execute(user_stmt)).scalar_one_or_none()
-        if not user:
-            raise UnauthorizedException("User account is inactive or deleted.")
-
-        # Revoke old token (Rotation)
-        token_record.revoked_at = now
-
-        # Issue new pair
-        access_token = create_access_token(subject=str(user.id), role=user.role.value)
-        new_refresh_plain = generate_random_token()
-        new_refresh_hash = hash_token(new_refresh_plain)
-        new_expires = now + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS)
-
-        new_record = RefreshToken(
-            user_id=user.id,
-            token_hash=new_refresh_hash,
-            expires_at=new_expires,
-            device_info=token_record.device_info,
-        )
-        db.add(new_record)
-        await db.commit()
-        await db.refresh(user)
-
-        return TokenResponse(
-            access_token=access_token,
-            refresh_token=new_refresh_plain,
-            user=user,
-        )
-
-    @staticmethod
-    async def logout(db: AsyncSession, refresh_token_plain: str) -> None:
-        """Revoke refresh token on logout."""
-        token_hash = hash_token(refresh_token_plain)
-        stmt = select(RefreshToken).where(
-            RefreshToken.token_hash == token_hash,
-            RefreshToken.revoked_at.is_(None),
-        )
-        token_record = (await db.execute(stmt)).scalar_one_or_none()
-        if token_record:
-            token_record.revoked_at = datetime.now(timezone.utc)
-            await db.commit()
-
-    @staticmethod
-    async def update_fcm_token(db: AsyncSession, user: User, fcm_token: str) -> User:
-        """Update user device FCM token for push notifications."""
-        user.fcm_token = fcm_token
-        await db.commit()
-        await db.refresh(user)
-        return user
-
-    @staticmethod
-    async def login_with_password(
-        identifier: str,
-        password: str,
-        device_info: Optional[str] = None,
-        db: Optional[AsyncSession] = None,
-    ) -> dict:
-        """
-        Authenticate user with identifier (phone or email) and password.
-        Uses salted bcrypt verification and protects against SQL/NoSQL injection.
-        """
-        from app.db.mongo import mongo_find_user_by_identifier, mongo_update_login_timestamp
-        from app.core.security import verify_password, create_access_token, generate_random_token
-
-        # 1. Query MongoDB Atlas (live persistent cloud DB)
-        mongo_user = mongo_find_user_by_identifier(identifier)
-        if mongo_user:
-            stored_hash = mongo_user.get("password_hash")
-            if not stored_hash or not verify_password(password, stored_hash):
-                raise UnauthorizedException("Invalid username/phone or password.")
-
-            role = str(mongo_user.get("role", "client")).lower()
-            is_email_verified = mongo_user.get("is_email_verified", True if role != "client" else False)
-
-            # Block unverified client from logging in
-            if role == "client" and not is_email_verified:
-                user_email = mongo_user.get("email")
-                if user_email:
-                    await AuthService.send_email_verification(user_email)
-                from app.core.exceptions import EmailVerificationRequiredException
-                raise EmailVerificationRequiredException(
-                    message="Email verification is required for client access. A 6-digit verification code has been dispatched to your email.",
-                    email=user_email,
-                    role="client",
-                )
-            elif role != "client" and not mongo_user.get("is_superadmin", False):
-                # Employee and Admin roles require Super Admin approval
-                approval_status = mongo_user.get("approval_status", "approved" if mongo_user.get("is_active") else "pending")
-                if approval_status == "pending" or not mongo_user.get("is_active", True):
-                    from app.core.exceptions import ForbiddenException
-                    raise ForbiddenException("Your account registration is pending approval by the Super Admin. You will be able to log in once approved.")
-                if approval_status == "rejected":
-                    from app.core.exceptions import ForbiddenException
-                    raise ForbiddenException("Your account registration was rejected by the Super Admin. Please contact support.")
-
-            mongo_update_login_timestamp(str(mongo_user["_id"]))
-            user_id = str(mongo_user["_id"])
-            access_token = create_access_token(subject=user_id, role=role)
-            refresh_token = generate_random_token()
-
-            return {
-                "access_token": access_token,
-                "refresh_token": refresh_token,
-                "token_type": "bearer",
-                "user": {
-                    "id": user_id,
-                    "name": mongo_user.get("name", ""),
-                    "phone": mongo_user.get("phone", ""),
-                    "email": mongo_user.get("email"),
-                    "role": role,
-                    "is_active": mongo_user.get("is_active", True),
-                    "is_email_verified": is_email_verified,
-                    "employee_no": mongo_user.get("employee_no"),
-                    "team": mongo_user.get("team"),
-                    "trade": mongo_user.get("trade"),
-                },
-            }
-
-        # 2. Check SQLAlchemy (SQL parameter binding prevents injection)
-        if db is not None:
-            clean_id = identifier.strip()
-            stmt = select(User).where(
-                (User.phone == clean_id) | (User.name == clean_id),
-                User.is_deleted == False,
-                User.is_active == True,
-            )
-            user = (await db.execute(stmt)).scalar_one_or_none()
-            if user:
-                user_pwd_hash = getattr(user, "password_hash", None)
-                if user_pwd_hash and not verify_password(password, user_pwd_hash):
-                    raise UnauthorizedException("Invalid username/phone or password.")
-
-                access_token = create_access_token(subject=str(user.id), role=user.role.value)
-                refresh_token = generate_random_token()
-                return {
-                    "access_token": access_token,
-                    "refresh_token": refresh_token,
-                    "token_type": "bearer",
-                    "user": {
-                        "id": str(user.id),
-                        "name": user.name,
-                        "phone": user.phone,
-                        "role": user.role.value,
-                        "is_active": user.is_active,
-                    },
-                }
-
-        raise UnauthorizedException("Invalid username/phone or password.")
-
-    @staticmethod
-    async def register_user(
-        name: str,
-        phone: str,
-        password: str,
-        role: str = "client",
-        email: Optional[str] = None,
-    ) -> dict:
-        """Register a new user in MongoDB Atlas. For client role, dispatches email verification."""
-        from app.db.mongo import mongo_create_user
-        from app.core.security import create_access_token, generate_random_token
-
-        role_clean = role.strip().lower()
-        clean_email = email.strip().lower() if email else None
-
-        # Mandatory email validation for client
-        if role_clean == "client" and not clean_email:
-            raise BadRequestException("An email address is mandatory for client registration to verify your account.")
-
+        doc = load_user(str(record["user_id"]))
+        if not doc:
+            raise UnauthorizedException("Session expired. Please sign in again.")
         try:
-            user_doc = mongo_create_user(
-                name=name,
-                phone=phone,
-                password=password,
-                role=role_clean,
-                email=clean_email,
-                is_email_verified=False if role_clean == "client" else True,
+            assert_can_sign_in(doc)
+        except ForbiddenException as e:
+            raise UnauthorizedException(e.message)
+
+        res = db["refresh_tokens"].update_one(
+            {"_id": token_id, "revoked_at": None},
+            {"$set": {"revoked_at": now, "revoked_reason": "rotated"}},
+        )
+        if res.modified_count != 1:
+            raise UnauthorizedException("Session expired. Please sign in again.")
+        return AuthService._issue_tokens(doc, record.get("device_info"), family_id=record.get("family_id"))
+
+    @staticmethod
+    def logout(refresh_token_plain: str) -> None:
+        if not refresh_token_plain:
+            return
+        _db()["refresh_tokens"].update_one(
+            {"_id": hash_token(refresh_token_plain), "revoked_at": None},
+            {"$set": {"revoked_at": _now(), "revoked_reason": "logout"}},
+        )
+
+    @staticmethod
+    def revoke_all_sessions(user_id: str) -> None:
+        """Invalidate every access and refresh token for a user."""
+        db = _db()
+        db["users"].update_one({"_id": user_id}, {"$inc": {"token_version": 1}})
+        db["refresh_tokens"].update_many(
+            {"user_id": user_id, "revoked_at": None},
+            {"$set": {"revoked_at": _now(), "revoked_reason": "revoke_all"}},
+        )
+
+    # ── Password login ──────────────────────────────────────────────────────
+
+    @staticmethod
+    async def login_with_password(identifier: str, password: str, ip: str, device_info: Optional[str] = None) -> Dict[str, Any]:
+        ident_key = str(identifier).strip().lower()[:120]
+        ratelimit.hit(f"login:ip:{ip}", 30, 900)
+        fail_key = f"login:fail:{ident_key}"
+        ratelimit.ensure_below(
+            fail_key, settings.LOGIN_MAX_FAILURES,
+            "Too many failed sign-in attempts. Please wait 15 minutes or sign in with OTP.",
+            settings.LOGIN_FAILURE_WINDOW_SECONDS,
+        )
+
+        doc = _find_user(identifier)
+        if not verify_password(password, doc.get("password_hash") if doc else None) or not doc:
+            ratelimit.hit(fail_key, 10_000, settings.LOGIN_FAILURE_WINDOW_SECONDS)
+            raise UnauthorizedException(INVALID_LOGIN)
+        ratelimit.reset(fail_key)
+
+        # Correct password: status messages can now be shown without enabling enumeration.
+        role = str(doc.get("role", "client")).lower()
+        if role == "client" and not doc.get("is_email_verified") and not doc.get("is_phone_verified"):
+            await AuthService.send_email_verification(doc.get("email") or "", ip, quiet=True)
+            raise EmailVerificationRequiredException(
+                message="Please verify your email. A 6-digit code has been sent to your inbox.",
+                email=doc.get("email"),
+                role="client",
             )
-        except ValueError as ve:
-            raise BadRequestException(str(ve))
-        except Exception as e:
-            raise BadRequestException(f"Registration error: {str(e)}")
+        return AuthService._issue_tokens(doc, device_info)
 
-        user_id = str(user_doc["_id"])
+    # ── Registration ────────────────────────────────────────────────────────
 
-        # If client, send email verification code immediately and do not give active token yet
-        if role_clean == "client":
-            await AuthService.send_email_verification(clean_email)
+    @staticmethod
+    async def register_user(name: str, phone: str, password: str, role: str, email: Optional[str], ip: str) -> Dict[str, Any]:
+        ratelimit.hit(f"register:ip:{ip}", 5, 3600, "Too many sign-up attempts from this network. Please try later.")
+
+        role_clean = str(role or "client").strip().lower()
+        if role_clean not in PUBLIC_REGISTRATION_ROLES:
+            raise BadRequestException("This role cannot be requested through sign-up.")
+        try:
+            clean_phone = normalize_phone(phone)
+            clean_email = normalize_email(email) if email else None
+            validate_password_strength(password)
+        except ValueError as e:
+            raise BadRequestException(str(e))
+        if not clean_email:
+            raise BadRequestException("An email address is required.")
+        clean_name = " ".join(str(name).split())[:100]
+        if len(clean_name) < 2:
+            raise BadRequestException("Please enter your full name.")
+
+        db = _db()
+        if db["users"].find_one({"$or": [{"phone": clean_phone}, {"email": clean_email}]}):
+            # Existing accounts are never modified by sign-up (prevents takeover).
+            raise BadRequestException("An account with this mobile number or email already exists. Please sign in.")
+
+        now = _now()
+        uid = str(uuid.uuid4())
+        is_client = role_clean == "client"
+        doc = {
+            "_id": uid,
+            "id": uid,
+            "name": clean_name,
+            "phone": clean_phone,
+            "email": clean_email,
+            "role": role_clean,
+            "requested_role": role_clean,
+            "password_hash": hash_password(password),
+            "is_active": is_client,
+            "approval_status": "approved" if is_client else "pending",
+            "is_email_verified": False,
+            "is_phone_verified": False,
+            "token_version": 0,
+            "created_at": now,
+            "updated_at": now,
+            "last_login_at": None,
+        }
+        try:
+            db["users"].insert_one(doc)
+        except Exception:
+            raise BadRequestException("An account with this mobile number or email already exists. Please sign in.")
+
+        if is_client:
+            await AuthService.send_email_verification(clean_email, ip, quiet=True)
             return {
                 "requires_email_verification": True,
-                "message": f"Client account registered successfully! A 6-digit verification code has been sent to {clean_email}.",
+                "message": "Account created. Enter the 6-digit code we sent to your email.",
                 "email": clean_email,
-                "user": {
-                    "id": user_id,
-                    "name": user_doc["name"],
-                    "phone": user_doc["phone"],
-                    "email": user_doc.get("email"),
-                    "role": role_clean,
-                    "is_active": True,
-                    "is_email_verified": False,
-                },
+                "user": _user_payload(doc),
             }
 
-        # Non-client roles (employee/vendor/admin) require Super Admin approval
-        # 1. Create In-App Notification in MongoDB Atlas for Admin
+        role_display = {
+            "sales": "Sales Executive", "kedl": "KEDL Liaison",
+            "service": "Service Technician", "site": "Site Installation Crew",
+        }.get(role_clean, role_clean.capitalize())
         try:
-            role_display_map = {
-                "sales": "Sales Executive",
-                "kedl": "KEDL Liaison",
-                "service": "Service Technician",
-                "site": "Site Installation Crew",
-                "admin": "Administrator",
-                "employee": "Employee",
-            }
-            role_display = role_display_map.get(role_clean, role_clean.capitalize())
-
             from app.db.mongo import mongo_create_notification
             mongo_create_notification({
                 "title": f"New {role_display} Registration",
-                "body": f"{user_doc['name']} has applied for {role_display} role (+91 {user_doc['phone']}). Tap to review and accept.",
+                "body": f"{clean_name} has applied for the {role_display} role. Review in Staff Approvals.",
                 "type": "user_approval",
                 "target_role": "admin",
-                "target_id": user_id,
-                "metadata": {
-                    "user_id": user_id,
-                    "name": user_doc["name"],
-                    "phone": user_doc["phone"],
-                    "role": role_clean,
-                    "role_display": role_display,
-                    "email": user_doc.get("email"),
-                },
+                "target_id": uid,
+                "metadata": {"user_id": uid, "role": role_clean, "role_display": role_display},
             })
         except Exception as e:
-            logger.warning("Failed to create in-app notification for admin", error=str(e))
-
-        # 2. Dispatch Email notification to Super Admin if configured
+            logger.warning("registration_notification_failed", error=str(e))
         try:
-            from app.services.email_service import email_service
-            subject = f"SolarPro Alert: New {role_clean.capitalize()} Registration Pending Approval"
-            html_body = f"""
-            <p>Hello Super Admin,</p>
-            <p>A new registration request requires your review in the SolarPro Executive Console:</p>
-            <ul>
-                <li><strong>Full Name:</strong> {user_doc['name']}</li>
-                <li><strong>Requested Role:</strong> {role_clean.capitalize()}</li>
-                <li><strong>Mobile:</strong> {user_doc['phone']}</li>
-                <li><strong>Email:</strong> {user_doc.get('email', 'N/A')}</li>
-            </ul>
-            <p>Please log in to your Admin portal to approve or reject this user.</p>
-            """
-            super_admin_email = settings.SUPER_ADMIN_EMAIL
-            if super_admin_email:
+            if settings.SUPER_ADMIN_EMAIL:
+                from app.services.email_service import email_service
                 import asyncio
-                asyncio.create_task(email_service._send_resend(super_admin_email, subject, html_body))
+                asyncio.create_task(email_service._send_resend(
+                    settings.SUPER_ADMIN_EMAIL,
+                    f"SolarPro: new {role_display} registration pending approval",
+                    f"<p>A new <strong>{html.escape(role_display)}</strong> registration from "
+                    f"<strong>{html.escape(clean_name)}</strong> is waiting for your review in the "
+                    f"SolarPro admin portal.</p>",
+                ))
         except Exception as e:
-            logger.warning("Failed to notify super admin about registration", error=str(e))
+            logger.warning("registration_admin_email_failed", error=str(e))
 
         return {
             "requires_approval": True,
             "approval_status": "pending",
-            "message": f"Your {role_clean.capitalize()} registration request has been submitted to the Super Admin. You will be able to log in once your account is approved.",
-            "user": {
-                "id": user_id,
-                "name": user_doc["name"],
-                "phone": user_doc["phone"],
-                "email": user_doc.get("email"),
-                "role": role_clean,
-                "is_active": False,
-                "approval_status": "pending",
-            },
+            "message": "Your registration has been submitted. You can sign in once an administrator approves it.",
+            "user": _user_payload(doc),
         }
 
+    # ── Email verification ──────────────────────────────────────────────────
+
     @staticmethod
-    async def send_email_verification(email: str) -> str:
-        """Generate a 6-digit OTP, store in MongoDB Atlas, and dispatch verification email."""
-        from app.db.mongo import mongo_find_user_by_email, mongo_store_email_verification
-        from app.services.email_service import email_service
-
-        clean_email = email.strip().lower()
-        now = datetime.now(timezone.utc)
-        code = generate_otp(length=settings.OTP_LENGTH)
-        code_hash = hash_token(code)
-        expires_at = now + timedelta(seconds=settings.EMAIL_VERIFICATION_EXPIRE_SECONDS)
-
-        mongo_store_email_verification(email=clean_email, code_hash=code_hash, expires_at=expires_at)
-
-        user = mongo_find_user_by_email(clean_email)
-        user_name = user.get("name", "Client") if user else "Client"
-
+    async def send_email_verification(email: str, ip: str, quiet: bool = False) -> None:
         try:
-            await email_service.send_verification_email(
-                to_email=clean_email,
-                code=code,
-                user_name=user_name,
-            )
-        except Exception as e:
-            logger.warning("Failed to dispatch verification email", error=str(e), email=clean_email)
+            clean_email = normalize_email(email)
+        except ValueError:
+            if quiet:
+                return
+            raise BadRequestException("Invalid email address.")
+        if not quiet:
+            ratelimit.hit(f"verify_email:ip:{ip}", 10, 3600)
+        try:
+            ratelimit.hit(f"verify_email:cooldown:{clean_email}", 1, settings.OTP_RESEND_COOLDOWN_SECONDS,
+                          "Please wait a minute before requesting another code.")
+            ratelimit.hit(f"verify_email:hour:{clean_email}", settings.OTP_MAX_PER_HOUR, 3600)
+        except Exception:
+            if quiet:
+                return
+            raise
 
-        logger.info("[VERIFY] Dispatched email verification code", email=clean_email, code=code)
-        return code
+        db = _db()
+        user = db["users"].find_one({"email": clean_email})
+        if not user or user.get("is_email_verified"):
+            return  # generic response; nothing to send
+
+        code = generate_otp(length=settings.OTP_LENGTH)
+        now = _now()
+        db["email_verifications"].update_many(
+            {"email": clean_email, "consumed_at": None},
+            {"$set": {"consumed_at": now, "superseded": True}},
+        )
+        db["email_verifications"].insert_one({
+            "_id": str(uuid.uuid4()),
+            "email": clean_email,
+            "code_hash": hash_token(code),
+            "expires_at": now + timedelta(seconds=settings.EMAIL_VERIFICATION_EXPIRE_SECONDS),
+            "attempts": 0,
+            "consumed_at": None,
+            "created_at": now,
+        })
+        try:
+            from app.services.email_service import email_service
+            await email_service.send_verification_email(to_email=clean_email, code=code, user_name=user.get("name", ""))
+        except Exception as e:
+            logger.warning("verification_email_failed", error=str(e))
 
     @staticmethod
-    async def verify_email(email: str, code: str) -> dict:
-        """Verify 6-digit email verification code, mark client verified, and return auth tokens."""
-        from app.db.mongo import mongo_find_user_by_email, mongo_mark_email_verified, mongo_verify_email_code
-        from app.core.security import create_access_token, generate_random_token
+    async def verify_email(email: str, code: str, ip: str) -> Dict[str, Any]:
+        ratelimit.hit(f"verify_email_check:ip:{ip}", 30, 900)
+        try:
+            clean_email = normalize_email(email)
+        except ValueError:
+            raise BadRequestException("Invalid or expired verification code.")
+        fail_key = f"verify_email:fail:{clean_email}"
+        ratelimit.ensure_below(fail_key, settings.OTP_MAX_VERIFY_FAILURES_PER_HOUR,
+                               "Too many incorrect codes. Please request a new code later.", 3600)
 
-        clean_email = email.strip().lower()
-        clean_code = code.strip()
+        db = _db()
+        now = _now()
+        rec = db["email_verifications"].find_one(
+            {"email": clean_email, "consumed_at": None, "expires_at": {"$gt": now}},
+            sort=[("created_at", -1)],
+        )
+        if not rec or rec.get("attempts", 0) >= 5 or not verify_token_hash(str(code).strip(), rec["code_hash"]):
+            if rec:
+                db["email_verifications"].update_one({"_id": rec["_id"]}, {"$inc": {"attempts": 1}})
+            ratelimit.hit(fail_key, 10_000, 3600)
+            raise BadRequestException("Invalid or expired verification code.")
+        db["email_verifications"].update_one({"_id": rec["_id"]}, {"$set": {"consumed_at": now}})
+        ratelimit.reset(fail_key)
 
-        if not mongo_verify_email_code(clean_email, clean_code):
-            raise BadRequestException("Invalid or expired email verification code. Please check your inbox or request a new one.")
+        db["users"].update_one(
+            {"email": clean_email},
+            {"$set": {"is_email_verified": True, "email_verified_at": now, "updated_at": now}},
+        )
+        doc = db["users"].find_one({"email": clean_email})
+        if not doc:
+            raise BadRequestException("Invalid or expired verification code.")
+        if str(doc.get("role")) != "client" or doc.get("approval_status") != "approved":
+            return {"message": "Email verified. You can sign in once your account is approved.", "email": clean_email}
+        res = AuthService._issue_tokens(doc)
+        res["message"] = "Email verified successfully. Welcome to SolarPro!"
+        return res
 
-        mongo_mark_email_verified(clean_email)
-        user = mongo_find_user_by_email(clean_email)
+    # ── Mobile OTP ──────────────────────────────────────────────────────────
 
+    @staticmethod
+    async def request_otp(phone: str, ip: str) -> Dict[str, Any]:
+        try:
+            clean_phone = normalize_phone(phone)
+        except ValueError:
+            raise BadRequestException("Please enter a valid 10-digit mobile number.")
+        ratelimit.hit(f"otp:ip:{ip}", 10, 3600, "Too many code requests from this network. Please try later.")
+        ratelimit.hit(f"otp:cooldown:{clean_phone}", 1, settings.OTP_RESEND_COOLDOWN_SECONDS,
+                      "Please wait a minute before requesting another code.")
+        ratelimit.hit(f"otp:hour:{clean_phone}", settings.OTP_MAX_PER_HOUR, 3600,
+                      "Too many codes requested for this number. Please try again in an hour.")
+
+        db = _db()
+        user = db["users"].find_one({"phone": clean_phone})
         if not user:
-            return {
-                "message": "Email verified successfully! You may now log in.",
-                "email": clean_email,
-            }
+            # Same response as success: never reveal which numbers are registered,
+            # and never spend SMS credits on unknown numbers.
+            return {"message": GENERIC_OTP_SENT}
 
-        user_id = str(user["_id"])
-        role = str(user.get("role", "client")).lower()
-        access_token = create_access_token(subject=user_id, role=role)
-        refresh_token = generate_random_token()
+        code = generate_otp(length=settings.OTP_LENGTH)
+        now = _now()
+        db["otp_codes"].update_many(
+            {"phone": clean_phone, "consumed_at": None},
+            {"$set": {"consumed_at": now, "superseded": True}},
+        )
+        db["otp_codes"].insert_one({
+            "_id": str(uuid.uuid4()),
+            "phone": clean_phone,
+            "code_hash": hash_token(code),
+            "expires_at": now + timedelta(seconds=settings.OTP_EXPIRE_SECONDS),
+            "attempts": 0,
+            "consumed_at": None,
+            "created_at": now,
+        })
+        try:
+            from app.services.sms import get_sms_provider
+            await get_sms_provider().send_otp(phone=clean_phone, otp_code=code)
+        except Exception as e:
+            logger.warning("sms_dispatch_failed", error=str(e))
+        if user.get("email"):
+            try:
+                from app.services.email_service import email_service
+                await email_service.send_verification_email(to_email=user["email"], code=code, user_name=user.get("name", ""))
+            except Exception as e:
+                logger.warning("otp_email_failed", error=str(e))
+        return {"message": GENERIC_OTP_SENT}
 
-        return {
-            "message": "Email verified successfully! Welcome to SolarPro.",
-            "access_token": access_token,
-            "refresh_token": refresh_token,
-            "token_type": "bearer",
-            "user": {
-                "id": user_id,
-                "name": user.get("name", ""),
-                "phone": user.get("phone", ""),
-                "email": clean_email,
-                "role": role,
-                "is_active": True,
-                "is_email_verified": True,
-            },
-        }
+    @staticmethod
+    async def verify_otp(phone: str, otp: str, ip: str, device_info: Optional[str] = None) -> Dict[str, Any]:
+        ratelimit.hit(f"otp_check:ip:{ip}", 30, 900)
+        try:
+            clean_phone = normalize_phone(phone)
+        except ValueError:
+            raise BadRequestException("Invalid or expired code.")
+        fail_key = f"otp:fail:{clean_phone}"
+        ratelimit.ensure_below(fail_key, settings.OTP_MAX_VERIFY_FAILURES_PER_HOUR,
+                               "Too many incorrect codes. Please try again in an hour.", 3600)
 
+        db = _db()
+        now = _now()
+        rec = db["otp_codes"].find_one(
+            {"phone": clean_phone, "consumed_at": None, "expires_at": {"$gt": now}},
+            sort=[("created_at", -1)],
+        )
+        if not rec or rec.get("attempts", 0) >= 5 or not verify_token_hash(str(otp).strip(), rec["code_hash"]):
+            if rec:
+                db["otp_codes"].update_one({"_id": rec["_id"]}, {"$inc": {"attempts": 1}})
+            ratelimit.hit(fail_key, 10_000, 3600)
+            raise BadRequestException("Invalid or expired code.")
+        db["otp_codes"].update_one({"_id": rec["_id"]}, {"$set": {"consumed_at": now}})
+        ratelimit.reset(fail_key)
+
+        doc = db["users"].find_one({"phone": clean_phone})
+        if not doc:
+            raise BadRequestException("Invalid or expired code.")
+        # The SMS code proves ownership of this number.
+        db["users"].update_one(
+            {"_id": doc["_id"]},
+            {"$set": {"is_phone_verified": True, "phone_verified_at": now, "updated_at": now}},
+        )
+        doc["is_phone_verified"] = True
+        return AuthService._issue_tokens(doc, device_info)
+
+    # ── Profile ─────────────────────────────────────────────────────────────
+
+    @staticmethod
+    def update_fcm_token(user_id: str, fcm_token: str) -> None:
+        _db()["users"].update_one({"_id": user_id}, {"$set": {"fcm_token": fcm_token[:255], "updated_at": _now()}})

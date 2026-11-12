@@ -202,7 +202,7 @@ class _CustomersScreenState extends State<CustomersScreen> {
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
                     Text('Sales Data / New Customer',
-                        style: AppTextStyles.headlineSmall.copyWith(color: AppColors.white)),
+                        style: AppTextStyles.headlineSmall.copyWith(color: AppColors.fg)),
                     Container(
                       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                       decoration: BoxDecoration(
@@ -223,7 +223,7 @@ class _CustomersScreenState extends State<CustomersScreen> {
                     hintText: 'Customer Name',
                     prefixIcon: Icon(Icons.person_outline_rounded),
                   ),
-                  style: AppTextStyles.bodyMedium.copyWith(color: AppColors.white),
+                  style: AppTextStyles.bodyMedium.copyWith(color: AppColors.fg),
                 ),
                 const SizedBox(height: 12),
 
@@ -235,7 +235,7 @@ class _CustomersScreenState extends State<CustomersScreen> {
                     prefixIcon: Icon(Icons.phone_outlined),
                   ),
                   keyboardType: TextInputType.phone,
-                  style: AppTextStyles.bodyMedium.copyWith(color: AppColors.white),
+                  style: AppTextStyles.bodyMedium.copyWith(color: AppColors.fg),
                 ),
                 const SizedBox(height: 12),
 
@@ -246,7 +246,7 @@ class _CustomersScreenState extends State<CustomersScreen> {
                     hintText: 'Site Address',
                     prefixIcon: Icon(Icons.location_on_outlined),
                   ),
-                  style: AppTextStyles.bodyMedium.copyWith(color: AppColors.white),
+                  style: AppTextStyles.bodyMedium.copyWith(color: AppColors.fg),
                 ),
                 const SizedBox(height: 8),
 
@@ -318,7 +318,7 @@ class _CustomersScreenState extends State<CustomersScreen> {
                           prefixIcon: Icon(Icons.bolt_rounded),
                         ),
                         keyboardType: TextInputType.number,
-                        style: AppTextStyles.bodyMedium.copyWith(color: AppColors.white),
+                        style: AppTextStyles.bodyMedium.copyWith(color: AppColors.fg),
                       ),
                     ),
                   ],
@@ -355,7 +355,7 @@ class _CustomersScreenState extends State<CustomersScreen> {
                               child: Text(
                                 docName,
                                 style: AppTextStyles.bodySmall.copyWith(
-                                  color: isUp ? AppColors.white : AppColors.grey300,
+                                  color: isUp ? AppColors.fg : AppColors.grey300,
                                 ),
                               ),
                             ),
@@ -443,7 +443,7 @@ class _CustomersScreenState extends State<CustomersScreen> {
                                   horizontal: 10, vertical: 12),
                             ),
                             style: AppTextStyles.bodySmall
-                                .copyWith(color: AppColors.white),
+                                .copyWith(color: AppColors.fg),
                           ),
                         ),
                         const SizedBox(width: 8),
@@ -459,7 +459,7 @@ class _CustomersScreenState extends State<CustomersScreen> {
                                   horizontal: 10, vertical: 12),
                             ),
                             style: AppTextStyles.bodySmall
-                                .copyWith(color: AppColors.white),
+                                .copyWith(color: AppColors.fg),
                           ),
                         ),
                         if (idx >= 2) ...[
@@ -634,7 +634,7 @@ class _CustomersScreenState extends State<CustomersScreen> {
                           : Text(
                               'Save Customer & Sales Data',
                               style: AppTextStyles.labelLarge
-                                  .copyWith(color: AppColors.navy900),
+                                  .copyWith(color: AppColors.ink900),
                             ),
                     ),
                   ),
@@ -665,7 +665,7 @@ class _CustomersScreenState extends State<CustomersScreen> {
                 borderRadius: BorderRadius.circular(AppRadius.sm),
               ),
               child: const Icon(Icons.person_add_rounded,
-                  color: Color(0xFF0A1628), size: 18),
+                  color: Color(0xFFF6F4FD), size: 18),
             ),
             onPressed: () => _showAddCustomerSheet(context),
           ),
@@ -679,7 +679,7 @@ class _CustomersScreenState extends State<CustomersScreen> {
             padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
             child: TextField(
               controller: _searchController,
-              style: AppTextStyles.bodyMedium.copyWith(color: AppColors.white),
+              style: AppTextStyles.bodyMedium.copyWith(color: AppColors.fg),
               decoration: InputDecoration(
                 hintText: 'Search by name, address, phone...',
                 prefixIcon: const Icon(Icons.search_rounded),

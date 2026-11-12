@@ -165,7 +165,7 @@ class _SalesmanPaymentsTabState extends State<SalesmanPaymentsTab>
                   const Text(
                     'Payments & Collections',
                     style: TextStyle(
-                      color: Colors.white,
+                      color: AppColors.fg,
                       fontSize: 20,
                       fontWeight: FontWeight.w800,
                     ),
@@ -192,7 +192,7 @@ class _SalesmanPaymentsTabState extends State<SalesmanPaymentsTab>
               child: TabBar(
                 controller: _tabController,
                 indicatorColor: AppColors.teal500,
-                labelColor: Colors.white,
+                labelColor: AppColors.fg,
                 unselectedLabelColor: AppColors.grey400,
                 indicator: BoxDecoration(
                   color: AppColors.teal500,
@@ -214,7 +214,7 @@ class _SalesmanPaymentsTabState extends State<SalesmanPaymentsTab>
                             ),
                             child: Text(
                               '$pendingCount',
-                              style: const TextStyle(color: Colors.black, fontSize: 11, fontWeight: FontWeight.bold),
+                              style: const TextStyle(color: AppColors.shadow, fontSize: 11, fontWeight: FontWeight.bold),
                             ),
                           ),
                         ],
@@ -285,7 +285,7 @@ class _SalesmanPaymentsTabState extends State<SalesmanPaymentsTab>
               const SizedBox(height: 16),
               const Text(
                 'Approval Queue Clean!',
-                style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
+                style: TextStyle(color: AppColors.fg, fontSize: 16, fontWeight: FontWeight.bold),
               ),
               const SizedBox(height: 6),
               const Text(
@@ -374,7 +374,7 @@ class _SalesmanPaymentsTabState extends State<SalesmanPaymentsTab>
                   children: [
                     Text(
                       c.name,
-                      style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16),
+                      style: const TextStyle(color: AppColors.fg, fontWeight: FontWeight.bold, fontSize: 16),
                     ),
                     Text(
                       c.formattedPriceRupees,
@@ -421,7 +421,7 @@ class _SalesmanPaymentsTabState extends State<SalesmanPaymentsTab>
                       style: ElevatedButton.styleFrom(
                         visualDensity: VisualDensity.compact,
                         backgroundColor: AppColors.teal500,
-                        foregroundColor: Colors.white,
+                        foregroundColor: AppColors.fg,
                       ),
                     ),
                   ],

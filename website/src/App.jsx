@@ -33,7 +33,7 @@ export default function App() {
     const checkPing = async () => {
       const startTime = performance.now();
       try {
-        await fetch('http://82.29.165.43:8000/api/v1/health', {
+        await fetch('https://api.solarpro-app.in/api/v1/health', {
           method: 'GET',
           mode: 'no-cors',
           cache: 'no-store'

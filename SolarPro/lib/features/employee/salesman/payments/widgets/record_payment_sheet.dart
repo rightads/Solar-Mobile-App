@@ -148,7 +148,7 @@ class _RecordPaymentSheetState extends State<RecordPaymentSheet> {
                     children: [
                       const Text(
                         'Record Payment',
-                        style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w800),
+                        style: TextStyle(color: AppColors.fg, fontSize: 18, fontWeight: FontWeight.w800),
                       ),
                       Text(
                         'Customer: ${widget.customerName}',
@@ -170,7 +170,7 @@ class _RecordPaymentSheetState extends State<RecordPaymentSheet> {
               TextFormField(
                 controller: _amountController,
                 keyboardType: TextInputType.number,
-                style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
+                style: const TextStyle(color: AppColors.fg, fontSize: 18, fontWeight: FontWeight.bold),
                 decoration: InputDecoration(
                   prefixIcon: const Icon(Icons.currency_rupee_rounded, color: AppColors.gold500),
                   hintText: 'e.g. 50000',
@@ -206,7 +206,7 @@ class _RecordPaymentSheetState extends State<RecordPaymentSheet> {
                   isExpanded: true,
                   dropdownColor: AppColors.navy800,
                   underline: const SizedBox.shrink(),
-                  style: const TextStyle(color: Colors.white, fontSize: 14),
+                  style: const TextStyle(color: AppColors.fg, fontSize: 14),
                   items: _modes.map((m) {
                     return DropdownMenuItem<String>(
                       value: m['value'] as String,
@@ -231,7 +231,7 @@ class _RecordPaymentSheetState extends State<RecordPaymentSheet> {
               const SizedBox(height: 6),
               TextFormField(
                 controller: _referenceController,
-                style: const TextStyle(color: Colors.white, fontSize: 14),
+                style: const TextStyle(color: AppColors.fg, fontSize: 14),
                 decoration: InputDecoration(
                   hintText: 'e.g. UPI Ref 3291823901 or Cheque #004521',
                   hintStyle: const TextStyle(color: AppColors.grey500, fontSize: 13),
@@ -251,7 +251,7 @@ class _RecordPaymentSheetState extends State<RecordPaymentSheet> {
               const SizedBox(height: 6),
               TextFormField(
                 controller: _remarksController,
-                style: const TextStyle(color: Colors.white, fontSize: 14),
+                style: const TextStyle(color: AppColors.fg, fontSize: 14),
                 decoration: InputDecoration(
                   hintText: 'e.g. Booking Advance 20%',
                   hintStyle: const TextStyle(color: AppColors.grey500, fontSize: 13),
@@ -302,7 +302,7 @@ class _RecordPaymentSheetState extends State<RecordPaymentSheet> {
                           Text(
                             _attachedFileName ?? 'Attach Receipt / Bank Proof',
                             style: TextStyle(
-                              color: _attachedFileName != null ? Colors.white : AppColors.grey400,
+                              color: _attachedFileName != null ? AppColors.fg : AppColors.grey400,
                               fontSize: 13,
                               fontWeight: _attachedFileName != null ? FontWeight.w600 : FontWeight.normal,
                             ),
@@ -315,15 +315,15 @@ class _RecordPaymentSheetState extends State<RecordPaymentSheet> {
                     ),
                     PopupMenuButton<String>(
                       icon: const Icon(Icons.more_vert_rounded, color: AppColors.grey400),
-                      color: AppColors.navy800,
+                      color: AppColors.ink900,
                       onSelected: (val) {
                         if (val == 'camera') _attachProof('camera');
                         if (val == 'gallery') _attachProof('gallery');
                         if (val == 'remove') setState(() => _attachedFileName = null);
                       },
                       itemBuilder: (ctx) => [
-                        const PopupMenuItem(value: 'camera', child: Text('Capture with Camera', style: TextStyle(color: Colors.white))),
-                        const PopupMenuItem(value: 'gallery', child: Text('Choose from Gallery', style: TextStyle(color: Colors.white))),
+                        const PopupMenuItem(value: 'camera', child: Text('Capture with Camera', style: TextStyle(color: AppColors.fg))),
+                        const PopupMenuItem(value: 'gallery', child: Text('Choose from Gallery', style: TextStyle(color: AppColors.fg))),
                         if (_attachedFileName != null)
                           const PopupMenuItem(value: 'remove', child: Text('Remove Photo', style: TextStyle(color: AppColors.error))),
                       ],
@@ -340,7 +340,7 @@ class _RecordPaymentSheetState extends State<RecordPaymentSheet> {
                   onPressed: _isLoading ? null : _submitPayment,
                   style: ElevatedButton.styleFrom(
                     backgroundColor: AppColors.teal500,
-                    foregroundColor: Colors.white,
+                    foregroundColor: AppColors.fg,
                     padding: const EdgeInsets.symmetric(vertical: 14),
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.md)),
                   ),
@@ -348,7 +348,7 @@ class _RecordPaymentSheetState extends State<RecordPaymentSheet> {
                       ? const SizedBox(
                           height: 20,
                           width: 20,
-                          child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                          child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.fg),
                         )
                       : const Text('Record & Submit Payment', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 15)),
                 ),

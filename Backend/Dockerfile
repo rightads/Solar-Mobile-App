@@ -1,32 +1,36 @@
 FROM python:3.12-slim
 
-# Set environment variables
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PYTHONPATH=/app \
-    PORT=10000
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    PORT=8000 \
+    UPLOAD_DIR=/data/uploads
 
 WORKDIR /app
 
-# Install system dependencies
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    curl \
-    build-essential \
-    libpq-dev \
+# Build deps only for compiling wheels, removed in the same layer.
+COPY requirements.txt ./
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends build-essential curl \
+    && pip install -r requirements.txt \
+    && apt-get purge -y build-essential \
+    && apt-get autoremove -y \
     && rm -rf /var/lib/apt/lists/*
 
-# Install python dependencies
-COPY requirements.txt requirements-dev.txt ./
-RUN pip install --no-cache-dir -r requirements.txt -r requirements-dev.txt
-
-# Create a non-root user and switch to it
-RUN useradd -m -u 1000 appuser && chown -R appuser:appuser /app
+# Unprivileged runtime user; uploads live on a mounted volume outside the code.
+RUN useradd -m -u 1000 appuser \
+    && mkdir -p /data/uploads \
+    && chown -R appuser:appuser /data
 USER appuser
 
-# Copy application source code
-COPY --chown=appuser:appuser . .
+COPY --chown=appuser:appuser app ./app
+COPY --chown=appuser:appuser gunicorn_conf.py ./
 
-EXPOSE 10000
+EXPOSE 8000
 
-CMD ["sh", "-c", "exec python -m uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-10000}"]
+HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
+    CMD curl -fsS http://127.0.0.1:${PORT}/api/v1/health || exit 1
 
+CMD ["gunicorn", "app.main:app", "-c", "gunicorn_conf.py"]

@@ -131,7 +131,7 @@ class _SiteMyJobsTabState extends State<SiteMyJobsTab>
                   const Text(
                     'My Work Jobs',
                     style: TextStyle(
-                      color: Colors.white,
+                      color: AppColors.fg,
                       fontSize: 20,
                       fontWeight: FontWeight.w800,
                     ),
@@ -169,7 +169,7 @@ class _SiteMyJobsTabState extends State<SiteMyJobsTab>
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
               child: TextField(
                 onChanged: (val) => setState(() => _searchQuery = val),
-                style: const TextStyle(color: Colors.white, fontSize: 13),
+                style: const TextStyle(color: AppColors.fg, fontSize: 13),
                 decoration: InputDecoration(
                   hintText: 'Search customer name or site location...',
                   hintStyle: const TextStyle(color: AppColors.grey500, fontSize: 13),

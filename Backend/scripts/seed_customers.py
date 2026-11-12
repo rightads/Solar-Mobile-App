@@ -19,7 +19,10 @@ leads_col = db["leads"]
 payments_col = db["payments"]
 
 now = datetime.now(timezone.utc)
-client_pwd_hash = hash_password(os.getenv("DEFAULT_CLIENT_PASSWORD", ""))
+_seed_pw = os.getenv("DEFAULT_CLIENT_PASSWORD", "")
+if len(_seed_pw) < 8:
+    raise SystemExit("DEFAULT_CLIENT_PASSWORD must be set to a strong password (8+ chars) before seeding.")
+client_pwd_hash = hash_password(_seed_pw)
 
 # ── 1. Create/Sync Customer Users with Hashed Passwords ────────────────────────
 customers_data = [

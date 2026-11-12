@@ -14,7 +14,7 @@ export default function Footer({ onOpenModal }) {
             Powering India&apos;s rooftop solar revolution with cutting-edge software for EPC contractors, installers, and modern clients.
           </p>
           <div className="footer-cluster-info">
-            <span>● Production VPS: <code>82.29.165.43:8000</code></span>
+            <span>● Production cloud · HTTPS secured</span>
           </div>
         </div>
 
@@ -38,15 +38,6 @@ export default function Footer({ onOpenModal }) {
               >
                 Android Mobile APK
               </button>
-            </li>
-            <li>
-              <a
-                href="http://82.29.165.43:8000/docs"
-                target="_blank"
-                rel="noopener noreferrer"
-              >
-                REST API Swagger
-              </a>
             </li>
             <li>
               <a href="#showcase">Client Web Portal</a>

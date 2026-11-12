@@ -91,10 +91,10 @@ class AssignedEmployeeInfo {
 
   factory AssignedEmployeeInfo.fromJson(Map<String, dynamic> json) {
     return AssignedEmployeeInfo(
-      name: json['name']?.toString() ?? 'Rajesh Sharma',
+      name: json['name']?.toString() ?? '',
       phone: json['phone']?.toString() ?? '+91 98765 43210',
       roleTitle: json['role_title']?.toString() ?? 'Sales Executive',
-      employeeNo: json['employee_no']?.toString() ?? 'EMP-SLS-042',
+      employeeNo: json['employee_no']?.toString() ?? '',
       email: json['email']?.toString() ?? 'support@solarpro.com',
     );
   }

@@ -48,12 +48,12 @@ class KedlDemandCard extends StatelessWidget {
               ),
               child: const Row(
                 children: [
-                  Icon(Icons.warning_amber_rounded, color: Colors.white, size: 16),
+                  Icon(Icons.warning_amber_rounded, color: AppColors.fg, size: 16),
                   SizedBox(width: 6),
                   Text(
                     'OVERDUE DEMAND - ACTION REQUIRED',
                     style: TextStyle(
-                      color: Colors.white,
+                      color: AppColors.fg,
                       fontSize: 11,
                       fontWeight: FontWeight.w800,
                       letterSpacing: 0.5,
@@ -75,7 +75,7 @@ class KedlDemandCard extends StatelessWidget {
                       child: Text(
                         demand.customerName,
                         style: const TextStyle(
-                          color: Colors.white,
+                          color: AppColors.fg,
                           fontSize: 15,
                           fontWeight: FontWeight.w700,
                         ),
@@ -157,13 +157,13 @@ class KedlDemandCard extends StatelessWidget {
                                 Icon(
                                   Icons.event,
                                   size: 14,
-                                  color: isOverdue ? AppColors.error : Colors.white,
+                                  color: isOverdue ? AppColors.error : AppColors.fg,
                                 ),
                                 const SizedBox(width: 4),
                                 Text(
                                   dateFormat.format(demand.dueDate!),
                                   style: TextStyle(
-                                    color: isOverdue ? AppColors.error : Colors.white,
+                                    color: isOverdue ? AppColors.error : AppColors.fg,
                                     fontSize: 13,
                                     fontWeight: FontWeight.w600,
                                   ),
@@ -228,7 +228,7 @@ class KedlDemandCard extends StatelessWidget {
                             label: const Text('Mark as Paid'),
                             style: ElevatedButton.styleFrom(
                               backgroundColor: AppColors.success,
-                              foregroundColor: Colors.white,
+                              foregroundColor: AppColors.fg,
                               padding: const EdgeInsets.symmetric(vertical: 10),
                               textStyle: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
                             ),

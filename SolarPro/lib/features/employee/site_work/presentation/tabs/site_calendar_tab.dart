@@ -100,7 +100,7 @@ class _SiteCalendarTabState extends State<SiteCalendarTab> {
                 children: [
                   const Text(
                     'Work Calendar',
-                    style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.w800),
+                    style: TextStyle(color: AppColors.fg, fontSize: 20, fontWeight: FontWeight.w800),
                   ),
                   const Spacer(),
                   Container(
@@ -141,7 +141,7 @@ class _SiteCalendarTabState extends State<SiteCalendarTab> {
                   ),
                   Text(
                     monthFormat.format(_currentMonth),
-                    style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
+                    style: const TextStyle(color: AppColors.fg, fontSize: 16, fontWeight: FontWeight.bold),
                   ),
                   IconButton(
                     icon: const Icon(Icons.chevron_right, color: AppColors.gold500),
@@ -165,7 +165,7 @@ class _SiteCalendarTabState extends State<SiteCalendarTab> {
                   const SizedBox(width: 8),
                   Text(
                     DateFormat('EEEE, dd MMM yyyy').format(_selectedDate),
-                    style: const TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.bold),
+                    style: const TextStyle(color: AppColors.fg, fontSize: 15, fontWeight: FontWeight.bold),
                   ),
                   const Spacer(),
                   Container(
@@ -269,7 +269,7 @@ class _SiteCalendarTabState extends State<SiteCalendarTab> {
                   Text(
                     '$day',
                     style: TextStyle(
-                      color: isSelected ? AppColors.navy900 : Colors.white,
+                      color: isSelected ? AppColors.navy900 : AppColors.fg,
                       fontSize: 16,
                       fontWeight: FontWeight.w800,
                     ),
@@ -344,7 +344,7 @@ class _SiteCalendarTabState extends State<SiteCalendarTab> {
           const SizedBox(height: 10),
           Text(
             item.customerName,
-            style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w700),
+            style: const TextStyle(color: AppColors.fg, fontSize: 16, fontWeight: FontWeight.w700),
           ),
           const SizedBox(height: 4),
           Row(

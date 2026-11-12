@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:solar_pro/core/services/media_picker.dart';
 import 'package:intl/intl.dart';
 import 'package:solar_pro/core/theme/app_theme.dart';
 import 'package:solar_pro/features/employee/kedl/presentation/widgets/kedl_demand_card.dart';
@@ -95,7 +96,7 @@ class _KedlFileDetailScreenState extends State<KedlFileDetailScreen> {
       builder: (ctx) => AlertDialog(
         backgroundColor: AppColors.navy800,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.lg)),
-        title: Text('Move to ${newStatus.displayName}?', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+        title: Text('Move to ${newStatus.displayName}?', style: const TextStyle(color: AppColors.fg, fontWeight: FontWeight.bold)),
         content: Text(
           newStatus == KedlFileStatus.approved && _file.fileType == KedlFileType.net
               ? 'Approving the Net Metering file will automatically advance the customer project stage to SYSTEM LIVE.'
@@ -111,7 +112,7 @@ class _KedlFileDetailScreenState extends State<KedlFileDetailScreen> {
             onPressed: () => Navigator.of(ctx).pop(true),
             style: ElevatedButton.styleFrom(
               backgroundColor: newStatus == KedlFileStatus.approved ? AppColors.success : AppColors.gold500,
-              foregroundColor: Colors.white,
+              foregroundColor: AppColors.fg,
             ),
             child: const Text('Confirm Transition'),
           ),
@@ -197,7 +198,7 @@ class _KedlFileDetailScreenState extends State<KedlFileDetailScreen> {
       builder: (ctx) => AlertDialog(
         backgroundColor: AppColors.navy800,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.lg)),
-        title: const Text('Waive this Demand?', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+        title: const Text('Waive this Demand?', style: TextStyle(color: AppColors.fg, fontWeight: FontWeight.bold)),
         content: Text(
           'Are you sure you want to waive "${demand.description}"?',
           style: const TextStyle(color: AppColors.grey300),
@@ -206,7 +207,7 @@ class _KedlFileDetailScreenState extends State<KedlFileDetailScreen> {
           TextButton(onPressed: () => Navigator.of(ctx).pop(false), child: const Text('Cancel')),
           ElevatedButton(
             onPressed: () => Navigator.of(ctx).pop(true),
-            style: ElevatedButton.styleFrom(backgroundColor: AppColors.warning, foregroundColor: Colors.black),
+            style: ElevatedButton.styleFrom(backgroundColor: AppColors.warning, foregroundColor: AppColors.shadow),
             child: const Text('Waive Demand'),
           ),
         ],
@@ -234,13 +235,13 @@ class _KedlFileDetailScreenState extends State<KedlFileDetailScreen> {
       builder: (ctx) => AlertDialog(
         backgroundColor: AppColors.navy800,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.lg)),
-        title: const Text('Upload Paperwork Document', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+        title: const Text('Upload Paperwork Document', style: TextStyle(color: AppColors.fg, fontWeight: FontWeight.bold)),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
             TextField(
               controller: docTypeCtrl,
-              style: const TextStyle(color: Colors.white),
+              style: const TextStyle(color: AppColors.fg),
               decoration: InputDecoration(
                 labelText: 'Document Tag / Type',
                 labelStyle: const TextStyle(color: AppColors.grey400),
@@ -256,11 +257,13 @@ class _KedlFileDetailScreenState extends State<KedlFileDetailScreen> {
           ElevatedButton(
             onPressed: () async {
               Navigator.of(ctx).pop();
-              final fileName = 'kedl_${_file.fileType.toBackendString()}_${DateTime.now().millisecondsSinceEpoch}.pdf';
+              final picked = await MediaPicker.pickDocument();
+              if (picked == null || picked.path == null) return;
+              final fileName = picked.name;
               await _repo.uploadDocument(
                 _file.id,
                 docType: docTypeCtrl.text.trim(),
-                filePath: fileName,
+                filePath: picked.path!,
                 fileName: fileName,
               );
               _refreshFile();
@@ -284,7 +287,7 @@ class _KedlFileDetailScreenState extends State<KedlFileDetailScreen> {
         elevation: 0,
         title: Text(
           '${_file.fileType.displayName} Details',
-          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 17),
+          style: const TextStyle(color: AppColors.fg, fontWeight: FontWeight.bold, fontSize: 17),
         ),
       ),
       body: _isLoading
@@ -322,7 +325,7 @@ class _KedlFileDetailScreenState extends State<KedlFileDetailScreen> {
                                 children: [
                                   Text(
                                     _file.fileType.displayName,
-                                    style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
+                                    style: const TextStyle(color: AppColors.fg, fontSize: 16, fontWeight: FontWeight.bold),
                                   ),
                                   Text(
                                     'Customer: ${_file.customerName}',
@@ -370,7 +373,7 @@ class _KedlFileDetailScreenState extends State<KedlFileDetailScreen> {
                       children: [
                         const Text(
                           'Update Paperwork Status',
-                          style: TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.bold),
+                          style: TextStyle(color: AppColors.fg, fontSize: 14, fontWeight: FontWeight.bold),
                         ),
                         const SizedBox(height: 10),
                         Wrap(
@@ -382,14 +385,14 @@ class _KedlFileDetailScreenState extends State<KedlFileDetailScreen> {
                                 onPressed: () => _changeStatus(KedlFileStatus.submitted),
                                 icon: const Icon(Icons.send_rounded, size: 14),
                                 label: const Text('Mark Submitted'),
-                                style: ElevatedButton.styleFrom(backgroundColor: AppColors.teal500, foregroundColor: Colors.white),
+                                style: ElevatedButton.styleFrom(backgroundColor: AppColors.teal500, foregroundColor: AppColors.fg),
                               ),
                             if (_file.status == KedlFileStatus.submitted || _file.status == KedlFileStatus.demandPaid)
                               ElevatedButton.icon(
                                 onPressed: () => _changeStatus(KedlFileStatus.approved),
                                 icon: const Icon(Icons.check_circle_rounded, size: 14),
                                 label: const Text('Approve File'),
-                                style: ElevatedButton.styleFrom(backgroundColor: AppColors.success, foregroundColor: Colors.white),
+                                style: ElevatedButton.styleFrom(backgroundColor: AppColors.success, foregroundColor: AppColors.fg),
                               ),
                             if (_file.status != KedlFileStatus.rejected && _file.status != KedlFileStatus.approved)
                               OutlinedButton.icon(
@@ -422,7 +425,7 @@ class _KedlFileDetailScreenState extends State<KedlFileDetailScreen> {
                             const SizedBox(width: 8),
                             const Text(
                               'Discom Reference & Remarks',
-                              style: TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.bold),
+                              style: TextStyle(color: AppColors.fg, fontSize: 15, fontWeight: FontWeight.bold),
                             ),
                             const Spacer(),
                             TextButton(
@@ -434,7 +437,7 @@ class _KedlFileDetailScreenState extends State<KedlFileDetailScreen> {
                         const SizedBox(height: 10),
                         TextField(
                           controller: _appNoCtrl,
-                          style: const TextStyle(color: Colors.white, fontSize: 14),
+                          style: const TextStyle(color: AppColors.fg, fontSize: 14),
                           decoration: InputDecoration(
                             labelText: 'Discom Application Number',
                             labelStyle: const TextStyle(color: AppColors.grey400),
@@ -447,7 +450,7 @@ class _KedlFileDetailScreenState extends State<KedlFileDetailScreen> {
                         const SizedBox(height: 10),
                         TextField(
                           controller: _remarksCtrl,
-                          style: const TextStyle(color: Colors.white, fontSize: 14),
+                          style: const TextStyle(color: AppColors.fg, fontSize: 14),
                           maxLines: 2,
                           decoration: InputDecoration(
                             labelText: 'Notes / Remarks',
@@ -468,7 +471,7 @@ class _KedlFileDetailScreenState extends State<KedlFileDetailScreen> {
                                     crossAxisAlignment: CrossAxisAlignment.start,
                                     children: [
                                       const Text('Submitted Date:', style: TextStyle(color: AppColors.grey400, fontSize: 11)),
-                                      Text(dateFormat.format(_file.submittedOn!), style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w600)),
+                                      Text(dateFormat.format(_file.submittedOn!), style: const TextStyle(color: AppColors.fg, fontSize: 12, fontWeight: FontWeight.w600)),
                                     ],
                                   ),
                                 ),
@@ -497,7 +500,7 @@ class _KedlFileDetailScreenState extends State<KedlFileDetailScreen> {
                       const SizedBox(width: 8),
                       const Text(
                         'File Demands & Fees',
-                        style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
+                        style: TextStyle(color: AppColors.fg, fontSize: 16, fontWeight: FontWeight.bold),
                       ),
                       const SizedBox(width: 8),
                       Container(
@@ -508,7 +511,7 @@ class _KedlFileDetailScreenState extends State<KedlFileDetailScreen> {
                         ),
                         child: Text(
                           '${_file.demands.length}',
-                          style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold),
+                          style: const TextStyle(color: AppColors.fg, fontSize: 11, fontWeight: FontWeight.bold),
                         ),
                       ),
                       const Spacer(),
@@ -518,7 +521,7 @@ class _KedlFileDetailScreenState extends State<KedlFileDetailScreen> {
                         label: const Text('Raise Demand'),
                         style: ElevatedButton.styleFrom(
                           backgroundColor: AppColors.gold500,
-                          foregroundColor: AppColors.navy900,
+                          foregroundColor: AppColors.ink900,
                           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                           textStyle: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
                         ),
@@ -559,7 +562,7 @@ class _KedlFileDetailScreenState extends State<KedlFileDetailScreen> {
                       const SizedBox(width: 8),
                       const Text(
                         'Discom Paperwork Documents',
-                        style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
+                        style: TextStyle(color: AppColors.fg, fontSize: 16, fontWeight: FontWeight.bold),
                       ),
                       const Spacer(),
                       TextButton.icon(
@@ -603,7 +606,7 @@ class _KedlFileDetailScreenState extends State<KedlFileDetailScreen> {
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  Text(doc.originalName, style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w600)),
+                                  Text(doc.originalName, style: const TextStyle(color: AppColors.fg, fontSize: 13, fontWeight: FontWeight.w600)),
                                   Text(doc.docType, style: const TextStyle(color: AppColors.grey400, fontSize: 11)),
                                 ],
                               ),
@@ -663,7 +666,7 @@ class _KedlFileDetailScreenState extends State<KedlFileDetailScreen> {
                     ),
                     child: Center(
                       child: isDone
-                          ? const Icon(Icons.check, size: 12, color: Colors.white)
+                          ? const Icon(Icons.check, size: 12, color: AppColors.fg)
                           : Text(
                               '${idx + 1}',
                               style: TextStyle(
@@ -687,7 +690,7 @@ class _KedlFileDetailScreenState extends State<KedlFileDetailScreen> {
               Text(
                 step.displayName,
                 style: TextStyle(
-                  color: isCurrent ? Colors.white : AppColors.grey500,
+                  color: isCurrent ? AppColors.fg : AppColors.grey500,
                   fontSize: 9,
                   fontWeight: isCurrent ? FontWeight.bold : FontWeight.normal,
                 ),

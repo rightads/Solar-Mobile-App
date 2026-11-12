@@ -113,7 +113,7 @@ class _PendingSyncScreenState extends State<PendingSyncScreen> {
                     children: [
                       Text(
                         pendingCount > 0 ? '$pendingCount Item(s) Pending Cloud Sync' : 'All Changes Synchronized',
-                        style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 14),
+                        style: const TextStyle(color: AppColors.fg, fontWeight: FontWeight.w700, fontSize: 14),
                       ),
                       const SizedBox(height: 2),
                       Text(
@@ -129,12 +129,12 @@ class _PendingSyncScreenState extends State<PendingSyncScreen> {
                   ElevatedButton.icon(
                     onPressed: isProcessing ? null : () => _uploadService.processQueue(),
                     icon: isProcessing
-                        ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.navy900))
+                        ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.ink900))
                         : const Icon(Icons.sync_rounded, size: 16),
                     label: Text(isProcessing ? 'Syncing...' : 'Sync Now'),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: AppColors.gold500,
-                      foregroundColor: AppColors.navy900,
+                      foregroundColor: AppColors.ink900,
                       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                       textStyle: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700),
                     ),
@@ -154,7 +154,7 @@ class _PendingSyncScreenState extends State<PendingSyncScreen> {
                         SizedBox(height: 16),
                         Text(
                           'Upload Queue Empty',
-                          style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 16),
+                          style: TextStyle(color: AppColors.fg, fontWeight: FontWeight.w700, fontSize: 16),
                         ),
                         SizedBox(height: 6),
                         Text(
@@ -190,7 +190,7 @@ class _PendingSyncScreenState extends State<PendingSyncScreen> {
                                 Expanded(
                                   child: Text(
                                     item.fileName,
-                                    style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 14),
+                                    style: const TextStyle(color: AppColors.fg, fontWeight: FontWeight.w700, fontSize: 14),
                                     maxLines: 1,
                                     overflow: TextOverflow.ellipsis,
                                   ),

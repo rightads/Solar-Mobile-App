@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:solar_pro/core/services/media_picker.dart';
 import 'package:solar_pro/core/theme/app_theme.dart';
 import 'package:solar_pro/features/client/data/models/client_dashboard_model.dart';
 import 'package:solar_pro/features/client/data/repositories/client_repository.dart';
@@ -42,7 +43,7 @@ class _RaiseTicketModalState extends State<RaiseTicketModal> {
   final _errorCodeCtrl = TextEditingController();
 
   final String _priority = 'high';
-  final List<String> _attachedImages = [];
+  final List<PickedMedia> _attachedImages = [];
   bool _isSubmitting = false;
 
   final _clientRepo = ClientRepository();
@@ -83,29 +84,24 @@ class _RaiseTicketModalState extends State<RaiseTicketModal> {
     }
   }
 
-  void _addSampleImage() {
-    if (_attachedImages.length >= 10) {
+  Future<void> _addSampleImage() async {
+    final remaining = 10 - _attachedImages.length;
+    if (remaining <= 0) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Maximum 10 images allowed per ticket.'),
-          backgroundColor: AppColors.warning,
-        ),
+        const SnackBar(content: Text('Maximum 10 images allowed per ticket.'), backgroundColor: AppColors.warning),
       );
       return;
     }
-
-    final newImgName = '${_selectedType.name}_photo_${_attachedImages.length + 1}.jpg';
-    setState(() {
-      _attachedImages.add(newImgName);
-    });
-
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('Attached photo ${_attachedImages.length} ($newImgName)'),
-        backgroundColor: AppColors.teal500,
-        duration: const Duration(seconds: 1),
-      ),
-    );
+    try {
+      final picked = await MediaPicker.pickPhotos(context, max: remaining);
+      if (picked.isEmpty || !mounted) return;
+      setState(() => _attachedImages.addAll(picked.take(remaining)));
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(e.toString().replaceFirst('Exception: ', '')), backgroundColor: AppColors.error),
+      );
+    }
   }
 
   void _removeImage(int index) {
@@ -176,7 +172,7 @@ class _RaiseTicketModalState extends State<RaiseTicketModal> {
           SnackBar(
             content: Row(
               children: [
-                const Icon(Icons.check_circle_rounded, color: AppColors.white),
+                const Icon(Icons.check_circle_rounded, color: AppColors.fg),
                 const SizedBox(width: 8),
                 Expanded(
                   child: Text('Service Ticket "${ticket.ticketNo}" raised successfully! Field technician assigned.'),
@@ -317,7 +313,7 @@ class _RaiseTicketModalState extends State<RaiseTicketModal> {
             const SizedBox(height: 6),
             TextField(
               controller: _errorCodeCtrl,
-              style: AppTextStyles.bodyMedium.copyWith(color: AppColors.white),
+              style: AppTextStyles.bodyMedium.copyWith(color: AppColors.fg),
               decoration: InputDecoration(
                 hintText: 'e.g. E04, F12, Inverter Tripping',
                 hintStyle: const TextStyle(color: AppColors.grey500),
@@ -352,7 +348,7 @@ class _RaiseTicketModalState extends State<RaiseTicketModal> {
           const SizedBox(height: 6),
           TextField(
             controller: _titleCtrl,
-            style: AppTextStyles.bodyMedium.copyWith(color: AppColors.white),
+            style: AppTextStyles.bodyMedium.copyWith(color: AppColors.fg),
             decoration: InputDecoration(
               hintText: 'Brief summary of issue',
               hintStyle: const TextStyle(color: AppColors.grey500),
@@ -370,7 +366,7 @@ class _RaiseTicketModalState extends State<RaiseTicketModal> {
           TextField(
             controller: _descCtrl,
             maxLines: 3,
-            style: AppTextStyles.bodyMedium.copyWith(color: AppColors.white),
+            style: AppTextStyles.bodyMedium.copyWith(color: AppColors.fg),
             decoration: InputDecoration(
               hintText: 'Describe exact site observations, when it started, affected panels...',
               hintStyle: const TextStyle(color: AppColors.grey500),
@@ -439,17 +435,8 @@ class _RaiseTicketModalState extends State<RaiseTicketModal> {
                         borderRadius: BorderRadius.circular(8),
                         border: Border.all(color: AppColors.gold500.withValues(alpha: 0.4)),
                       ),
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(_selectedType.icon, color: AppColors.gold500, size: 24),
-                          const SizedBox(height: 4),
-                          Text(
-                            '#${idx + 1}',
-                            style: const TextStyle(fontSize: 10, color: AppColors.grey300),
-                          ),
-                        ],
-                      ),
+                      clipBehavior: Clip.antiAlias,
+                      child: Image.memory(entry.value.bytes, fit: BoxFit.cover, width: 72, height: 72),
                     ),
                     Positioned(
                       top: 2,
@@ -462,7 +449,7 @@ class _RaiseTicketModalState extends State<RaiseTicketModal> {
                             color: AppColors.error,
                             shape: BoxShape.circle,
                           ),
-                          child: const Icon(Icons.close_rounded, size: 12, color: Colors.white),
+                          child: const Icon(Icons.close_rounded, size: 12, color: AppColors.fg),
                         ),
                       ),
                     ),
@@ -504,7 +491,7 @@ class _RaiseTicketModalState extends State<RaiseTicketModal> {
             child: ElevatedButton(
               style: ElevatedButton.styleFrom(
                 backgroundColor: AppColors.orange500,
-                foregroundColor: Colors.white,
+                foregroundColor: AppColors.fg,
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.md)),
               ),
               onPressed: _isSubmitting ? null : _submit,
@@ -512,7 +499,7 @@ class _RaiseTicketModalState extends State<RaiseTicketModal> {
                   ? const SizedBox(
                       width: 22,
                       height: 22,
-                      child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
+                      child: CircularProgressIndicator(color: AppColors.fg, strokeWidth: 2),
                     )
                   : Row(
                       mainAxisAlignment: MainAxisAlignment.center,
@@ -520,7 +507,7 @@ class _RaiseTicketModalState extends State<RaiseTicketModal> {
                         const Icon(Icons.support_agent_rounded, size: 18),
                         const SizedBox(width: 8),
                         Text('Submit Service Ticket',
-                            style: AppTextStyles.labelLarge.copyWith(color: Colors.white, fontWeight: FontWeight.bold)),
+                            style: AppTextStyles.labelLarge.copyWith(color: AppColors.fg, fontWeight: FontWeight.bold)),
                       ],
                     ),
             ),
@@ -577,7 +564,7 @@ class _RaiseTicketModalState extends State<RaiseTicketModal> {
                 style: TextStyle(
                   fontSize: 11,
                   fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
-                  color: isSelected ? AppColors.white : AppColors.grey400,
+                  color: isSelected ? AppColors.fg : AppColors.grey400,
                 ),
                 textAlign: TextAlign.center,
               ),

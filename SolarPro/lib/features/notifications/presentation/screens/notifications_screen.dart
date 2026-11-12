@@ -250,7 +250,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                                       n.body,
                                       style: AppTextStyles.bodySmall.copyWith(
                                         height: 1.4,
-                                        color: n.isRead ? AppColors.grey400 : Colors.white,
+                                        color: n.isRead ? AppColors.grey400 : AppColors.fg,
                                       ),
                                     ),
                                     const SizedBox(height: 6),

@@ -119,7 +119,7 @@ class _AddLeadBottomSheetState extends State<AddLeadBottomSheet> {
                   Text(
                     'Add New Lead',
                     style: AppTextStyles.headlineSmall.copyWith(
-                      color: Colors.white,
+                      color: AppColors.fg,
                       fontWeight: FontWeight.w700,
                     ),
                   ),
@@ -151,7 +151,7 @@ class _AddLeadBottomSheetState extends State<AddLeadBottomSheet> {
                       Expanded(
                         child: Text(
                           _errorMessage!,
-                          style: const TextStyle(color: Colors.white, fontSize: 13),
+                          style: const TextStyle(color: AppColors.fg, fontSize: 13),
                         ),
                       ),
                     ],
@@ -159,7 +159,7 @@ class _AddLeadBottomSheetState extends State<AddLeadBottomSheet> {
                 ),
               TextFormField(
                 controller: _nameController,
-                style: const TextStyle(color: Colors.white),
+                style: const TextStyle(color: AppColors.fg),
                 decoration: const InputDecoration(
                   labelText: 'Customer Full Name *',
                   hintText: 'e.g. Ramesh Patel',
@@ -176,7 +176,7 @@ class _AddLeadBottomSheetState extends State<AddLeadBottomSheet> {
               TextFormField(
                 controller: _phoneController,
                 keyboardType: TextInputType.phone,
-                style: const TextStyle(color: Colors.white),
+                style: const TextStyle(color: AppColors.fg),
                 decoration: const InputDecoration(
                   labelText: '10-Digit Mobile Number *',
                   hintText: '9876543210',
@@ -194,7 +194,7 @@ class _AddLeadBottomSheetState extends State<AddLeadBottomSheet> {
               const SizedBox(height: 14),
               TextFormField(
                 controller: _addressController,
-                style: const TextStyle(color: Colors.white),
+                style: const TextStyle(color: AppColors.fg),
                 decoration: const InputDecoration(
                   labelText: 'Address / Area',
                   hintText: 'e.g. Ward 4, Civil Lines, Kota',
@@ -208,7 +208,7 @@ class _AddLeadBottomSheetState extends State<AddLeadBottomSheet> {
                     child: TextFormField(
                       controller: _kwController,
                       keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                      style: const TextStyle(color: Colors.white),
+                      style: const TextStyle(color: AppColors.fg),
                       decoration: const InputDecoration(
                         labelText: 'Expected kW',
                         hintText: 'e.g. 5.0',
@@ -220,7 +220,7 @@ class _AddLeadBottomSheetState extends State<AddLeadBottomSheet> {
                   Expanded(
                     child: TextFormField(
                       controller: _referenceController,
-                      style: const TextStyle(color: Colors.white),
+                      style: const TextStyle(color: AppColors.fg),
                       decoration: const InputDecoration(
                         labelText: 'Reference / Source',
                         hintText: 'e.g. Friend, Flyer',
@@ -234,7 +234,7 @@ class _AddLeadBottomSheetState extends State<AddLeadBottomSheet> {
               TextFormField(
                 controller: _notesController,
                 maxLines: 2,
-                style: const TextStyle(color: Colors.white),
+                style: const TextStyle(color: AppColors.fg),
                 decoration: const InputDecoration(
                   labelText: 'Notes / Remarks',
                   hintText: 'Client interested in on-grid subsidy model',
@@ -248,7 +248,7 @@ class _AddLeadBottomSheetState extends State<AddLeadBottomSheet> {
                   onPressed: _isLoading ? null : _submit,
                   style: ElevatedButton.styleFrom(
                     backgroundColor: AppColors.gold500,
-                    foregroundColor: AppColors.navy900,
+                    foregroundColor: AppColors.ink900,
                     padding: const EdgeInsets.symmetric(vertical: 14),
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(AppRadius.md),
@@ -260,7 +260,7 @@ class _AddLeadBottomSheetState extends State<AddLeadBottomSheet> {
                           width: 20,
                           child: CircularProgressIndicator(
                             strokeWidth: 2,
-                            color: AppColors.navy900,
+                            color: AppColors.ink900,
                           ),
                         )
                       : const Text(

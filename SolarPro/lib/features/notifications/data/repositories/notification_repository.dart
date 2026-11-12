@@ -57,15 +57,9 @@ class NotificationRepository {
     try {
       await _apiClient.dio.post('/notifications/$id/read');
     } catch (e) {
-      dev.log('Error calling markAsRead API: $e. Marking locally.');
+      throw ApiClient.toFriendly(e);
     }
-
-    final list = await _loadAllRaw();
-    final idx = list.indexWhere((n) => n.id == id);
-    if (idx != -1) {
-      list[idx] = list[idx].copyWith(isRead: true);
-      await _cacheNotifications(list);
-    }
+    throw Exception('Unexpected response from server.');
   }
 
   // ── Mark All As Read ───────────────────────────────────────────────────────
@@ -74,12 +68,9 @@ class NotificationRepository {
     try {
       await _apiClient.dio.post('/notifications/read-all');
     } catch (e) {
-      dev.log('Error calling markAllAsRead API: $e. Marking locally.');
+      throw ApiClient.toFriendly(e);
     }
-
-    final list = await _loadAllRaw();
-    final updated = list.map((n) => n.copyWith(isRead: true)).toList();
-    await _cacheNotifications(updated);
+    throw Exception('Unexpected response from server.');
   }
 
   // ── Register FCM Token ─────────────────────────────────────────────────────
@@ -101,8 +92,7 @@ class NotificationRepository {
       );
       return response.statusCode == 200 || response.statusCode == 201;
     } catch (e) {
-      dev.log('Error registering FCM token with backend: $e (saved locally)');
-      return false;
+      throw ApiClient.toFriendly(e);
     }
   }
 
@@ -192,7 +182,7 @@ class NotificationRepository {
             .toList();
       }
     } catch (_) {}
-    return _generateSeedNotifications();
+    return [];
   }
 
   Future<List<NotificationModel>> _loadCachedOrSeed(String role) async {
@@ -218,57 +208,4 @@ class NotificationRepository {
     } catch (_) {}
   }
 
-  List<NotificationModel> _generateSeedNotifications() {
-    final now = DateTime.now();
-    return [
-      NotificationModel(
-        id: 'notif_001',
-        title: 'New Lead Assigned',
-        body: 'Admin assigned high-potential lead "Vikram Malhotra" (5kW Adani) to you.',
-        type: 'lead',
-        targetId: 'lead_101',
-        targetRole: 'salesman',
-        isRead: false,
-        createdAt: now.subtract(const Duration(minutes: 35)),
-      ),
-      NotificationModel(
-        id: 'notif_002',
-        title: 'Electrical Job Scheduled',
-        body: 'Inverter & ACDB wiring scheduled for tomorrow at Sunil Verma (Jaipur).',
-        type: 'job',
-        targetId: 'job_201',
-        targetRole: 'site',
-        isRead: false,
-        createdAt: now.subtract(const Duration(hours: 2)),
-      ),
-      NotificationModel(
-        id: 'notif_003',
-        title: 'Discom Demand Raised',
-        body: 'New demand of ₹2,500 raised for KEDL Load Increase file #KEDL-LOAD-101.',
-        type: 'kedl_demand',
-        targetId: 'dem_01',
-        targetRole: 'kedl',
-        isRead: false,
-        createdAt: now.subtract(const Duration(hours: 4)),
-      ),
-      NotificationModel(
-        id: 'notif_004',
-        title: 'Urgent Service Ticket',
-        body: 'Inverter Fault ticket #TCK-2026-1001 requires site inspection (Code E-029).',
-        type: 'ticket',
-        targetId: 'tck_001',
-        targetRole: 'service',
-        isRead: false,
-        createdAt: now.subtract(const Duration(hours: 5)),
-      ),
-      NotificationModel(
-        id: 'notif_005',
-        title: 'System Notice',
-        body: 'SolarPro field sync engine updated to version 1.0.0+1.',
-        type: 'system',
-        isRead: true,
-        createdAt: now.subtract(const Duration(days: 2)),
-      ),
-    ];
-  }
 }

@@ -34,7 +34,7 @@ class EmployeeEmptyPlaceholder extends StatelessWidget {
               title,
               textAlign: TextAlign.center,
               style: AppTextStyles.headlineMedium.copyWith(
-                color: Colors.white,
+                color: AppColors.fg,
                 fontWeight: FontWeight.w700,
               ),
             ),
