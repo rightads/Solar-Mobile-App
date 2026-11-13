@@ -40,6 +40,46 @@ if [ "${#JWT_VALUE}" -lt 32 ]; then
 fi
 chmod 600 .env.prod
 
+# 1b. Choose the public API port. Reuse the saved one; otherwise take the
+# first free TCP port from 8443 and save it in Backend/.env.
+port_in_use() { ss -ltnH "( sport = :$1 )" 2>/dev/null | grep -q .; }
+API_HOST_PORT="$(grep -E '^API_HOST_PORT=' .env 2>/dev/null | tail -1 | cut -d'=' -f2- | tr -d '"' || true)"
+if [ -z "$API_HOST_PORT" ]; then
+    for p in $(seq 8443 8543); do
+        if ! port_in_use "$p"; then API_HOST_PORT="$p"; break; fi
+    done
+    [ -n "$API_HOST_PORT" ] || { echo "❌ No free port in 8443-8543."; exit 1; }
+    echo "API_HOST_PORT=$API_HOST_PORT" >> .env
+fi
+export API_HOST_PORT
+
+# 1c. Self-signed TLS certificate for the server's public IP (no domain).
+# The app pins its SHA-256 fingerprint, so it is only regenerated if the IP
+# changes; a new certificate means a new fingerprint in the app.
+API_PUBLIC_IP="${API_PUBLIC_IP:-$(ip -4 route get 1.1.1.1 | awk '{for(i=1;i<=NF;i++) if($i=="src") print $(i+1)}')}"
+[ -n "$API_PUBLIC_IP" ] || { echo "❌ Could not detect the public IPv4; set API_PUBLIC_IP."; exit 1; }
+mkdir -p certs
+if [ ! -f certs/api.key ] || [ ! -f certs/api.crt ] || \
+   ! openssl x509 -in certs/api.crt -noout -ext subjectAltName 2>/dev/null | grep -q "IP Address:${API_PUBLIC_IP}$"; then
+    echo "🔐 Creating self-signed certificate for ${API_PUBLIC_IP} ..."
+    openssl req -x509 -nodes -days 3650 \
+        -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 \
+        -keyout certs/api.key -out certs/api.crt \
+        -subj "/CN=${API_PUBLIC_IP}" \
+        -addext "subjectAltName=IP:${API_PUBLIC_IP}" \
+        -addext "keyUsage=critical,digitalSignature" \
+        -addext "extendedKeyUsage=serverAuth"
+fi
+chmod 700 certs; chmod 600 certs/api.key; chmod 644 certs/api.crt
+API_CERT_SHA256="$(openssl x509 -in certs/api.crt -outform DER | sha256sum | cut -d' ' -f1)"
+
+# Allow the port through ufw when it is active (Docker-published ports
+# bypass ufw anyway; this keeps the rule set honest).
+if command -v ufw > /dev/null 2>&1 && ufw status | grep -q "Status: active"; then
+    ufw allow "${API_HOST_PORT}/tcp" comment 'SolarPro API (HTTPS)' > /dev/null
+fi
+echo "🔌 API endpoint: https://${API_PUBLIC_IP}:${API_HOST_PORT}/api/v1"
+
 # 2. Launch containers via Docker Compose
 echo "📦 Building and restarting website and backend Docker containers..."
 docker compose -f docker-compose.prod.yml up -d --build --remove-orphans
@@ -48,23 +88,25 @@ docker compose -f docker-compose.prod.yml up -d --build --remove-orphans
 echo "🔄 Reloading Nginx reverse proxy..."
 docker compose -f docker-compose.prod.yml restart nginx
 
-# 6. Verify API Healthcheck
-echo "🩺 Verifying API health on http://127.0.0.1:8000/api/v1/health..."
+# 6. Verify API health over the real public path, trusting only our certificate.
+API_URL="https://${API_PUBLIC_IP}:${API_HOST_PORT}/api/v1/health"
+echo "🩺 Verifying API health on ${API_URL} ..."
 HEALTHY=false
 for i in {1..10}; do
-    if curl -sf http://127.0.0.1:8000/api/v1/health > /dev/null 2>&1; then
+    if curl -sf --cacert certs/api.crt "$API_URL" > /dev/null 2>&1; then
         HEALTHY=true
         break
     fi
-    echo "Waiting for backend service to respond on port 8000... ($i/10)"
+    echo "Waiting for backend service to respond on port $API_HOST_PORT... ($i/10)"
     sleep 3
 done
 
 if [ "$HEALTHY" = true ]; then
-    echo "✅ Health check passed! API is live on port 8000."
+    echo "✅ Health check passed! API is live at https://${API_PUBLIC_IP}:${API_HOST_PORT}/api/v1"
+    echo "📌 App settings:  API_PORT=${API_HOST_PORT}   API_CERT_SHA256=${API_CERT_SHA256}"
 else
-    echo "❌ Health check failed after 8 retries. Recent container logs:"
-    docker compose -f docker-compose.prod.yml logs --tail=40 backend
+    echo "❌ Health check failed after 10 retries. Recent container logs:"
+    docker compose -f docker-compose.prod.yml logs --tail=40 backend nginx
     exit 1
 fi
 

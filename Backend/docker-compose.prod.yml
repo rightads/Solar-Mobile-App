@@ -8,20 +8,22 @@ services:
     ports:
       - "127.0.0.1:3005:80"
 
-  # Internal reverse proxy (rate limiting + headers). It is bound to localhost
-  # only: the public TLS endpoint (LiteSpeed/CyberPanel for api.<domain>, or
-  # nginx/nginx.ssl.conf.template via scripts/init-ssl.sh) proxies to it.
-  # Plain-HTTP API traffic is never exposed to the internet.
+  # Public HTTPS entry point for the API, reached by IP (no domain):
+  #   https://<vps-ip>:<API_HOST_PORT>/api/v1
+  # TLS uses the self-signed certificate in ./certs (created by
+  # scripts/deploy.sh, pinned in the app). Rate limiting + security headers.
+  # The domain stays with the website on LiteSpeed; this port is separate.
   nginx:
     image: nginx:1.27-alpine
     container_name: solar_prod_nginx
     restart: always
     ports:
-      - "${API_BIND_ADDRESS:-127.0.0.1}:8000:8000"
+      # Host port is picked by scripts/deploy.sh (first free port from 8443)
+      # and persisted as API_HOST_PORT in Backend/.env.
+      - "${API_BIND_ADDRESS:-0.0.0.0}:${API_HOST_PORT:-8443}:8443"
     volumes:
       - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
-      - ./certbot/conf:/etc/letsencrypt:ro
-      - ./certbot/www:/var/www/certbot:ro
+      - ./certs:/etc/nginx/certs:ro
     read_only: true
     tmpfs:
       - /var/cache/nginx

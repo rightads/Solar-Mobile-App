@@ -8,12 +8,25 @@ class AppConstants {
   static const String appTagline = 'Powering India\'s Solar Future';
   static const String companyName = 'SolarPro Management';
 
-  // Production API (TLS only). Override per build with
+  // Production API: reached directly by the VPS IP over HTTPS (no domain;
+  // the domain belongs to the website). The server uses a self-signed
+  // certificate, which is trusted only if its SHA-256 fingerprint matches
+  // [apiCertSha256] (see PinnedHttpOverrides). scripts/deploy.sh prints both
+  // the port and the fingerprint. Override per build with
+  //   --dart-define=API_PORT=<port>
+  //   --dart-define=API_CERT_SHA256=<hex fingerprint>
   //   --dart-define=API_BASE_URL=https://<host>/api/v1
   //   --dart-define=API_LIVE_HOST=https://<host>
   // Release builds refuse non-https URLs (see ApiClient).
-  static const String serverHost = 'https://api.solarpro-app.in';
-  static const String serverBaseUrl = 'https://api.solarpro-app.in/api/v1';
+  static const String serverIp = '82.29.165.43';
+  static const String serverPort =
+      String.fromEnvironment('API_PORT', defaultValue: '8443');
+  static const String serverHost = 'https://$serverIp:$serverPort';
+  static const String serverBaseUrl = '$serverHost/api/v1';
+
+  /// SHA-256 of the API server's certificate (DER, lowercase hex).
+  static const String apiCertSha256 =
+      String.fromEnvironment('API_CERT_SHA256', defaultValue: '');
 
   static const String _apiBaseUrlOverride =
       String.fromEnvironment('API_BASE_URL');

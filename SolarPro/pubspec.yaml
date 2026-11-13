@@ -19,6 +19,7 @@ dependencies:
 
   # Network
   dio: ^5.4.3
+  crypto: ^3.0.3
   retrofit: ^4.1.0
 
   # Local Storage

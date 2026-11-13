@@ -71,3 +71,6 @@ venv.bak/
 # OS
 .DS_Store
 Thumbs.db
+
+# Self-signed API TLS certificate (generated on the server)
+certs/

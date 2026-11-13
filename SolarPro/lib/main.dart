@@ -1,13 +1,15 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'dart:io' show Platform;
+import 'dart:io' show HttpOverrides, Platform;
 import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:solar_pro/core/network/pinned_http_overrides.dart';
 import 'package:solar_pro/core/router/app_router.dart';
 import 'package:solar_pro/core/theme/app_theme.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  if (!kIsWeb) HttpOverrides.global = PinnedHttpOverrides();
   SystemChrome.setSystemUIOverlayStyle(
     const SystemUiOverlayStyle(
       statusBarColor: Colors.transparent,
