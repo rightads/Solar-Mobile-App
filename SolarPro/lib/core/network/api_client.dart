@@ -286,6 +286,35 @@ class ApiClient {
     }
   }
 
+  /// Email a password reset link plus a 6-digit code. The server answers the
+  /// same way whether or not the email has an account.
+  Future<String> forgotPassword(String email) async {
+    try {
+      final res = await _dio.post('/auth/forgot-password', data: {'email': email.trim().toLowerCase()});
+      return (res.data as Map<String, dynamic>?)?['message']?.toString() ??
+          'If an account uses this email, a reset link has been sent to it.';
+    } on DioException catch (de) {
+      throw Exception(_formatDioError(de, fallback: 'Could not send the reset email.'));
+    }
+  }
+
+  /// Set a new password with the token from the emailed link, or with the
+  /// email address + 6-digit code from the same email.
+  Future<String> resetPassword({String? token, String? email, String? code, required String newPassword}) async {
+    try {
+      final res = await _dio.post('/auth/reset-password', data: {
+        if (token != null && token.isNotEmpty) 'token': token.trim(),
+        if (email != null && email.isNotEmpty) 'email': email.trim().toLowerCase(),
+        if (code != null && code.isNotEmpty) 'code': code.trim(),
+        'new_password': newPassword,
+      });
+      return (res.data as Map<String, dynamic>?)?['message']?.toString() ??
+          'Password updated. Please sign in with your new password.';
+    } on DioException catch (de) {
+      throw Exception(_formatDioError(de, fallback: 'Could not reset the password.'));
+    }
+  }
+
   /// Re-send the SMS code that verifies a new account's mobile number.
   Future<bool> sendPhoneVerification(String phone) async {
     try {

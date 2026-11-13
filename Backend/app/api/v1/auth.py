@@ -5,19 +5,21 @@ from app.schemas.auth import (
     ChangePasswordRequest,
     EmailVerificationResponse,
     FcmTokenUpdate,
+    ForgotPasswordRequest,
     LogoutRequest,
     OtpRequest,
     OtpRequestResponse,
     OtpVerify,
     PasswordLoginRequest,
     RefreshTokenRequest,
+    ResetPasswordRequest,
     SendEmailVerificationRequest,
     SendPhoneVerificationRequest,
     UserRegisterRequest,
     VerifyEmailRequest,
     VerifySignupRequest,
 )
-from app.services.auth_service import AuthService, GENERIC_EMAIL_SENT
+from app.services.auth_service import AuthService, GENERIC_EMAIL_SENT, GENERIC_RESET_SENT
 
 router = APIRouter(prefix="/auth", tags=["Auth"])
 
@@ -107,6 +109,23 @@ async def logout(payload: LogoutRequest):
 async def logout_all(current_user: MongoUserProxy = Depends(get_current_user)):
     AuthService.revoke_all_sessions(current_user.id)
     return {"message": "Signed out of all devices."}
+
+
+@router.post("/forgot-password", summary="Email a password reset link and 6-digit code")
+async def forgot_password(payload: ForgotPasswordRequest, request: Request):
+    await AuthService.forgot_password(email=payload.email, ip=client_ip(request))
+    return {"message": GENERIC_RESET_SENT}
+
+
+@router.post("/reset-password", summary="Set a new password with the emailed link token or code")
+async def reset_password(payload: ResetPasswordRequest, request: Request):
+    return AuthService.reset_password(
+        new_password=payload.new_password,
+        ip=client_ip(request),
+        token=payload.token,
+        email=payload.email,
+        code=payload.code,
+    )
 
 
 @router.post("/change-password", summary="Change your password (any signed-in user)")

@@ -85,6 +85,11 @@ class Settings(BaseSettings):
     EMAILS_FROM_EMAIL: str = ""
     EMAILS_FROM_NAME: str = "SolarPro Verification"
     EMAIL_VERIFICATION_EXPIRE_SECONDS: int = 600
+    # Forgot-password emails: the link opens this page on the website, which
+    # hands the one-time token to the app (the token travels in the #fragment,
+    # so it never reaches a server log).
+    PASSWORD_RESET_URL: str = "https://solarpro-app.in/reset-password.html"
+    PASSWORD_RESET_EXPIRE_SECONDS: int = 1800
 
     # Uploaded files (KYC documents, receipts, site photos, KEDL papers)
     UPLOAD_DIR: str = "uploads"

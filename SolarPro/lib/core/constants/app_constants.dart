@@ -75,6 +75,8 @@ class AppRoutes {
   static const String onboarding  = '/onboarding';
   static const String login       = '/login';
   static const String otp         = '/otp';
+  /// Opened from the emailed reset link (solarpro://app/reset-password?token=...).
+  static const String resetPassword = '/reset-password';
   // Vendor
   static const String vendorDash  = '/vendor/dashboard';
   static const String leads       = '/vendor/leads';

@@ -7,6 +7,7 @@ import 'package:solar_pro/features/auth/presentation/screens/splash_screen.dart'
 import 'package:solar_pro/features/auth/presentation/screens/onboarding_screen.dart';
 import 'package:solar_pro/features/auth/presentation/screens/login_screen.dart';
 import 'package:solar_pro/features/auth/presentation/screens/otp_screen.dart';
+import 'package:solar_pro/features/auth/presentation/screens/reset_password_screen.dart';
 import 'package:solar_pro/features/dashboard/presentation/screens/vendor_dashboard_screen.dart';
 import 'package:solar_pro/features/leads/presentation/screens/leads_screen.dart';
 import 'package:solar_pro/features/customers/presentation/screens/customers_screen.dart';
@@ -40,6 +41,7 @@ final routerProvider = Provider<GoRouter>((ref) {
       // Public auth routes
       if (path == AppRoutes.login ||
           path == AppRoutes.otp ||
+          path == AppRoutes.resetPassword ||
           path == AppRoutes.splash ||
           path == AppRoutes.onboarding) {
         return null;
@@ -110,6 +112,10 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: AppRoutes.login,
         builder: (context, state) => const LoginScreen(),
+      ),
+      GoRoute(
+        path: AppRoutes.resetPassword,
+        builder: (context, state) => ResetPasswordScreen(token: state.uri.queryParameters['token'] ?? ''),
       ),
       GoRoute(
         path: AppRoutes.otp,

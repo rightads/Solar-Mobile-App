@@ -7,6 +7,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:solar_pro/core/constants/app_constants.dart';
 import 'package:solar_pro/core/network/api_client.dart';
 import 'package:solar_pro/core/theme/app_theme.dart';
+import 'package:solar_pro/features/auth/presentation/widgets/forgot_password_sheet.dart';
 import 'package:solar_pro/shared/animations/motion.dart';
 import 'package:solar_pro/shared/animations/pixel_art.dart';
 
@@ -570,22 +571,19 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
                         suffix: _eyeToggle(_obscure, () => setState(() => _obscure = !_obscure)),
                       ),
                     ),
-                    if (_portal != _Portal.admin)
-                      Align(
-                        alignment: Alignment.centerRight,
-                        child: TextButton(
-                          onPressed: () => setState(() => _method = _Method.otp),
-                          child: Text(
-                            'Forgot Password? Use OTP',
-                            style: AppTextStyles.labelMedium.copyWith(
-                              color: AppColors.ink900,
-                              decoration: TextDecoration.underline,
-                            ),
+                    Align(
+                      alignment: Alignment.centerRight,
+                      child: TextButton(
+                        onPressed: _openForgotPassword,
+                        child: Text(
+                          'Forgot Password?',
+                          style: AppTextStyles.labelMedium.copyWith(
+                            color: AppColors.ink900,
+                            decoration: TextDecoration.underline,
                           ),
                         ),
-                      )
-                    else
-                      const SizedBox(height: 18),
+                      ),
+                    ),
                     const SizedBox(height: 6),
                     SpEntrance(
                       index: 6,
@@ -835,6 +833,22 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
         const SizedBox(height: 24),
       ],
     );
+  }
+
+  /// Reset link + code by email; client and staff portals can also switch to
+  /// signing in with an SMS OTP instead.
+  Future<void> _openForgotPassword() async {
+    final email = await showForgotPasswordSheet(
+      context,
+      initialEmail: _identifierCtrl.text,
+      onUseOtp: _portal == _Portal.admin ? null : () => setState(() => _method = _Method.otp),
+    );
+    if (email != null && mounted) {
+      setState(() {
+        _identifierCtrl.text = email;
+        _passwordCtrl.clear();
+      });
+    }
   }
 
   Widget _eyeToggle(bool obscured, VoidCallback onPressed) {

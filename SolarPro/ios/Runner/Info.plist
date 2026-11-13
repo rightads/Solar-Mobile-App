@@ -70,5 +70,19 @@
 		<string>UIInterfaceOrientationLandscapeLeft</string>
 		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
+	<!-- Password reset links from email: solarpro://app/reset-password?token=... -->
+	<key>FlutterDeepLinkingEnabled</key>
+	<true/>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>com.solarpro.solar_pro</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>solarpro</string>
+			</array>
+		</dict>
+	</array>
 </dict>
 </plist>

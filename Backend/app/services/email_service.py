@@ -229,5 +229,101 @@ class EmailService:
         logger.error("All email delivery providers failed or are not configured", to=to_email)
         return False
 
+    @classmethod
+    async def _deliver(cls, to_email: str, subject: str, body_text: str, body_html: str) -> bool:
+        """Send through SMTP first, then Resend. Returns False when nothing worked."""
+        if settings.SMTP_HOST and settings.SMTP_USER and settings.SMTP_PASSWORD:
+            try:
+                if await asyncio.to_thread(cls._send_smtp_sync, to_email, subject, body_text, body_html):
+                    return True
+            except Exception as e:
+                logger.error("Async SMTP dispatch error", error=str(e), to=to_email)
+        if settings.RESEND_API_KEY:
+            try:
+                if await cls._send_resend(to_email, subject, body_html):
+                    return True
+            except Exception as e:
+                logger.warning("Resend fallback dispatch failed", error=str(e), to=to_email)
+        logger.error("All email delivery providers failed or are not configured", to=to_email)
+        return False
+
+    @staticmethod
+    def _render_password_reset_html(user_name: str, link: str, code: str, minutes: int) -> str:
+        import html as _html
+        user_name = _html.escape(str(user_name or "there"))
+        link = _html.escape(link, quote=True)
+        code = _html.escape(str(code))
+        return f"""
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <meta charset="utf-8">
+          <meta name="viewport" content="width=device-width, initial-scale=1.0">
+          <title>Reset your SolarPro password</title>
+        </head>
+        <body style="margin:0;padding:0;background-color:#0b1120;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#f8fafc;">
+          <table width="100%" border="0" cellspacing="0" cellpadding="0" style="background-color:#0b1120;padding:40px 20px;">
+            <tr>
+              <td align="center">
+                <table width="100%" style="max-width:540px;background-color:#111d33;border:1px solid #1e293b;border-radius:16px;overflow:hidden;">
+                  <tr>
+                    <td style="padding:32px 32px 20px;text-align:center;border-bottom:1px solid #334155;">
+                      <div style="display:inline-block;width:44px;height:44px;line-height:44px;background:#f59e0b;border-radius:12px;font-size:24px;">&#9728;&#65039;</div>
+                      <h1 style="margin:12px 0 0;font-size:22px;font-weight:800;color:#ffffff;">Reset your password</h1>
+                    </td>
+                  </tr>
+                  <tr>
+                    <td style="padding:32px;">
+                      <p style="margin:0 0 16px;font-size:16px;color:#e2e8f0;">Hello <strong style="color:#fbbf24;">{user_name}</strong>,</p>
+                      <p style="margin:0 0 24px;font-size:14px;line-height:1.6;color:#94a3b8;">
+                        We received a request to reset your SolarPro password. Tap the button on the phone that has the SolarPro app to choose a new password.
+                      </p>
+                      <p style="text-align:center;margin:0 0 28px;">
+                        <a href="{link}" style="display:inline-block;background:#f59e0b;color:#0b1120;text-decoration:none;font-weight:800;font-size:16px;padding:14px 28px;border-radius:10px;">Reset Password</a>
+                      </p>
+                      <p style="margin:0 0 8px;font-size:14px;line-height:1.6;color:#94a3b8;">
+                        Using SolarPro on a computer, or the button does not open the app? In the app choose
+                        <strong style="color:#e2e8f0;">Forgot password &rarr; I have a code</strong> and enter:
+                      </p>
+                      <div style="background-color:#0b1329;border:1.5px dashed #f59e0b;border-radius:12px;padding:20px;text-align:center;margin:16px 0;">
+                        <span style="font-family:monospace;font-size:32px;font-weight:800;letter-spacing:8px;color:#f59e0b;">{code}</span>
+                      </div>
+                      <p style="margin:0 0 8px;font-size:12px;color:#64748b;">The link and the code work once and expire in {minutes} minutes. Never share them with anyone.</p>
+                      <p style="margin:16px 0 0;font-size:13px;line-height:1.5;color:#64748b;">
+                        If you did not ask to reset your password, you can ignore this email &mdash; your password stays the same.
+                      </p>
+                    </td>
+                  </tr>
+                  <tr>
+                    <td style="padding:20px 32px;background-color:#0b1120;border-top:1px solid #1e293b;text-align:center;">
+                      <p style="margin:0;font-size:12px;color:#475569;">&copy; 2026 SolarPro Technologies Inc. All rights reserved.</p>
+                    </td>
+                  </tr>
+                </table>
+              </td>
+            </tr>
+          </table>
+        </body>
+        </html>
+        """
+
+    @classmethod
+    async def send_password_reset_email(cls, to_email: str, link: str, code: str,
+                                        user_name: str = "", minutes: int = 30) -> bool:
+        """Email a one-time password reset link plus a 6-digit fallback code."""
+        subject = "Reset your SolarPro password"
+        body_text = (
+            f"Hello {user_name or 'there'},\n\n"
+            f"Open this link on the phone that has the SolarPro app to choose a new password:\n{link}\n\n"
+            f"On a computer, or if the link does not open the app, choose "
+            f"'Forgot password -> I have a code' in the app and enter: {code}\n\n"
+            f"The link and code work once and expire in {minutes} minutes.\n"
+            f"If you did not ask for this, ignore this email; your password stays the same.\n\n"
+            f"SolarPro Support"
+        )
+        body_html = cls._render_password_reset_html(user_name, link, code, minutes)
+        logger.info("password_reset_email_dispatch", to_email=to_email, code="******")
+        return await cls._deliver(to_email, subject, body_text, body_html)
+
 
 email_service = EmailService()

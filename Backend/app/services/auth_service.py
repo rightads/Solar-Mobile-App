@@ -43,6 +43,7 @@ logger = structlog.get_logger()
 INVALID_LOGIN = "Invalid email/mobile or password."
 GENERIC_OTP_SENT = "If this mobile number is registered, a verification code has been sent."
 GENERIC_EMAIL_SENT = "If this email needs verification, a code has been sent to it."
+GENERIC_RESET_SENT = "If an account uses this email, a password reset link and code have been sent to it."
 
 
 def _db():
@@ -561,6 +562,118 @@ class AuthService:
         res = AuthService._issue_tokens(doc, device_info)
         res["message"] = "Email and mobile verified. Welcome to SolarPro!"
         return res
+
+    # ── Forgot password (email link + code) ─────────────────────────────────
+
+    @staticmethod
+    async def forgot_password(email: str, ip: str) -> None:
+        """Email a one-time reset link and 6-digit code. Silent when no account matches."""
+        ratelimit.hit(f"forgot_pw:ip:{ip}", 10, 3600)
+        try:
+            clean_email = normalize_email(email)
+        except ValueError:
+            raise BadRequestException("Please enter a valid email address.")
+        ratelimit.hit(f"forgot_pw:cooldown:{clean_email}", 1, settings.OTP_RESEND_COOLDOWN_SECONDS,
+                      "Please wait a minute before requesting another reset email.")
+        ratelimit.hit(f"forgot_pw:hour:{clean_email}", settings.OTP_MAX_PER_HOUR, 3600)
+
+        db = _db()
+        user = db["users"].find_one({"email": clean_email})
+        if (not user or user.get("deleted_at")
+                or str(user.get("approval_status") or "").lower() == "rejected"
+                or (str(user.get("approval_status") or "").lower() == "approved" and not user.get("is_active", False))):
+            return  # generic response; nothing to send
+
+        token = generate_random_token()
+        code = generate_otp(length=settings.OTP_LENGTH)
+        now = _now()
+        db["password_resets"].update_many(
+            {"email": clean_email, "consumed_at": None},
+            {"$set": {"consumed_at": now, "superseded": True}},
+        )
+        db["password_resets"].insert_one({
+            "_id": str(uuid.uuid4()),
+            "user_id": str(user["_id"]),
+            "email": clean_email,
+            "token_hash": hash_token(token),
+            "code_hash": hash_token(code),
+            "expires_at": now + timedelta(seconds=settings.PASSWORD_RESET_EXPIRE_SECONDS),
+            "attempts": 0,
+            "consumed_at": None,
+            "created_at": now,
+        })
+        link = f"{settings.PASSWORD_RESET_URL}#token={token}"
+        try:
+            from app.services.email_service import email_service
+            await email_service.send_password_reset_email(
+                to_email=clean_email, link=link, code=code, user_name=user.get("name", ""),
+                minutes=max(1, settings.PASSWORD_RESET_EXPIRE_SECONDS // 60),
+            )
+        except Exception as e:
+            logger.warning("password_reset_email_failed", error=str(e))
+
+    @staticmethod
+    def reset_password(new_password: str, ip: str, token: Optional[str] = None,
+                       email: Optional[str] = None, code: Optional[str] = None) -> Dict[str, Any]:
+        """Set a new password from the emailed link token, or email + 6-digit code."""
+        ratelimit.hit(f"reset_pw:ip:{ip}", 30, 900)
+        invalid = "This reset link or code is invalid or has expired. Please request a new one."
+        db = _db()
+        now = _now()
+        fail_key = None
+        if token:
+            rec = db["password_resets"].find_one(
+                {"token_hash": hash_token(str(token).strip()), "consumed_at": None, "expires_at": {"$gt": now}},
+            )
+        elif email and code:
+            try:
+                clean_email = normalize_email(email)
+            except ValueError:
+                raise BadRequestException(invalid)
+            fail_key = f"reset_pw:fail:{clean_email}"
+            ratelimit.ensure_below(fail_key, settings.OTP_MAX_VERIFY_FAILURES_PER_HOUR,
+                                   "Too many incorrect codes. Please request a new reset email later.", 3600)
+            rec = AuthService._find_code("password_resets", "email", clean_email, code)
+        else:
+            raise BadRequestException("Open the link from the reset email, or enter your email and the 6-digit code.")
+        if not rec:
+            if fail_key:
+                ratelimit.hit(fail_key, 10_000, 3600)
+            raise BadRequestException(invalid)
+
+        # Check the password before using up the link, so a typo does not burn it.
+        try:
+            validate_password_strength(new_password)
+        except ValueError as e:
+            raise BadRequestException(str(e))
+
+        doc = load_user(rec["user_id"])
+        if not doc or doc.get("deleted_at"):
+            raise BadRequestException(invalid)
+        claimed = db["password_resets"].update_one(
+            {"_id": rec["_id"], "consumed_at": None}, {"$set": {"consumed_at": now}},
+        )
+        if claimed.modified_count != 1:
+            raise BadRequestException(invalid)  # already used by a parallel request
+        db["password_resets"].update_many(
+            {"user_id": rec["user_id"], "consumed_at": None},
+            {"$set": {"consumed_at": now, "superseded": True}},
+        )
+        if fail_key:
+            ratelimit.reset(fail_key)
+
+        db["users"].update_one({"_id": doc["_id"]}, {"$set": {
+            "password_hash": hash_password(new_password),
+            "password_changed_at": now,
+            # The reset proved the user controls this inbox.
+            "is_email_verified": True,
+            "email_verified_at": doc.get("email_verified_at") or now,
+            "updated_at": now,
+        }})
+        AuthService.revoke_all_sessions(str(doc["_id"]))
+        ratelimit.reset(f"login:fail:{rec['email']}")
+        logger.info("password_reset_completed", user_id=str(doc["_id"]))
+        return {"message": "Password updated. Please sign in with your new password."}
 
     # ── Password change ─────────────────────────────────────────────────────
 

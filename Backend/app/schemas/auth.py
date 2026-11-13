@@ -108,6 +108,18 @@ class VerifySignupRequest(BaseModel):
         return normalize_phone(v)
 
 
+class ForgotPasswordRequest(BaseModel):
+    email: str = Field(..., min_length=5, max_length=120, description="Email address of the account")
+
+
+class ResetPasswordRequest(BaseModel):
+    """Reset with the token from the emailed link, or with email + the 6-digit code."""
+    token: Optional[str] = Field(None, min_length=20, max_length=200, description="Token from the reset link")
+    email: Optional[str] = Field(None, min_length=5, max_length=120)
+    code: Optional[str] = Field(None, min_length=4, max_length=10, pattern=r"^\d+$")
+    new_password: str = Field(..., min_length=8, max_length=72, description="New password (8+ characters, letters and numbers)")
+
+
 class ChangePasswordRequest(BaseModel):
     current_password: Optional[str] = Field(None, max_length=128, description="Required when the account already has a password")
     new_password: str = Field(..., min_length=8, max_length=72, description="New password (8+ characters, letters and numbers)")

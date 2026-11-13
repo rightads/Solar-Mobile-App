@@ -313,6 +313,58 @@ t_np = create_access_token(nopw["_id"], "site", 0)
 check("OTP-only account sees has_password=false", c.get("/api/v1/auth/me", headers=H(t_np)).json().get("has_password") is False)
 check("OTP-only account can set a first password", c.post("/api/v1/auth/change-password", json={"new_password": "First1Pass"}, headers=H(t_np)).status_code == 200)
 
+# ── Forgot password: emailed link + code ────────────────────────────────────
+from app.services.email_service import email_service as _es
+_mails = []
+async def _fake_reset_mail(cls_or_to=None, *a, **kw):
+    _mails.append(kw)
+    return True
+_es.__class__.send_password_reset_email = classmethod(lambda cls, **kw: _fake_reset_mail(**kw))
+fpu = mkuser("kedl", "9555555559", "fp@x.in", is_email_verified=False)
+T_fp = tok(fpu)
+fc = lambda n: TestClient(app, client=(f"10.9.{n}.1", 1))
+r = fc(1).post("/api/v1/auth/forgot-password", json={"email": "nobody@x.in"})
+r2 = fc(2).post("/api/v1/auth/forgot-password", json={"email": "FP@x.in"})
+check("forgot-password gives the same answer for unknown and known emails", r.status_code == r2.status_code == 200 and r.json() == r2.json())
+check("reset email sent only for the real account", len(_mails) == 1 and _mails[0]["to_email"] == "fp@x.in")
+link = _mails[0]["link"]
+reset_tok = link.split("#token=", 1)[1] if "#token=" in link else ""
+check("reset link carries the token in the #fragment", link.startswith("https://") and len(reset_tok) >= 40)
+check("reset token and code stored only as hashes", not db["password_resets"].find_one({"$or": [{"token_hash": reset_tok}, {"code_hash": _mails[0]["code"]}]}))
+check("reset email resend is throttled", fc(3).post("/api/v1/auth/forgot-password", json={"email": "fp@x.in"}).status_code == 429)
+check("reset rejects a forged token", fc(4).post("/api/v1/auth/reset-password", json={"token": "x" * 64, "new_password": "Reset1Pass"}).status_code == 400)
+check("reset rejects a weak password without using the link", fc(5).post("/api/v1/auth/reset-password", json={"token": reset_tok, "new_password": "weakweak"}).status_code in (400, 422)
+      and db["password_resets"].count_documents({"email": "fp@x.in", "consumed_at": None}) == 1)
+r = fc(6).post("/api/v1/auth/reset-password", json={"token": reset_tok, "new_password": "Reset1Pass"})
+check("reset link sets the new password", r.status_code == 200 and "access_token" not in r.json(), r.text[:200])
+check("reset link works only once", fc(7).post("/api/v1/auth/reset-password", json={"token": reset_tok, "new_password": "Reset2Pass"}).status_code == 400)
+check("reset signs out every existing session", c.get("/api/v1/auth/me", headers=H(T_fp)).status_code == 401)
+check("old password rejected after reset", login("fp@x.in", ipaddr="10.9.8.1").status_code == 401)
+check("new password accepted after reset", login("fp@x.in", "Reset1Pass", "10.9.8.2").status_code == 200)
+check("reset marks the email verified", db["users"].find_one({"_id": fpu["_id"]}).get("is_email_verified") is True)
+# 6-digit code path (desktop / link didn't open the app)
+db["password_resets"].delete_many({})
+from app.core import ratelimit as _rl
+_rl.reset("forgot_pw:cooldown:fp@x.in")
+fc(9).post("/api/v1/auth/forgot-password", json={"email": "fp@x.in"})
+code_ = _mails[-1]["code"]
+check("code reset rejects a wrong code", fc(10).post("/api/v1/auth/reset-password", json={"email": "fp@x.in", "code": "000000" if code_ != "000000" else "111111", "new_password": "Code1Reset"}).status_code == 400)
+check("code cannot reset another account", fc(11).post("/api/v1/auth/reset-password", json={"email": "a@x.in", "code": code_, "new_password": "Code1Reset"}).status_code == 400)
+r = fc(12).post("/api/v1/auth/reset-password", json={"email": "fp@x.in", "code": code_, "new_password": "Code1Reset"})
+check("email + code resets the password", r.status_code == 200 and login("fp@x.in", "Code1Reset", "10.9.13.1").status_code == 200, r.text[:200])
+db["password_resets"].delete_many({})
+_rl.reset("forgot_pw:cooldown:fp@x.in")
+fc(14).post("/api/v1/auth/forgot-password", json={"email": "fp@x.in"})
+for i in range(5):
+    fc(15 + i).post("/api/v1/auth/reset-password", json={"email": "fp@x.in", "code": f"99999{i}", "new_password": "Code2Reset"})
+check("code is dead after 5 wrong guesses", fc(21).post("/api/v1/auth/reset-password", json={"email": "fp@x.in", "code": _mails[-1]["code"], "new_password": "Code2Reset"}).status_code in (400, 429))
+gone = mkuser("client", "9555555558", "gone@x.in", deleted_at=now)
+n_before = len(_mails)
+_rl.reset("forgot_pw:cooldown:gone@x.in")
+fc(22).post("/api/v1/auth/forgot-password", json={"email": "gone@x.in"})
+check("no reset email for a deleted account", len(_mails) == n_before)
+check("reset needs a token or email + code", fc(23).post("/api/v1/auth/reset-password", json={"new_password": "Reset1Pass"}).status_code == 400)
+
 # ── Staff directory: only 4 departments ─────────────────────────────────────
 legacy = mkuser("electrician", "9444444443", "el@x.in", trade="electrical")
 site_list = c.get("/api/v1/teams/employees", params={"trade": "site"}, headers=H(TADM)).json()
