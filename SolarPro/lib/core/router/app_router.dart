@@ -68,6 +68,7 @@ final routerProvider = Provider<GoRouter>((ref) {
           role == 'kedl' ||
           role == 'service' ||
           role == 'technician' ||
+          role == 'site' ||
           role == 'labour' ||
           role == 'electrician' ||
           role == 'structure' ||
@@ -159,6 +160,10 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: AppRoutes.inventory,
         builder: (context, state) => const InventoryScreen(),
+      ),
+      GoRoute(
+        path: AppRoutes.serviceTickets,
+        builder: (context, state) => const TicketsScreen(),
       ),
 
       // ── Client portal ─────────────────────────────────────────────────

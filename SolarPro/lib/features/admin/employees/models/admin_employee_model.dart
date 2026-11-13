@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:solar_pro/core/constants/staff_departments.dart';
 import 'package:solar_pro/core/theme/app_theme.dart';
 
 class AdminEmployee {
@@ -41,82 +42,20 @@ class AdminEmployee {
       email: json['email']?.toString(),
       role: rawRole,
       trade: rawTrade,
-      team: json['team']?.toString() ?? 'Operations Team',
+      team: (json['team']?.toString().trim().isNotEmpty ?? false) ? json['team'].toString() : (staffDepartment(rawRole)?.label ?? 'Staff'),
       taskCount: (json['task_count'] as num?)?.toInt() ?? 0,
       isActive: json['is_active'] != false,
     );
   }
 
-  String get roleDisplayName {
-    switch (role) {
-      case 'sales':
-      case 'salesman':
-        return 'Sales Executive';
-      case 'technician':
-      case 'service':
-        return 'Service Technician';
-      case 'electrician':
-        return 'Electrician';
-      case 'structure':
-        return 'Structure Specialist';
-      case 'civil':
-        return 'Civil Specialist';
-      case 'labour':
-        return 'Field Labour';
-      case 'kedl':
-        return 'KEDL Liaison';
-      case 'admin':
-        return 'Administrator';
-      default:
-        return role.toUpperCase();
-    }
-  }
+  /// One of the four departments (sales, site, kedl, service), if known.
+  StaffDepartment? get department => staffDepartment(role);
 
-  Color get roleColor {
-    switch (role) {
-      case 'sales':
-      case 'salesman':
-        return AppColors.teal500;
-      case 'technician':
-      case 'service':
-        return AppColors.gold500;
-      case 'electrician':
-        return const Color(0xFFF59E0B);
-      case 'structure':
-        return const Color(0xFF38BDF8);
-      case 'civil':
-        return const Color(0xFF10B981);
-      case 'labour':
-        return const Color(0xFFA855F7);
-      case 'kedl':
-        return const Color(0xFFEC4899);
-      default:
-        return AppColors.grey400;
-    }
-  }
+  String get roleDisplayName => role == 'admin' ? 'Administrator' : (department?.label ?? role.toUpperCase());
 
-  IconData get roleIcon {
-    switch (role) {
-      case 'sales':
-      case 'salesman':
-        return Icons.trending_up_rounded;
-      case 'technician':
-      case 'service':
-        return Icons.support_agent_rounded;
-      case 'electrician':
-        return Icons.electric_bolt_rounded;
-      case 'structure':
-        return Icons.foundation_rounded;
-      case 'civil':
-        return Icons.handyman_rounded;
-      case 'labour':
-        return Icons.construction_rounded;
-      case 'kedl':
-        return Icons.description_rounded;
-      default:
-        return Icons.badge_rounded;
-    }
-  }
+  Color get roleColor => department?.color ?? AppColors.grey400;
+
+  IconData get roleIcon => department?.icon ?? Icons.badge_rounded;
 }
 
 class EmployeeTask {

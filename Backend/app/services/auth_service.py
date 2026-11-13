@@ -76,7 +76,7 @@ def _find_user(identifier: str) -> Optional[Dict[str, Any]]:
 
 def _user_payload(doc: Dict[str, Any]) -> Dict[str, Any]:
     return {
-        "id": str(doc["_id"]),
+        "id": str(doc.get("id") or doc["_id"]),
         "name": doc.get("name", ""),
         "phone": doc.get("phone", ""),
         "email": doc.get("email"),
@@ -98,7 +98,7 @@ class AuthService:
         assert_can_sign_in(doc)
         db = _db()
         now = _now()
-        uid = str(doc["_id"])
+        uid = str(doc.get("id") or doc["_id"])
         role = str(doc.get("role", "client")).lower()
         access = create_access_token(subject=uid, role=role, token_version=int(doc.get("token_version", 0) or 0))
         refresh_plain = generate_random_token()
@@ -170,9 +170,13 @@ class AuthService:
     def revoke_all_sessions(user_id: str) -> None:
         """Invalidate every access and refresh token for a user."""
         db = _db()
-        db["users"].update_one({"_id": user_id}, {"$inc": {"token_version": 1}})
+        doc = load_user(str(user_id))  # resolves string and ObjectId _ids alike
+        ids = {str(user_id)}
+        if doc:
+            ids |= {str(doc["_id"]), str(doc.get("id") or doc["_id"])}
+        db["users"].update_one({"_id": doc["_id"] if doc else user_id}, {"$inc": {"token_version": 1}})
         db["refresh_tokens"].update_many(
-            {"user_id": user_id, "revoked_at": None},
+            {"user_id": {"$in": sorted(ids)}, "revoked_at": None},
             {"$set": {"revoked_at": _now(), "revoked_reason": "revoke_all"}},
         )
 
@@ -258,12 +262,18 @@ class AuthService:
         except Exception:
             raise BadRequestException("An account with this mobile number or email already exists. Please sign in.")
 
+        # Every new account proves both contact points: a code to the email and
+        # a separate code by SMS to the mobile (see verify_signup).
+        await AuthService.send_email_verification(clean_email, ip, quiet=True)
+        await AuthService._send_phone_code(clean_phone, quiet=True)
         if is_client:
-            await AuthService.send_email_verification(clean_email, ip, quiet=True)
             return {
+                "requires_verification": True,
                 "requires_email_verification": True,
-                "message": "Account created. Enter the 6-digit code we sent to your email.",
+                "requires_phone_verification": True,
+                "message": "Account created. Enter the codes we sent to your email and mobile.",
                 "email": clean_email,
+                "phone": clean_phone,
                 "user": _user_payload(doc),
             }
 
@@ -299,8 +309,13 @@ class AuthService:
 
         return {
             "requires_approval": True,
+            "requires_verification": True,
+            "requires_email_verification": True,
+            "requires_phone_verification": True,
             "approval_status": "pending",
-            "message": "Your registration has been submitted. You can sign in once an administrator approves it.",
+            "message": "Verify your email and mobile. You can sign in once an administrator approves your account.",
+            "email": clean_email,
+            "phone": clean_phone,
             "user": _user_payload(doc),
         }
 
@@ -410,6 +425,20 @@ class AuthService:
             # and never spend SMS credits on unknown numbers.
             return {"message": GENERIC_OTP_SENT}
 
+        code = AuthService._issue_phone_code(clean_phone)
+        await AuthService._sms(clean_phone, code)
+        if user.get("email"):
+            try:
+                from app.services.email_service import email_service
+                await email_service.send_verification_email(to_email=user["email"], code=code, user_name=user.get("name", ""))
+            except Exception as e:
+                logger.warning("otp_email_failed", error=str(e))
+        return {"message": GENERIC_OTP_SENT}
+
+    @staticmethod
+    def _issue_phone_code(clean_phone: str) -> str:
+        """Store a fresh single-use SMS code (hashed) and return the plain code."""
+        db = _db()
         code = generate_otp(length=settings.OTP_LENGTH)
         now = _now()
         db["otp_codes"].update_many(
@@ -425,18 +454,152 @@ class AuthService:
             "consumed_at": None,
             "created_at": now,
         })
+        return code
+
+    @staticmethod
+    async def _sms(clean_phone: str, code: str) -> None:
         try:
             from app.services.sms import get_sms_provider
             await get_sms_provider().send_otp(phone=clean_phone, otp_code=code)
         except Exception as e:
             logger.warning("sms_dispatch_failed", error=str(e))
-        if user.get("email"):
-            try:
-                from app.services.email_service import email_service
-                await email_service.send_verification_email(to_email=user["email"], code=code, user_name=user.get("name", ""))
-            except Exception as e:
-                logger.warning("otp_email_failed", error=str(e))
-        return {"message": GENERIC_OTP_SENT}
+
+    @staticmethod
+    async def _send_phone_code(clean_phone: str, quiet: bool = False) -> None:
+        """SMS-only verification code for a not-yet-verified mobile number.
+
+        Unlike the sign-in OTP this is never copied to email: it must prove the
+        person holds the phone.
+        """
+        try:
+            ratelimit.hit(f"otp:cooldown:{clean_phone}", 1, settings.OTP_RESEND_COOLDOWN_SECONDS,
+                          "Please wait a minute before requesting another code.")
+            ratelimit.hit(f"otp:hour:{clean_phone}", settings.OTP_MAX_PER_HOUR, 3600,
+                          "Too many codes requested for this number. Please try again in an hour.")
+        except Exception:
+            if quiet:
+                return
+            raise
+        user = _db()["users"].find_one({"phone": clean_phone})
+        if not user or user.get("is_phone_verified"):
+            return  # generic response; nothing to send
+        await AuthService._sms(clean_phone, AuthService._issue_phone_code(clean_phone))
+
+    @staticmethod
+    async def send_phone_verification(phone: str, ip: str) -> None:
+        try:
+            clean_phone = normalize_phone(phone)
+        except ValueError:
+            raise BadRequestException("Please enter a valid 10-digit mobile number.")
+        ratelimit.hit(f"otp:ip:{ip}", 10, 3600, "Too many code requests from this network. Please try later.")
+        await AuthService._send_phone_code(clean_phone)
+
+    @staticmethod
+    def _find_code(collection: str, field: str, value: str, code: str) -> Optional[Dict[str, Any]]:
+        """Return the live code record if ``code`` matches it, counting failed attempts."""
+        db = _db()
+        rec = db[collection].find_one(
+            {field: value, "consumed_at": None, "expires_at": {"$gt": _now()}},
+            sort=[("created_at", -1)],
+        )
+        if not rec or rec.get("attempts", 0) >= 5 or not verify_token_hash(str(code).strip(), rec["code_hash"]):
+            if rec:
+                db[collection].update_one({"_id": rec["_id"]}, {"$inc": {"attempts": 1}})
+            return None
+        return rec
+
+    @staticmethod
+    async def verify_signup(email: str, email_code: str, phone: str, phone_code: str, ip: str,
+                            device_info: Optional[str] = None) -> Dict[str, Any]:
+        """Verify the email code and the SMS code of a new account together."""
+        ratelimit.hit(f"verify_signup:ip:{ip}", 30, 900)
+        try:
+            clean_email = normalize_email(email)
+            clean_phone = normalize_phone(phone)
+        except ValueError:
+            raise BadRequestException("Invalid or expired verification code.")
+        fail_key = f"verify_signup:fail:{clean_phone}"
+        ratelimit.ensure_below(fail_key, settings.OTP_MAX_VERIFY_FAILURES_PER_HOUR,
+                               "Too many incorrect codes. Please request new codes later.", 3600)
+
+        db = _db()
+        doc = db["users"].find_one({"email": clean_email, "phone": clean_phone})
+        if not doc:
+            ratelimit.hit(fail_key, 10_000, 3600)
+            raise BadRequestException("Invalid or expired verification code.")
+
+        email_rec = None if doc.get("is_email_verified") else AuthService._find_code(
+            "email_verifications", "email", clean_email, email_code)
+        phone_rec = None if doc.get("is_phone_verified") else AuthService._find_code(
+            "otp_codes", "phone", clean_phone, phone_code)
+        email_ok = bool(doc.get("is_email_verified")) or email_rec is not None
+        phone_ok = bool(doc.get("is_phone_verified")) or phone_rec is not None
+        if not (email_ok and phone_ok):
+            ratelimit.hit(fail_key, 10_000, 3600)
+            if not email_ok and not phone_ok:
+                raise BadRequestException("Both codes are incorrect or expired.")
+            raise BadRequestException("The email code is incorrect or expired." if not email_ok
+                                      else "The mobile (SMS) code is incorrect or expired.")
+        ratelimit.reset(fail_key)
+
+        now = _now()
+        if email_rec:
+            db["email_verifications"].update_one({"_id": email_rec["_id"]}, {"$set": {"consumed_at": now}})
+        if phone_rec:
+            db["otp_codes"].update_one({"_id": phone_rec["_id"]}, {"$set": {"consumed_at": now}})
+        db["users"].update_one({"_id": doc["_id"]}, {"$set": {
+            "is_email_verified": True, "email_verified_at": doc.get("email_verified_at") or now,
+            "is_phone_verified": True, "phone_verified_at": doc.get("phone_verified_at") or now,
+            "updated_at": now,
+        }})
+        doc = db["users"].find_one({"_id": doc["_id"]})
+        if str(doc.get("role")) != "client" or doc.get("approval_status") != "approved":
+            return {
+                "requires_approval": True,
+                "message": "Email and mobile verified. You can sign in once an administrator approves your account.",
+            }
+        res = AuthService._issue_tokens(doc, device_info)
+        res["message"] = "Email and mobile verified. Welcome to SolarPro!"
+        return res
+
+    # ── Password change ─────────────────────────────────────────────────────
+
+    @staticmethod
+    def change_password(user_id: str, current_password: Optional[str], new_password: str,
+                        device_info: Optional[str] = None) -> Dict[str, Any]:
+        """Change (or first set) the caller's password, then sign out every other session."""
+        fail_key = f"change_pw:fail:{user_id}"
+        ratelimit.ensure_below(fail_key, settings.LOGIN_MAX_FAILURES,
+                               "Too many incorrect attempts. Please wait 15 minutes and try again.",
+                               settings.LOGIN_FAILURE_WINDOW_SECONDS)
+        doc = load_user(user_id)
+        if not doc:
+            raise UnauthorizedException("Session expired. Please sign in again.")
+        existing_hash = doc.get("password_hash")
+        if existing_hash:
+            if not current_password or not verify_password(current_password, existing_hash):
+                ratelimit.hit(fail_key, 10_000, settings.LOGIN_FAILURE_WINDOW_SECONDS)
+                raise BadRequestException("Your current password is incorrect.")
+            if verify_password(new_password, existing_hash):
+                raise BadRequestException("The new password must be different from your current password.")
+        try:
+            validate_password_strength(new_password)
+        except ValueError as e:
+            raise BadRequestException(str(e))
+        ratelimit.reset(fail_key)
+
+        db = _db()
+        now = _now()
+        db["users"].update_one({"_id": doc["_id"]}, {
+            "$set": {"password_hash": hash_password(new_password), "password_changed_at": now, "updated_at": now},
+        })
+        # Old access/refresh tokens (other devices) stop working; this device
+        # gets a fresh session so the user stays signed in.
+        AuthService.revoke_all_sessions(str(doc["_id"]))
+        doc = db["users"].find_one({"_id": doc["_id"]})
+        res = AuthService._issue_tokens(doc, device_info)
+        res["message"] = "Password changed. Other devices have been signed out."
+        return res
 
     @staticmethod
     async def verify_otp(phone: str, otp: str, ip: str, device_info: Optional[str] = None) -> Dict[str, Any]:

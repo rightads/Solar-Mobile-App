@@ -27,10 +27,9 @@ class _SalesmanCustomersTabState extends State<SalesmanCustomersTab> {
 
   final List<String> _stages = [
     'All',
-    'Sale Confirmed',
-    'Docs Received',
-    'Advance Verified',
-    'Work In Progress',
+    'Site Installation',
+    'KEDL Process',
+    'System Live',
     'Handed Over',
   ];
 
@@ -54,12 +53,12 @@ class _SalesmanCustomersTabState extends State<SalesmanCustomersTab> {
 
     try {
       String? backendStage;
-      if (_selectedStageFilter == 'Sale Confirmed') {
-        backendStage = 'SALE_CONFIRMED';
-      } else if (_selectedStageFilter == 'Docs Received') {
-        backendStage = 'DOCUMENTS_RECEIVED';
-      } else if (_selectedStageFilter == 'Advance Verified') {
-        backendStage = 'ADVANCE_VERIFIED';
+      if (_selectedStageFilter == 'Site Installation') {
+        backendStage = 'INSTALLATION_COMPLETE';
+      } else if (_selectedStageFilter == 'KEDL Process') {
+        backendStage = 'KEDL_PROCESS';
+      } else if (_selectedStageFilter == 'System Live') {
+        backendStage = 'SYSTEM_LIVE';
       } else if (_selectedStageFilter == 'Handed Over') {
         backendStage = 'HANDED_OVER';
       }

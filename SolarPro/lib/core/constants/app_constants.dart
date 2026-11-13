@@ -88,6 +88,7 @@ class AppRoutes {
   static const String workAssign  = '/vendor/work-assignments';
   static const String kedl        = '/vendor/kedl';
   static const String inventory   = '/vendor/inventory';
+  static const String serviceTickets = '/vendor/tickets';
   static const String reports     = '/vendor/reports';
   static const String adminApprovals = '/admin/approvals';
   static const String adminEmployees = '/admin/employees';

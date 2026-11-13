@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:solar_pro/core/constants/app_constants.dart';
+import 'package:solar_pro/core/network/api_client.dart';
 import 'package:solar_pro/core/theme/app_theme.dart';
 import 'package:solar_pro/features/employee/service/presentation/widgets/resolve_ticket_dialog.dart';
 import 'package:solar_pro/features/tickets/data/models/ticket_model.dart';
@@ -23,6 +26,7 @@ class _ServiceTicketDetailScreenState extends State<ServiceTicketDetailScreen> {
   late TicketRepository _repo;
   late TicketModel _ticket;
   bool _isLoading = false;
+  bool _isAdmin = false;
   final _commentController = TextEditingController();
 
   @override
@@ -30,6 +34,75 @@ class _ServiceTicketDetailScreenState extends State<ServiceTicketDetailScreen> {
     super.initState();
     _repo = widget.repository ?? TicketRepository();
     _ticket = widget.initialTicket;
+    SharedPreferences.getInstance().then((prefs) {
+      final role = prefs.getString(AppConstants.kUserRole)?.toLowerCase() ?? '';
+      if (mounted && (role == 'admin' || role == 'manager' || role == 'vendor')) {
+        setState(() => _isAdmin = true);
+      }
+    });
+  }
+
+  bool get _isOpen =>
+      _ticket.status == TicketStatus.open ||
+      _ticket.status == TicketStatus.assigned ||
+      _ticket.status == TicketStatus.reopened;
+
+  /// Admin: pick a service engineer for this ticket.
+  Future<void> _assignEngineer() async {
+    final engineers = await ApiClient().getEmployees(trade: 'service');
+    if (!mounted) return;
+    if (engineers.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('No active Service employees yet. Add one in the Staff Directory.')),
+      );
+      return;
+    }
+    final chosen = await showModalBottomSheet<Map<String, dynamic>>(
+      context: context,
+      backgroundColor: AppColors.navy800,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (ctx) => SafeArea(
+        child: ListView(
+          shrinkWrap: true,
+          padding: const EdgeInsets.symmetric(vertical: 12),
+          children: [
+            const Padding(
+              padding: EdgeInsets.fromLTRB(20, 4, 20, 8),
+              child: Text('Assign service engineer', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+            ),
+            for (final e in engineers)
+              ListTile(
+                leading: const CircleAvatar(child: Icon(Icons.support_agent_rounded)),
+                title: Text(e['name']?.toString() ?? 'Engineer'),
+                subtitle: Text([e['employee_no'], e['phone']].where((v) => v != null && '$v'.isNotEmpty).join(' • ')),
+                trailing: (e['id']?.toString() ?? '') == _ticket.assignedTo
+                    ? const Icon(Icons.check_circle_rounded, color: AppColors.success)
+                    : null,
+                onTap: () => Navigator.pop(ctx, e),
+              ),
+          ],
+        ),
+      ),
+    );
+    if (chosen == null || !mounted) return;
+    setState(() => _isLoading = true);
+    try {
+      final updated = await _repo.assignTicket(_ticket.id, chosen['id'].toString());
+      if (!mounted) return;
+      setState(() {
+        _ticket = updated;
+        _isLoading = false;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Assigned to ${chosen['name']}'), backgroundColor: AppColors.success),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _isLoading = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(e.toString().replaceFirst('Exception: ', '')), backgroundColor: AppColors.error),
+      );
+    }
   }
 
   @override
@@ -191,6 +264,14 @@ class _ServiceTicketDetailScreenState extends State<ServiceTicketDetailScreen> {
           _ticket.ticketNo,
           style: const TextStyle(color: AppColors.fg, fontWeight: FontWeight.bold, fontSize: 16),
         ),
+        actions: [
+          if (_isAdmin && _ticket.status != TicketStatus.resolved && _ticket.status != TicketStatus.closed)
+            TextButton.icon(
+              onPressed: _isLoading ? null : _assignEngineer,
+              icon: const Icon(Icons.person_add_alt_1_rounded, size: 18),
+              label: Text(_ticket.assignedTo == null || _ticket.assignedTo!.isEmpty ? 'Assign' : 'Reassign'),
+            ),
+        ],
       ),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator(color: AppColors.gold500))
@@ -604,12 +685,28 @@ class _ServiceTicketDetailScreenState extends State<ServiceTicketDetailScreen> {
         child: SafeArea(
           child: Row(
             children: [
-              if (_ticket.status == TicketStatus.assigned)
+              if (_isAdmin && _isOpen)
+                Expanded(
+                  child: ElevatedButton.icon(
+                    onPressed: _isLoading ? null : _assignEngineer,
+                    icon: const Icon(Icons.person_add_alt_1_rounded),
+                    label: Text(_ticket.assigneeName?.isNotEmpty == true
+                        ? 'Assigned to ${_ticket.assigneeName} • Change'
+                        : 'Assign Service Engineer'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppColors.gold500,
+                      foregroundColor: AppColors.ink900,
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      textStyle: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                    ),
+                  ),
+                )
+              else if (_isOpen)
                 Expanded(
                   child: ElevatedButton.icon(
                     onPressed: _isLoading ? null : _startWork,
                     icon: const Icon(Icons.play_arrow_rounded),
-                    label: const Text('Start Work On-Site'),
+                    label: Text(_ticket.status == TicketStatus.assigned ? 'Start Work On-Site' : 'Take Ticket & Start Work'),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: AppColors.gold500,
                       foregroundColor: AppColors.ink900,

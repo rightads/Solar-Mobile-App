@@ -16,13 +16,39 @@ SERVICE_ROLES: Set[str] = {"service", "technician"}
 CLIENT_ROLES: Set[str] = {"client"}
 STAFF_ROLES: Set[str] = MANAGER_ROLES | SALES_ROLES | SITE_ROLES | KEDL_ROLES | SERVICE_ROLES
 
+# The business has exactly four employee departments. Older accounts may still
+# carry legacy role names (labour, electrician, technician, ...); those are
+# mapped onto a department by department_of() and are never offered for new
+# accounts.
+DEPARTMENTS = ("sales", "site", "kedl", "service")
+
 # Roles anyone may request through public self-registration (always pending
 # admin approval except "client"). Admin accounts are never self-service.
-PUBLIC_REGISTRATION_ROLES: Set[str] = {"client", "sales", "site", "kedl", "service"}
+PUBLIC_REGISTRATION_ROLES: Set[str] = {"client", *DEPARTMENTS}
 
 # Roles an admin may create or assign through the employee APIs.
-ASSIGNABLE_STAFF_ROLES: Set[str] = {"sales", "site", "kedl", "service", "technician", "labour",
-                                    "electrician", "structure", "civil", "office_staff"}
+ASSIGNABLE_STAFF_ROLES: Set[str] = set(DEPARTMENTS)
+
+_DEPARTMENT_ALIASES = {
+    "salesman": "sales", "employee": "sales", "office_staff": "sales",
+    "site_ops": "site", "site-ops": "site", "labour": "site", "electrician": "site",
+    "electrical": "site", "structure": "site", "civil": "site",
+    "technician": "service",
+}
+
+
+def normalize_department(value: Any) -> Optional[str]:
+    """Map a role / legacy trade label to one of the four departments."""
+    key = str(value or "").strip().lower()
+    if key in DEPARTMENTS:
+        return key
+    return _DEPARTMENT_ALIASES.get(key)
+
+
+def department_of(user_or_doc: Any) -> Optional[str]:
+    """Department of a user object or a raw user document."""
+    role = user_or_doc.get("role") if isinstance(user_or_doc, dict) else role_of(user_or_doc)
+    return normalize_department(role)
 
 
 def role_of(user: Any) -> str:
@@ -57,7 +83,14 @@ def _db():
 
 def _by_id(collection: str, oid: str) -> Optional[Dict[str, Any]]:
     oid = str(oid)
-    return _db()[collection].find_one({"$or": [{"_id": oid}, {"id": oid}]})
+    or_clauses = [{"_id": oid}, {"id": oid}]
+    try:
+        from bson import ObjectId
+        if ObjectId.is_valid(oid):
+            or_clauses.append({"_id": ObjectId(oid)})
+    except Exception:
+        pass
+    return _db()[collection].find_one({"$or": or_clauses})
 
 
 # ── Clients ──────────────────────────────────────────────────────────────────
@@ -74,7 +107,11 @@ def client_customer(user: Any) -> Optional[Dict[str, Any]]:
         return None
     db = _db()
     uid = user_id(user)
-    linked = db["customers"].find_one({"user_id": uid})
+    raw_id = str(getattr(user, "_id", "") or "")
+    id_conds = [{"user_id": uid}]
+    if raw_id and raw_id != uid:
+        id_conds.append({"user_id": raw_id})
+    linked = db["customers"].find_one({"$or": id_conds})
     if linked:
         return linked
     if not getattr(user, "is_phone_verified", False):
@@ -85,7 +122,7 @@ def client_customer(user: Any) -> Optional[Dict[str, Any]]:
     candidate = db["customers"].find_one({
         "$and": [
             {"$or": [{"phone": phone}, {"mobile": phone}]},
-            {"$or": [{"user_id": None}, {"user_id": {"$exists": False}}, {"user_id": ""}]},
+            {"$or": [{"user_id": None}, {"user_id": {"$exists": False}}, {"user_id": ""}, {"user_id": uid}]},
         ]
     })
     if candidate:

@@ -4,6 +4,8 @@ import 'package:solar_pro/core/constants/app_constants.dart';
 import 'package:solar_pro/core/network/api_client.dart';
 import 'package:solar_pro/core/theme/app_theme.dart';
 import 'package:solar_pro/features/admin/employees/models/admin_employee_model.dart';
+import 'package:solar_pro/core/constants/staff_departments.dart';
+import 'package:solar_pro/features/admin/employees/widgets/add_employee_sheet.dart';
 import 'package:solar_pro/features/admin/employees/widgets/employee_task_sheet.dart';
 
 class AdminEmployeesScreen extends StatefulWidget {
@@ -34,20 +36,17 @@ class _AdminEmployeesScreenState extends State<AdminEmployeesScreen> {
   List<(String, String)> get _tradeFilters => [
     ('all', 'All Staff'),
     ('pending', 'Approval Requests${_pendingApprovals.isNotEmpty ? " (${_pendingApprovals.length})" : ""}'),
-    ('sales', 'Sales'),
-    ('service', 'Service & Maintenance'),
-    ('structure', 'Structure'),
-    ('electrical', 'Electrical'),
-    ('civil', 'Civil'),
-    ('kedl', 'KEDL Liaison'),
+    for (final d in kStaffDepartments) (d.key, d.label),
   ];
 
   @override
   void initState() {
     super.initState();
     _client = widget.apiClient ?? ApiClient();
-    if (widget.initialTrade != null) {
-      _selectedTrade = widget.initialTrade!;
+    final initial = widget.initialTrade;
+    if (initial != null) {
+      // Old links may still use trade names (structure, electrical, ...).
+      _selectedTrade = initial == 'all' || initial == 'pending' ? initial : (departmentOf(initial) ?? 'all');
     }
     if (widget.initialEmployees != null) {
       _employees = List.from(widget.initialEmployees!);
@@ -229,6 +228,19 @@ class _AdminEmployeesScreenState extends State<AdminEmployeesScreen> {
 
     return Scaffold(
       backgroundColor: AppColors.navy900,
+      floatingActionButton: FloatingActionButton.extended(
+        onPressed: () async {
+          final created = await AddEmployeeSheet.show(
+            context,
+            department: _selectedTrade == 'all' || _selectedTrade == 'pending' ? null : _selectedTrade,
+          );
+          if (created) _loadEmployees();
+        },
+        backgroundColor: AppColors.gold500,
+        foregroundColor: AppColors.ink900,
+        icon: const Icon(Icons.person_add_alt_1_rounded),
+        label: const Text('Add Employee', style: TextStyle(fontWeight: FontWeight.bold)),
+      ),
       appBar: AppBar(
         title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -678,7 +690,7 @@ class _AdminEmployeesScreenState extends State<AdminEmployeesScreen> {
       color: AppColors.gold500,
       backgroundColor: AppColors.navy800,
       child: ListView.separated(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.fromLTRB(16, 16, 16, 96),
         physics: const AlwaysScrollableScrollPhysics(
           parent: BouncingScrollPhysics(),
         ),
@@ -751,7 +763,7 @@ class _AdminEmployeesScreenState extends State<AdminEmployeesScreen> {
       color: AppColors.gold500,
       backgroundColor: AppColors.navy800,
       child: ListView.separated(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.fromLTRB(16, 16, 16, 96),
         physics: const AlwaysScrollableScrollPhysics(
           parent: BouncingScrollPhysics(),
         ),
@@ -1013,13 +1025,10 @@ class _PendingApprovalCard extends StatelessWidget {
     final phone = user['phone']?.toString() ?? 'N/A';
     final email = user['email']?.toString() ?? '';
 
-    final (roleDisplay, roleColor, roleIcon) = switch (rawRole) {
-      'sales' || 'salesman' => ('Sales Executive', AppColors.gold500, Icons.trending_up_rounded),
-      'kedl' => ('KEDL Liaison', AppColors.purple500, Icons.description_rounded),
-      'service' => ('Service Technician', AppColors.teal400, Icons.build_rounded),
-      'site' || 'electrician' || 'structure' || 'civil' || 'labour' => ('Site Installation Crew', AppColors.orange400, Icons.construction_rounded),
-      _ => ('Staff (${rawRole.toUpperCase()})', AppColors.info, Icons.badge_rounded),
-    };
+    final dept = staffDepartment(rawRole);
+    final roleDisplay = dept?.label ?? 'Staff (${rawRole.toUpperCase()})';
+    final roleColor = dept?.color ?? AppColors.info;
+    final roleIcon = dept?.icon ?? Icons.badge_rounded;
 
     return Container(
       padding: const EdgeInsets.all(14),

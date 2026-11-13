@@ -286,6 +286,55 @@ class ApiClient {
     }
   }
 
+  /// Re-send the SMS code that verifies a new account's mobile number.
+  Future<bool> sendPhoneVerification(String phone) async {
+    try {
+      final res = await _dio.post('/auth/send-phone-verification', data: {'phone': phone.trim()});
+      return res.statusCode == 200;
+    } on DioException catch (de) {
+      throw Exception(_formatDioError(de, fallback: 'Could not send the SMS code.'));
+    }
+  }
+
+  /// Verify a new account with the email code and the SMS code together.
+  /// Clients get a session back; staff accounts still wait for admin approval.
+  Future<Map<String, dynamic>?> verifySignup({
+    required String email,
+    required String emailCode,
+    required String phone,
+    required String phoneCode,
+  }) async {
+    try {
+      final res = await _dio.post('/auth/verify-signup', data: {
+        'email': email.trim().toLowerCase(),
+        'email_code': emailCode.trim(),
+        'phone': phone.trim(),
+        'phone_code': phoneCode.trim(),
+      });
+      final data = res.data as Map<String, dynamic>?;
+      await _persistSession(data);
+      return data;
+    } on DioException catch (de) {
+      throw Exception(_formatDioError(de, fallback: 'Invalid or expired verification code.'));
+    }
+  }
+
+  /// Change the signed-in user's password. The server signs out every other
+  /// device and returns a fresh session for this one.
+  Future<String> changePassword({String? currentPassword, required String newPassword}) async {
+    try {
+      final res = await _dio.post('/auth/change-password', data: {
+        if (currentPassword != null && currentPassword.isNotEmpty) 'current_password': currentPassword,
+        'new_password': newPassword,
+      });
+      final data = res.data as Map<String, dynamic>?;
+      await _persistSession(data);
+      return data?['message']?.toString() ?? 'Password changed.';
+    } on DioException catch (de) {
+      throw Exception(_formatDioError(de, fallback: 'Could not change the password.'));
+    }
+  }
+
   /// Get current user profile
   Future<Map<String, dynamic>?> getMe() async {
 
@@ -539,26 +588,26 @@ class ApiClient {
 
   // ── Page 1 & 2: Employees Add Like Labour ─────────────────────────────────
 
-  /// Add employee or labour team member (Labour, Electrician, Civil, Sales, KEDL)
+  /// Create a staff account (Admin). [department] is one of
+  /// sales, site, kedl or service.
   Future<Map<String, dynamic>?> createEmployee({
     required String name,
     required String phone,
-    required String trade,
-    String team = 'Team A',
-    String role = 'employee',
+    required String department,
+    String? email,
+    String? password,
   }) async {
     try {
       final res = await _dio.post('/teams/employees', data: {
         'name': name.trim(),
         'phone': phone.trim(),
-        'trade': trade.trim().toLowerCase(),
-        'team': team.trim(),
-        'role': role,
+        'role': department,
+        if (email != null && email.trim().isNotEmpty) 'email': email.trim().toLowerCase(),
+        if (password != null && password.isNotEmpty) 'password': password,
       });
       return res.data as Map<String, dynamic>?;
-    } catch (e) {
-      dev.log('createEmployee error: $e');
-      rethrow;
+    } on DioException catch (de) {
+      throw Exception(_formatDioError(de, fallback: 'Could not create the employee.'));
     }
   }
 

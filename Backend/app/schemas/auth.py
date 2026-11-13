@@ -83,3 +83,32 @@ class EmailVerificationResponse(BaseModel):
     message: str = "Email verification code dispatched successfully."
     email: str
 
+
+
+class SendPhoneVerificationRequest(BaseModel):
+    phone: str = Field(..., description="10-digit Indian mobile number to verify")
+
+    @field_validator("phone")
+    @classmethod
+    def validate_phone(cls, v: str) -> str:
+        return normalize_phone(v)
+
+
+class VerifySignupRequest(BaseModel):
+    """Both codes sent at sign-up: one to the email, one by SMS to the mobile."""
+    email: str = Field(..., min_length=5, max_length=120)
+    email_code: str = Field(..., min_length=4, max_length=10, pattern=r"^\d+$")
+    phone: str = Field(..., description="10-digit Indian mobile number")
+    phone_code: str = Field(..., min_length=4, max_length=10, pattern=r"^\d+$")
+    device_info: Optional[str] = Field(None, max_length=200)
+
+    @field_validator("phone")
+    @classmethod
+    def validate_phone(cls, v: str) -> str:
+        return normalize_phone(v)
+
+
+class ChangePasswordRequest(BaseModel):
+    current_password: Optional[str] = Field(None, max_length=128, description="Required when the account already has a password")
+    new_password: str = Field(..., min_length=8, max_length=72, description="New password (8+ characters, letters and numbers)")
+    device_info: Optional[str] = Field(None, max_length=200)

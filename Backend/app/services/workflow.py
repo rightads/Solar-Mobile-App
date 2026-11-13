@@ -1,15 +1,19 @@
-"""10-stage project lifecycle and the automatic 4-employee hand-off.
+"""4-stage project lifecycle and the automatic hand-off between departments.
 
 Single source of truth: ``customer.stage_status[STAGE] = {done, at, by, by_id}``.
-Every event (stage toggle, site work completion, KEDL approval, payment
-verification, lead conversion) goes through :func:`mark_stage`, which then
-re-derives ``customer.stage`` / ``progress`` and performs hand-offs:
+Every event (stage toggle, site work completion, KEDL approval, customer
+creation, employee assignment) goes through :func:`mark_stage` /
+:func:`advance`, which re-derive ``customer.stage`` / ``progress`` and perform
+hand-offs:
 
-  Sales (1-3) → Site (4-7) → KEDL (8-9) → Service / Handover (10)
+  Site-ops (1: installation) → KEDL (2-3) → Service / Handover (4)
+
+Sales creates the customer and assigns the Site-ops and KEDL employees; it has
+no stage of its own. Service picks up raised tickets.
 """
 from datetime import datetime, timezone
 import uuid
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Iterable, List, Optional
 import structlog
 from app.core import access
 from app.core.constants import STAGE_ORDER
@@ -20,29 +24,32 @@ STAGES: List[str] = [s.value for s, _ in STAGE_ORDER]
 TITLES: Dict[str, str] = {s.value: t for s, t in STAGE_ORDER}
 
 NOTES = {
-    "SALE_CONFIRMED": "Sales agreement signed.",
-    "DOCUMENTS_RECEIVED": "E-bill, Aadhaar, PAN, cancelled cheque and registry collected.",
-    "ADVANCE_VERIFIED": "Advance payment approved by sales and verified by admin.",
-    "STRUCTURE_WORK": "Mounting structure installation.",
-    "ELECTRICAL_WORK": "DC/AC cabling, inverter and earthing.",
-    "CIVIL_WORK": "Grouting and rooftop water-proofing.",
-    "INSTALLATION_COMPLETE": "Panels and inverter installed and tested.",
+    "INSTALLATION_COMPLETE": "Structure, electrical and civil work by the Site-ops team.",
     "KEDL_PROCESS": "Name change, load enhancement and net-metering files with the discom.",
     "SYSTEM_LIVE": "Net meter installed and system synced with the grid.",
     "HANDED_OVER": "Project handed over with warranty documents.",
 }
 
-WORK_STAGE = {"structure": "STRUCTURE_WORK", "electrical": "ELECTRICAL_WORK", "civil": "CIVIL_WORK"}
 SITE_SEQUENCE = ["structure", "electrical", "civil"]
 
 # Which roles own which stages (admins may toggle any stage).
 STAGE_OWNERS = {
-    "SALE_CONFIRMED": access.SALES_ROLES, "DOCUMENTS_RECEIVED": access.SALES_ROLES,
-    "ADVANCE_VERIFIED": set(),  # set only by admin payment verification
-    "STRUCTURE_WORK": access.SITE_ROLES, "ELECTRICAL_WORK": access.SITE_ROLES,
-    "CIVIL_WORK": access.SITE_ROLES, "INSTALLATION_COMPLETE": access.SITE_ROLES,
+    "INSTALLATION_COMPLETE": access.SITE_ROLES,
     "KEDL_PROCESS": access.KEDL_ROLES, "SYSTEM_LIVE": access.KEDL_ROLES,
     "HANDED_OVER": access.SERVICE_ROLES,
+}
+STAGE_OWNER_FIELD = {
+    "INSTALLATION_COMPLETE": "site_employee_id",
+    "KEDL_PROCESS": "kedl_employee_id", "SYSTEM_LIVE": "kedl_employee_id",
+    "HANDED_OVER": "service_employee_id",
+}
+
+# Customer fields holding an assigned employee, and the department each must be in.
+ASSIGNMENT_FIELDS = {
+    "sales_id": ("sales", "sales_name", None),
+    "site_employee_id": ("site", "site_employee_name", None),
+    "kedl_employee_id": ("kedl", "kedl_employee_name", None),
+    "service_employee_id": ("service", "service_employee_name", "service_employee_no"),
 }
 
 
@@ -109,15 +116,8 @@ def can_toggle_stage(user: Any, cust: Dict[str, Any], stage: str) -> bool:
     role = access.role_of(user)
     if role not in STAGE_OWNERS.get(stage, set()):
         return False
-    uid = access.user_id(user)
-    owner_field = {
-        "SALE_CONFIRMED": "sales_id", "DOCUMENTS_RECEIVED": "sales_id",
-        "STRUCTURE_WORK": "site_employee_id", "ELECTRICAL_WORK": "site_employee_id",
-        "CIVIL_WORK": "site_employee_id", "INSTALLATION_COMPLETE": "site_employee_id",
-        "KEDL_PROCESS": "kedl_employee_id", "SYSTEM_LIVE": "kedl_employee_id",
-        "HANDED_OVER": "service_employee_id",
-    }.get(stage)
-    return owner_field is not None and str(cust.get(owner_field) or "") in ("", uid)
+    owner_field = STAGE_OWNER_FIELD.get(stage)
+    return owner_field is not None and str(cust.get(owner_field) or "") in ("", access.user_id(user))
 
 
 def _notify(title: str, body: str, *, user_id: Optional[str] = None, role: Optional[str] = None, target: Optional[str] = None) -> None:
@@ -162,25 +162,20 @@ def advance(customer_id: str) -> None:
     name = cust.get("name", "Customer")
 
     # ── Hand-offs ──────────────────────────────────────────────────────────
-    sales_done = all(is_done(cust, s) for s in ("SALE_CONFIRMED", "DOCUMENTS_RECEIVED", "ADVANCE_VERIFIED"))
-    site_done = is_done(cust, "INSTALLATION_COMPLETE")
-    kedl_done = is_done(cust, "SYSTEM_LIVE")
-
-    if kedl_done:
+    if is_done(cust, "SYSTEM_LIVE"):
         handoff = ("service", cust.get("service_employee_id"))
-    elif site_done:
+    elif is_done(cust, "INSTALLATION_COMPLETE"):
         handoff = ("kedl", cust.get("kedl_employee_id"))
-    elif sales_done:
-        handoff = ("site", cust.get("site_employee_id"))
     else:
-        handoff = ("sales", cust.get("sales_id"))
+        handoff = ("site", cust.get("site_employee_id"))
     role, emp_id = handoff
     if cust.get("assigned_role") != role:
         updates["assigned_role"] = role
         updates["assigned_to"] = emp_id
+        label = {"site": "Site-ops", "kedl": "KEDL", "service": "Service"}[role]
         _notify(
-            f"{name}: now with {role.upper() if role == 'kedl' else role.capitalize()}",
-            f"{name}'s project moved to the {role} stage.",
+            f"{name}: now with {label}",
+            f"{name}'s project moved to the {label} stage.",
             user_id=emp_id, role="admin" if not emp_id else None, target=cid,
         )
         if role == "site":
@@ -191,7 +186,7 @@ def advance(customer_id: str) -> None:
 
 
 def _activate_site_work(db, cust: Dict[str, Any]) -> None:
-    """Create the structure → electrical → civil work items once sales hands off."""
+    """Create the structure → electrical → civil tasks for the Site-ops team."""
     cid = str(cust["_id"])
     now = _now()
     for wt in SITE_SEQUENCE:
@@ -227,24 +222,68 @@ def _init_kedl_files(db, cust: Dict[str, Any]) -> None:
 
 # ── Event hooks ─────────────────────────────────────────────────────────────
 
+def on_customer_created(customer_id: str) -> None:
+    """A new project starts with Site-ops: create its installation tasks."""
+    advance(customer_id)
+
+
+def on_assignment_changed(customer_id: str, fields: Iterable[str], actor: Any = None) -> None:
+    """Push a newly assigned Site-ops / KEDL employee onto the open work items."""
+    db = _db()
+    cust = db["customers"].find_one({"_id": customer_id}) if db is not None else None
+    if not cust:
+        return
+    cid = str(cust["_id"])
+    now = _now()
+    fields = set(fields)
+    if "site_employee_id" in fields:
+        emp_id, emp_name = cust.get("site_employee_id"), cust.get("site_employee_name")
+        db["work_assignments"].update_many(
+            {"customer_id": cid, "work_type": {"$in": SITE_SEQUENCE}, "status": {"$nin": ["completed", "cancelled"]}},
+            {"$set": {"assigned_to": emp_id, "assigned_employee_id": emp_id,
+                      "assigned_employee_name": emp_name, "assigned_staff": emp_name, "updated_at": now}},
+        )
+    if "kedl_employee_id" in fields:
+        db["kedl_files"].update_many(
+            {"customer_id": cid, "status": {"$ne": "approved"}},
+            {"$set": {"assigned_to": cust.get("kedl_employee_id"), "updated_at": now}},
+        )
+    role_field = {"site": "site_employee_id", "kedl": "kedl_employee_id", "service": "service_employee_id"}
+    current_field = role_field.get(str(cust.get("assigned_role") or ""))
+    if current_field and current_field in fields:
+        db["customers"].update_one({"_id": cust["_id"]}, {"$set": {"assigned_to": cust.get(current_field)}})
+    by = getattr(actor, "name", None) or "Admin"
+    for field in fields:
+        emp_id = cust.get(field)
+        if emp_id and field in ("site_employee_id", "kedl_employee_id", "service_employee_id"):
+            _notify("New project assigned to you",
+                    f"{by} assigned you to {cust.get('name', 'a customer')}'s project.",
+                    user_id=emp_id, target=cid)
+
+
 def on_work_status(work: Dict[str, Any], actor: Any) -> None:
-    """Site work completed/reopened → sync stages and unlock the next trade."""
+    """Site work completed/reopened → unlock the next task and sync the installation stage."""
     cid = str(work.get("customer_id") or "")
     wt = str(work.get("work_type") or "").lower()
-    stage = WORK_STAGE.get(wt)
-    if not cid or not stage:
+    if not cid or wt not in SITE_SEQUENCE:
         return
-    done = work.get("status") == "completed"
-    mark_stage(cid, stage, done, actor, cascade=False)
     db = _db()
-    if wt == "civil":
-        mark_stage(cid, "INSTALLATION_COMPLETE", done, actor, cascade=False)
-    if done and wt in SITE_SEQUENCE[:-1]:
+    done = work.get("status") == "completed"
+    if done and wt != SITE_SEQUENCE[-1]:
         nxt = SITE_SEQUENCE[SITE_SEQUENCE.index(wt) + 1]
         db["work_assignments"].update_one(
             {"customer_id": cid, "work_type": nxt, "status": "pending"},
             {"$set": {"status": "assigned", "updated_at": _now()}},
         )
+    works = {w.get("work_type"): w for w in db["work_assignments"].find({"customer_id": cid, "work_type": {"$in": SITE_SEQUENCE}})}
+    all_done = all(works.get(t, {}).get("status") == "completed" for t in SITE_SEQUENCE)
+    cust = db["customers"].find_one({"_id": cid}) or {}
+    installed = is_done(cust, "INSTALLATION_COMPLETE")
+    if all_done and not installed:
+        mark_stage(cid, "INSTALLATION_COMPLETE", True, actor, cascade=False)
+    elif not done and installed:
+        # A task was reopened: the installation is no longer complete.
+        mark_stage(cid, "INSTALLATION_COMPLETE", False, actor, cascade=False)
     advance(cid)
 
 
@@ -261,4 +300,26 @@ def on_kedl_file_status(kfile: Dict[str, Any], actor: Any) -> None:
 
 
 def on_payment_verified(customer_id: str, actor: Any) -> None:
-    mark_stage(customer_id, "ADVANCE_VERIFIED", True, actor)
+    """Payments no longer gate the timeline; keep derived fields fresh."""
+    advance(customer_id)
+
+
+def migrate_legacy_customers() -> int:
+    """One-time upgrade of projects created under the old 10-stage flow.
+
+    Old stage keys (sales / structure / electrical / civil) are dropped from the
+    timeline; projects still waiting on sales are handed to Site-ops so their
+    installation tasks exist. Idempotent: only touches unmigrated records.
+    """
+    db = _db()
+    if db is None:
+        return 0
+    count = 0
+    for cust in db["customers"].find({"workflow_version": {"$ne": 2}}, {"_id": 1}):
+        try:
+            advance(cust["_id"])
+            db["customers"].update_one({"_id": cust["_id"]}, {"$set": {"workflow_version": 2}})
+            count += 1
+        except Exception as e:
+            logger.warning("legacy_customer_migration_failed", customer_id=str(cust["_id"]), error=str(e))
+    return count

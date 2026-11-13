@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, Request, status
 from app.core.deps import MongoUserProxy, get_current_user
 from app.core.ratelimit import client_ip
 from app.schemas.auth import (
+    ChangePasswordRequest,
     EmailVerificationResponse,
     FcmTokenUpdate,
     LogoutRequest,
@@ -11,8 +12,10 @@ from app.schemas.auth import (
     PasswordLoginRequest,
     RefreshTokenRequest,
     SendEmailVerificationRequest,
+    SendPhoneVerificationRequest,
     UserRegisterRequest,
     VerifyEmailRequest,
+    VerifySignupRequest,
 )
 from app.services.auth_service import AuthService, GENERIC_EMAIL_SENT
 
@@ -56,6 +59,24 @@ async def verify_email(payload: VerifyEmailRequest, request: Request):
     return await AuthService.verify_email(email=payload.email, code=payload.code, ip=client_ip(request))
 
 
+@router.post("/send-phone-verification", summary="Send a 6-digit SMS code to verify a new account's mobile")
+async def send_phone_verification(payload: SendPhoneVerificationRequest, request: Request):
+    await AuthService.send_phone_verification(phone=payload.phone, ip=client_ip(request))
+    return {"message": "If this mobile number needs verification, a code has been sent to it."}
+
+
+@router.post("/verify-signup", summary="Verify a new account's email code and SMS code together")
+async def verify_signup(payload: VerifySignupRequest, request: Request):
+    return await AuthService.verify_signup(
+        email=payload.email,
+        email_code=payload.email_code,
+        phone=payload.phone,
+        phone_code=payload.phone_code,
+        ip=client_ip(request),
+        device_info=payload.device_info,
+    )
+
+
 @router.post("/request-otp", response_model=OtpRequestResponse, summary="Request a 6-digit sign-in code by SMS")
 async def request_otp(payload: OtpRequest, request: Request):
     return OtpRequestResponse(**await AuthService.request_otp(phone=payload.phone, ip=client_ip(request)))
@@ -88,6 +109,16 @@ async def logout_all(current_user: MongoUserProxy = Depends(get_current_user)):
     return {"message": "Signed out of all devices."}
 
 
+@router.post("/change-password", summary="Change your password (any signed-in user)")
+async def change_password(payload: ChangePasswordRequest, current_user: MongoUserProxy = Depends(get_current_user)):
+    return AuthService.change_password(
+        user_id=current_user.id,
+        current_password=payload.current_password,
+        new_password=payload.new_password,
+        device_info=payload.device_info,
+    )
+
+
 @router.get("/me", summary="Current user profile")
 async def get_me(current_user: MongoUserProxy = Depends(get_current_user)):
     return {
@@ -102,6 +133,7 @@ async def get_me(current_user: MongoUserProxy = Depends(get_current_user)):
         "employee_no": current_user.employee_no,
         "team": current_user.team,
         "trade": current_user.trade,
+        "has_password": current_user.has_password,
     }
 
 

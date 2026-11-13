@@ -2,6 +2,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:solar_pro/core/theme/app_theme.dart';
 import 'package:solar_pro/shared/animations/motion.dart';
+import 'package:solar_pro/shared/widgets/change_password_sheet.dart';
 
 /// "Hi, Name 👋 / Role" top bar used by every portal home.
 class SpGreetingHeader extends StatelessWidget implements PreferredSizeWidget {
@@ -105,8 +106,17 @@ class SpGreetingHeader extends StatelessWidget implements PreferredSizeWidget {
               ),
               if (onBell != null) _HeaderButton(icon: Icons.notifications_none_rounded, onTap: onBell!, dot: unread > 0, ring: true),
               if (onLogout != null) ...[
+                // Every signed-in user (admin, employee, client) can change their password here.
                 const SizedBox(width: 8),
-                _HeaderButton(icon: Icons.logout_rounded, onTap: onLogout!, color: AppColors.error),
+                Tooltip(
+                  message: 'Change password',
+                  child: _HeaderButton(icon: Icons.key_rounded, onTap: () => showChangePasswordSheet(context)),
+                ),
+                const SizedBox(width: 8),
+                Tooltip(
+                  message: 'Log out',
+                  child: _HeaderButton(icon: Icons.logout_rounded, onTap: onLogout!, color: AppColors.error),
+                ),
               ],
             ],
           ),

@@ -73,6 +73,9 @@ db["customers"].insert_one({"_id": "custV", "id": "custV", "name": "Victim", "ph
 db["tickets"].insert_one({"_id": "tB", "id": "tB", "customer_id": "custB", "title": "B ticket", "status": "open", "created_at": now})
 db["work_assignments"].insert_one({"_id": "wB", "id": "wB", "customer_id": "custB", "work_type": "civil", "status": "assigned",
                                    "assigned_to": "someone-else", "created_at": now})
+from app.services.workflow import migrate_legacy_customers
+check("legacy customers migrated to the 4-stage workflow", migrate_legacy_customers() == 3)
+check("migration is idempotent", migrate_legacy_customers() == 0)
 db["notifications"].insert_one({"_id": "nB", "id": "nB", "user_id": clientB["_id"], "title": "private", "is_read": False, "read": False, "created_at": now.isoformat()})
 
 TA, TB, TS1, TS2 = tok(clientA), tok(clientB), tok(s1), tok(s2)
@@ -223,15 +226,24 @@ check("owning sales approves", c.post(f"/api/v1/payments/{pay['id']}/sales-appro
 check("admin verifies", c.post(f"/api/v1/payments/{pay['id']}/verify", headers=H(TADM)).status_code == 200)
 ca = db["customers"].find_one({"_id": "custA"})
 check("paid_amount computed server-side", ca.get("paid_amount") == 5000000)
-check("payment verification marks ADVANCE_VERIFIED", ca.get("stage_status", {}).get("ADVANCE_VERIFIED", {}).get("done") is True)
-
-c.patch("/api/v1/customers/custA", json={"site_employee_id": site["_id"], "kedl_employee_id": kedl["_id"], "service_employee_id": svc["_id"]}, headers=H(TADM))
-for st_ in ("SALE_CONFIRMED", "DOCUMENTS_RECEIVED"):
-    c.post("/api/v1/customers/custA/timeline", json={"stage": st_, "done": True}, headers=H(TS1))
-ca = db["customers"].find_one({"_id": "custA"})
-check("sales→site hand-off", ca.get("assigned_role") == "site" and ca.get("assigned_to") == site["_id"], (ca.get("assigned_role"), ca.get("stage")))
+tl = c.get("/api/v1/customers/custA/timeline", headers=H(TADM)).json()
+check("timeline has the 4 department stages", [x["stage"] for x in tl.get("stages", [])] == ["INSTALLATION_COMPLETE", "KEDL_PROCESS", "SYSTEM_LIVE", "HANDED_OVER"], tl)
+check("project starts with Site-ops", ca.get("assigned_role") == "site" and ca.get("stage") == "INSTALLATION_COMPLETE", (ca.get("assigned_role"), ca.get("stage")))
 works = {w["work_type"]: w for w in db["work_assignments"].find({"customer_id": "custA"})}
 check("site work auto-created (structure active, others pending)", works.get("structure", {}).get("status") == "assigned" and works.get("electrical", {}).get("status") == "pending")
+
+# Sales assigns the Site-ops and KEDL employees on its own customer.
+check("sales cannot assign on another sales' customer", c.patch("/api/v1/customers/custB", json={"site_employee_id": site["_id"]}, headers=H(TS1)).status_code == 404)
+check("sales cannot assign the service engineer", c.patch("/api/v1/customers/custA", json={"service_employee_id": svc["_id"]}, headers=H(TS1)).status_code == 400)
+check("assignee must be in the matching department", c.patch("/api/v1/customers/custA", json={"site_employee_id": kedl["_id"]}, headers=H(TS1)).status_code == 400)
+check("pending staff cannot be assigned", c.patch("/api/v1/customers/custA", json={"kedl_employee_id": pending["_id"]}, headers=H(TS1)).status_code == 400)
+r = c.patch("/api/v1/customers/custA", json={"site_employee_id": site["_id"], "kedl_employee_id": kedl["_id"]}, headers=H(TS1))
+check("sales assigns Site-ops & KEDL on own customer", r.status_code == 200 and r.json().get("site_employee_id") == site["_id"] and r.json().get("kedl_employee_name") == kedl["name"], r.text[:200])
+ca = db["customers"].find_one({"_id": "custA"})
+check("assignment hands the project to that Site-ops employee", ca.get("assigned_to") == site["_id"])
+check("open site work moved to the assigned employee", all(w.get("assigned_to") == site["_id"] for w in db["work_assignments"].find({"customer_id": "custA"})))
+check("assigned employee notified", db["notifications"].find_one({"user_id": kedl["_id"], "target_id": "custA"}) is not None)
+check("admin assigns the service engineer", c.patch("/api/v1/customers/custA", json={"service_employee_id": svc["_id"]}, headers=H(TADM)).status_code == 200)
 check("site cannot complete without photo proof", c.post(f"/api/v1/work-assignments/{works['structure']['_id']}/complete", headers=H(TSITE)).status_code == 400)
 for wt in ("structure", "electrical", "civil"):
     w = db["work_assignments"].find_one({"customer_id": "custA", "work_type": wt})
@@ -245,9 +257,73 @@ check("sales cannot approve KEDL file", c.post(f"/api/v1/kedl-files/{net['_id']}
 r = c.post(f"/api/v1/kedl-files/{net['_id']}/status", json={"status": "approved"}, headers=H(TKEDL))
 ca = db["customers"].find_one({"_id": "custA"})
 check("net approval → SYSTEM_LIVE + service hand-off", r.status_code == 200 and ca.get("is_system_live") and ca.get("assigned_role") == "service", (ca.get("stage"), ca.get("assigned_role")))
-check("sales cannot toggle site stages", c.post("/api/v1/customers/custA/timeline", json={"stage": "CIVIL_WORK", "done": False}, headers=H(TS1)).status_code == 404)
+check("sales cannot toggle site stages", c.post("/api/v1/customers/custA/timeline", json={"stage": "INSTALLATION_COMPLETE", "done": False}, headers=H(TS1)).status_code == 404)
 t = c.post("/api/v1/client/tickets", json={"type": "inverter", "title": "Inverter error", "description": "Shows E05 fault"}, headers=H(TA)).json()
 check("client ticket routes to linked service engineer (no hardcoded staff)", t.get("assigned_to") == svc["_id"] and "Vikram" not in json.dumps(t))
+
+# ── Sign-up verification: email code + SMS code ────────────────────────────
+from app.core.security import hash_token as _ht
+sc = TestClient(app, client=("10.8.0.1", 1))
+r = sc.post("/api/v1/auth/register", json={"name": "New Client", "phone": "9012345670", "email": "nc@x.in", "password": "NewClient123", "role": "client"})
+check("register asks for email + SMS verification", r.status_code == 201 and r.json().get("requires_verification") and r.json().get("phone") == "9012345670", r.text[:200])
+check("SMS code issued at sign-up", db["otp_codes"].count_documents({"phone": "9012345670", "consumed_at": None}) == 1)
+check("email code issued at sign-up", db["email_verifications"].count_documents({"email": "nc@x.in", "consumed_at": None}) == 1)
+db["otp_codes"].update_many({"phone": "9012345670"}, {"$set": {"code_hash": _ht("111111")}})
+db["email_verifications"].update_many({"email": "nc@x.in"}, {"$set": {"code_hash": _ht("222222")}})
+r = sc.post("/api/v1/auth/verify-signup", json={"email": "nc@x.in", "email_code": "222222", "phone": "9012345670", "phone_code": "000000"})
+check("wrong SMS code rejected even with the right email code", r.status_code == 400 and "access_token" not in r.text)
+check("failed attempt does not consume the email code", db["email_verifications"].count_documents({"email": "nc@x.in", "consumed_at": None}) == 1)
+check("client not verified after a failed attempt", not db["users"].find_one({"email": "nc@x.in"}).get("is_phone_verified"))
+r = sc.post("/api/v1/auth/verify-signup", json={"email": "nc@x.in", "email_code": "222222", "phone": "9012345670", "phone_code": "111111"})
+nc = db["users"].find_one({"email": "nc@x.in"})
+check("both codes verify the client and sign in", r.status_code == 200 and "access_token" in r.json() and nc.get("is_email_verified") and nc.get("is_phone_verified"), r.text[:200])
+check("signup codes are single-use", sc.post("/api/v1/auth/verify-signup", json={"email": "nc@x.in", "email_code": "222222", "phone": "9012345670", "phone_code": "111111"}).status_code in (200, 400))
+r = TestClient(app, client=("10.8.1.1", 1)).post("/api/v1/auth/register", json={"name": "New Kedl", "phone": "9012345671", "email": "nk@x.in", "password": "NewKedl1234", "role": "kedl"})
+check("staff sign-up also requires both codes", r.status_code == 201 and r.json().get("requires_verification") and r.json().get("requires_approval"))
+db["otp_codes"].update_many({"phone": "9012345671"}, {"$set": {"code_hash": _ht("333333")}})
+db["email_verifications"].update_many({"email": "nk@x.in"}, {"$set": {"code_hash": _ht("444444")}})
+r = TestClient(app, client=("10.8.1.2", 1)).post("/api/v1/auth/verify-signup", json={"email": "nk@x.in", "email_code": "444444", "phone": "9012345671", "phone_code": "333333"})
+check("verified staff still waits for admin approval (no session)", r.status_code == 200 and r.json().get("requires_approval") and "access_token" not in r.json(), r.text[:200])
+r = TestClient(app, client=("10.8.1.3", 1)).post("/api/v1/auth/verify-signup", json={"email": "a@x.in", "email_code": "444444", "phone": "9012345671", "phone_code": "333333"})
+check("codes cannot verify a different account's email", r.status_code == 400)
+r = TestClient(app, client=("10.8.1.4", 1)).post("/api/v1/auth/register", json={"name": "Old Role", "phone": "9012345672", "email": "or@x.in", "password": "OldRole1234", "role": "labour"})
+check("sign-up offers only the 4 departments", r.status_code == 400)
+
+# ── Change password (every role) ────────────────────────────────────────────
+cpu = mkuser("service", "9666666662", "svc2@x.in")
+T_cp = tok(cpu)
+r = c.post("/api/v1/auth/change-password", json={"current_password": "Wrong9999", "new_password": "Brand1New"}, headers=H(T_cp))
+check("change password needs the current password", r.status_code == 400)
+r = c.post("/api/v1/auth/change-password", json={"current_password": "GoodPass123", "new_password": "weak"}, headers=H(T_cp))
+check("change password enforces strength", r.status_code in (400, 422))
+r = c.post("/api/v1/auth/change-password", json={"current_password": "GoodPass123", "new_password": "Brand1New"}, headers=H(T_cp))
+check("change password returns a fresh session", r.status_code == 200 and r.json().get("access_token"), r.text[:200])
+T_new = r.json().get("access_token", "")
+check("old sessions revoked after password change", c.get("/api/v1/auth/me", headers=H(T_cp)).status_code == 401)
+check("new session works after password change", c.get("/api/v1/auth/me", headers=H(T_new)).status_code == 200)
+check("old password rejected after change", login("svc2@x.in", ipaddr="10.8.2.1").status_code == 401)
+check("new password accepted after change", login("svc2@x.in", "Brand1New", "10.8.2.2").status_code == 200)
+for role_, phone_, email_ in (("client", "9111111119", "cpc@x.in"), ("admin", "9000000019", "cpa@x.in")):
+    u_ = mkuser(role_, phone_, email_, is_phone_verified=True)
+    t_ = tok(u_)
+    check(f"{role_} can change password", c.post("/api/v1/auth/change-password", json={"current_password": "GoodPass123", "new_password": "Brand2New"}, headers=H(t_)).status_code == 200)
+nopw = mkuser("site", "9444444442", "site2@x.in")
+db["users"].update_one({"_id": nopw["_id"]}, {"$unset": {"password_hash": ""}})
+t_np = create_access_token(nopw["_id"], "site", 0)
+check("OTP-only account sees has_password=false", c.get("/api/v1/auth/me", headers=H(t_np)).json().get("has_password") is False)
+check("OTP-only account can set a first password", c.post("/api/v1/auth/change-password", json={"new_password": "First1Pass"}, headers=H(t_np)).status_code == 200)
+
+# ── Staff directory: only 4 departments ─────────────────────────────────────
+legacy = mkuser("electrician", "9444444443", "el@x.in", trade="electrical")
+site_list = c.get("/api/v1/teams/employees", params={"trade": "site"}, headers=H(TADM)).json()
+ids_ = {e["id"] for e in site_list}
+check("Site-ops filter lists site and legacy trade staff", site["_id"] in ids_ and legacy["_id"] in ids_ and all(e.get("department") == "site" for e in site_list))
+check("Sales filter lists only sales", all(e.get("department") == "sales" for e in c.get("/api/v1/teams/employees", params={"trade": "sales"}, headers=H(TADM)).json()))
+check("unknown department filter is empty", c.get("/api/v1/teams/employees", params={"trade": "plumbing"}, headers=H(TADM)).json() == [])
+r = c.post("/api/v1/teams/employees", json={"name": "New Site", "phone": "9100000011", "role": "site", "password": "SitePass123"}, headers=H(TADM))
+check("admin creates a Site-ops employee with a password", r.status_code == 201 and r.json().get("role") == "site", r.text[:200])
+check("new employee can sign in with that password", login("9100000011", "SitePass123", "10.8.3.1").status_code == 200)
+check("legacy role names are not created as-is", c.post("/api/v1/teams/employees", json={"name": "Legacy Guy", "phone": "9100000012", "role": "office_staff"}, headers=H(TADM)).json().get("role") == "sales")
 
 # ── Misc hardening ──────────────────────────────────────────────────────────
 h = c.get("/api/v1/health").headers

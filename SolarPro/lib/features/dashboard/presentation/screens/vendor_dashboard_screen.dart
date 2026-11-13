@@ -83,7 +83,7 @@ class _VendorDashboardScreenState extends State<VendorDashboardScreen> {
       const WorkAssignmentScreen(),
       const KedlScreen(),
       const InventoryScreen(),
-      const TicketsScreen(),
+      const TicketsScreen(showAppBar: false),
     ];
 
     return Scaffold(
@@ -506,7 +506,7 @@ class _DashboardHomeState extends State<_DashboardHome> {
                 count: 0,
                 color: AppColors.error,
                 icon: Icons.support_agent_rounded,
-                route: AppRoutes.clientTickets,
+                route: AppRoutes.serviceTickets,
                 delay: 400,
               ),
 
@@ -680,7 +680,7 @@ class _MoreMenu extends StatelessWidget {
             label: 'Customer Support Tickets',
             icon: Icons.support_agent_rounded,
             color: AppColors.error,
-            onTap: () => context.push(AppRoutes.clientTickets),
+            onTap: () => context.push(AppRoutes.serviceTickets),
           ),
           const SizedBox(height: 10),
           _MenuItemCard(

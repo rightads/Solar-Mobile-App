@@ -171,7 +171,8 @@ void main() {
       expect(customer.capacityKw, equals(3.3));
       expect(customer.phase, equals('single'));
       expect(customer.stage, equals('DOCUMENTS_RECEIVED'));
-      expect(customer.stageDisplayLabel, equals('Docs Received'));
+      // Pre-installation stages from the old 10-step flow fold into Site Installation.
+      expect(customer.stageDisplayLabel, equals('Site Installation'));
       expect(customer.documentsCount, equals(5));
       expect(customer.paymentSummary?['status'], equals('partially_paid'));
     });

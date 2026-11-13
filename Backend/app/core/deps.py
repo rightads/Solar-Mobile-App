@@ -32,6 +32,7 @@ class MongoUserProxy:
         self.employee_no = doc.get("employee_no")
         self.trade = doc.get("trade")
         self.team = doc.get("team")
+        self.has_password = bool(doc.get("password_hash"))
 
 
 def load_user(user_id_str: str) -> Optional[dict]:
@@ -39,7 +40,14 @@ def load_user(user_id_str: str) -> Optional[dict]:
     db = get_mongo_db()
     if db is None:
         return None
-    return db["users"].find_one({"$or": [{"_id": user_id_str}, {"id": user_id_str}]})
+    or_clauses = [{"_id": user_id_str}, {"id": user_id_str}]
+    try:
+        from bson import ObjectId
+        if ObjectId.is_valid(user_id_str):
+            or_clauses.append({"_id": ObjectId(user_id_str)})
+    except Exception:
+        pass
+    return db["users"].find_one({"$or": or_clauses})
 
 
 def assert_can_sign_in(doc: dict) -> None:

@@ -7,6 +7,7 @@ from pymongo import ASCENDING, MongoClient
 from pymongo.collection import Collection
 from pymongo.database import Database
 from app.core.config import settings
+from app.core.constants import FIRST_STAGE
 from app.core.security import hash_password, normalize_phone, sanitize_input, verify_password
 
 logger = structlog.get_logger()
@@ -389,7 +390,8 @@ def mongo_create_customer(customer_data: Dict[str, Any]) -> Dict[str, Any]:
         "panel_count": int(customer_data.get("panel_count") or 0),
         "inverter_brand": sanitize_input(customer_data.get("inverter_brand") or ""),
         "structure_type": sanitize_input(customer_data.get("structure_type") or ""),
-        "stage": customer_data.get("stage", "SALE_CONFIRMED"),
+        "stage": FIRST_STAGE,
+        "workflow_version": 2,
         "sales_id": customer_data.get("sales_id"),
         "sales_name": customer_data.get("sales_name"),
         "status": customer_data.get("status", "active"),
@@ -617,7 +619,6 @@ def mongo_convert_lead(lead_id: str, customer_data: Optional[Dict[str, Any]] = N
             "kw": float(customer_data.get("kw") or lead.get("kw", 5.0)),
             "sales_id": lead.get("assigned_sales_id"),
             "sales_name": lead.get("assigned_sales_name"),
-            "stage": "SALE_CONFIRMED",
             **customer_data,
         }
         cust = mongo_create_customer(cust_payload)
@@ -648,7 +649,7 @@ def mongo_get_salespersons() -> List[Dict[str, Any]]:
 
 def mongo_create_employee(employee_data: Dict[str, Any]) -> Dict[str, Any]:
     """Create a new staff account (admin only). Never modifies an existing account."""
-    from app.core.access import ASSIGNABLE_STAFF_ROLES
+    from app.core.access import ASSIGNABLE_STAFF_ROLES, normalize_department
     from app.core.security import normalize_email, validate_password_strength
     db = get_mongo_db()
     if db is None:
@@ -656,15 +657,18 @@ def mongo_create_employee(employee_data: Dict[str, Any]) -> Dict[str, Any]:
     users_col = db["users"]
     now = datetime.now(timezone.utc)
 
-    role = str(employee_data.get("role") or "labour").strip().lower()
+    raw_role = str(employee_data.get("role") or "").strip().lower()
+    if raw_role in ("admin", "main_admin", "co_admin", "super_admin", "vendor", "manager", "client"):
+        raise ValueError("Invalid employee role. Choose Sales, Site-ops, KEDL or Service.")
+    role = normalize_department(raw_role) or normalize_department(employee_data.get("trade"))
     if role not in ASSIGNABLE_STAFF_ROLES:
-        raise ValueError("Invalid employee role.")
+        raise ValueError("Invalid employee role. Choose Sales, Site-ops, KEDL or Service.")
     name = " ".join(str(employee_data.get("name") or "").split())[:100]
     if len(name) < 2:
         raise ValueError("Employee name is required.")
     phone = normalize_phone(employee_data.get("phone", ""))
     email = normalize_email(employee_data["email"]) if employee_data.get("email") else None
-    trade = re.sub(r"[^a-z_]", "", str(employee_data.get("trade") or role).lower())[:30]
+    trade = role
     team = sanitize_input(str(employee_data.get("team") or ""))[:60]
 
     conds: List[Dict[str, Any]] = [{"phone": phone}]
@@ -674,7 +678,7 @@ def mongo_create_employee(employee_data: Dict[str, Any]) -> Dict[str, Any]:
         raise ValueError("An account with this mobile number or email already exists.")
 
     emp_id = str(uuid.uuid4())
-    prefix = "EMP-SLS" if "sales" in role else ("EMP-KEDL" if role == "kedl" else ("EMP-SRV" if role == "service" else "EMP-SITE"))
+    prefix = {"sales": "EMP-SLS", "kedl": "EMP-KEDL", "service": "EMP-SRV"}.get(role, "EMP-SITE")
     doc = {
         "_id": emp_id,
         "id": emp_id,
@@ -705,26 +709,19 @@ def mongo_create_employee(employee_data: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def mongo_get_employees(trade: Optional[str] = None, team: Optional[str] = None, status: Optional[str] = None) -> List[Dict[str, Any]]:
-    """List labour, electricians, sales, service, and staff with active task counts. Only approved, active staff are listed unless status is specified."""
+    """Staff directory with active task counts.
+
+    ``trade`` filters by department (sales, site, kedl, service); legacy labels
+    such as "structure" or "electrician" are mapped onto their department.
+    Only approved, active staff are listed unless ``status`` is specified.
+    """
+    from app.core.access import KEDL_ROLES, SALES_ROLES, SERVICE_ROLES, SITE_ROLES, department_of, normalize_department
     db = get_mongo_db()
     if db is None:
         return []
     query: Dict[str, Any] = {
-        "role": {
-            "$in": [
-                "employee",
-                "labour",
-                "sales",
-                "salesman",
-                "kedl",
-                "technician",
-                "service",
-                "electrician",
-                "civil",
-                "structure",
-                "site",
-            ]
-        }
+        "role": {"$in": sorted(SALES_ROLES | SITE_ROLES | KEDL_ROLES | SERVICE_ROLES)},
+        "deleted_at": None,
     }
     if status and status.lower() == "pending":
         query["$or"] = [
@@ -742,14 +739,19 @@ def mongo_get_employees(trade: Optional[str] = None, team: Optional[str] = None,
         query["approval_status"] = {"$nin": ["pending", "rejected", "PENDING", "REJECTED"]}
         query["is_active"] = {"$ne": False}
 
-    if trade and trade.lower() != "all":
-        query["trade"] = trade.lower()
+    wanted_department = normalize_department(trade) if trade and trade.lower() != "all" else None
+    if trade and trade.lower() != "all" and wanted_department is None:
+        return []
     if team and team.lower() != "all":
         query["team"] = team
     cursor = db["users"].find(query).sort("created_at", -1)
     results = []
     for doc in cursor:
+        department = department_of(doc)
+        if wanted_department and department != wanted_department:
+            continue
         f_doc = _format_mongo_doc(doc)
+        f_doc["department"] = department
         emp_id = str(f_doc.get("id") or f_doc.get("_id") or "")
         emp_name = f_doc.get("name", "")
         emp_no = f_doc.get("employee_no", "")
@@ -1218,20 +1220,14 @@ def mongo_get_client_home(user: Dict[str, Any], customer: Optional[Dict[str, Any
                 "email": work_assign.get("assigned_email", ""),
             }
 
-    # 10-Stage Milestone Timeline - Strictly driven by employee/admin completed work
+    # Project timeline (see core.constants.STAGE_ORDER) - driven by employee/admin completed work
     from app.core.constants import STAGE_ORDER
     stage_keys = [s[0].value if hasattr(s[0], "value") else str(s[0]) for s in STAGE_ORDER]
     cust_stage = customer.get("stage", "REGISTRATION_SUBMITTED")
 
     timeline = []
     stage_notes = {
-        "SALE_CONFIRMED": "Sales agreement signed and advance token verified.",
-        "DOCUMENTS_RECEIVED": "Aadhaar, Electricity Bill and rooftop pictures verified.",
-        "ADVANCE_VERIFIED": "Payment approved by salesman & verified by admin.",
-        "STRUCTURE_WORK": "Hot-dip galvanized mounting structure installation ongoing.",
-        "ELECTRICAL_WORK": "DC cabling, conduits and earthing connection.",
-        "CIVIL_WORK": "Grouting and rooftop water-proofing inspection.",
-        "INSTALLATION_COMPLETE": "Solar panels and inverter physically mounted.",
+        "INSTALLATION_COMPLETE": "Structure, electrical and civil work by the Site-ops team.",
         "KEDL_PROCESS": "Discom paperwork and inspection liaison.",
         "SYSTEM_LIVE": "Bi-directional net meter sync with grid.",
         "HANDED_OVER": "Project handed over with 25-year solar warranty kit.",
@@ -1268,12 +1264,6 @@ def mongo_get_client_home(user: Dict[str, Any], customer: Optional[Dict[str, Any
     total_paid_paise = payments_info["summary"]["total_paid"]
     remaining_paise = max(0, final_price_paise - verified_paise)
 
-    stage_work_map = {
-        "STRUCTURE_WORK": "structure",
-        "ELECTRICAL_WORK": "electrical",
-        "CIVIL_WORK": "civil",
-        "INSTALLATION_COMPLETE": "installation",
-    }
 
     for idx, (s_obj, s_title) in enumerate(STAGE_ORDER):
         s_key = s_obj.value if hasattr(s_obj, "value") else str(s_obj)
@@ -1306,17 +1296,17 @@ def mongo_get_client_home(user: Dict[str, Any], customer: Optional[Dict[str, Any
             elif s_key == "ADVANCE_VERIFIED":
                 if verified_paise > 0:
                     status_str = "done"
-            elif s_key in stage_work_map:
-                wt = stage_work_map[s_key]
-                wa = work_by_type.get(wt)
-                if wa:
-                    assigned_worker = wa.get("assigned_employee_name") or wa.get("assigned_staff")
-                    if wa.get("status") == "completed":
-                        status_str = "done"
-                        dt = wa.get("completed_at") or wa.get("updated_at")
-                    elif wa.get("status") in ["in_progress", "active", "assigned"]:
+            elif s_key == "INSTALLATION_COMPLETE":
+                site_works = [work_by_type.get(t) for t in ("structure", "electrical", "civil")]
+                if all(w and w.get("status") == "completed" for w in site_works):
+                    status_str = "done"
+                    dt = site_works[-1].get("completed_at") or site_works[-1].get("updated_at")
+                else:
+                    active = next((w for w in site_works if w and w.get("status") in ["in_progress", "active", "assigned"]), None)
+                    if active:
+                        assigned_worker = active.get("assigned_employee_name") or active.get("assigned_staff")
                         status_str = "current"
-                        dt = wa.get("started_at") or wa.get("updated_at")
+                        dt = active.get("started_at") or active.get("updated_at")
             elif s_key == "KEDL_PROCESS":
                 if kedl_file:
                     if kedl_file.get("status") == "approved":

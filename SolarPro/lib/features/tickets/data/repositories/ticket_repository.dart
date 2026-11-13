@@ -111,6 +111,22 @@ class TicketRepository {
     throw Exception('Unexpected response from server.');
   }
 
+  // ── Assign Ticket (Admin) ──────────────────────────────────────────────────
+
+  Future<TicketModel> assignTicket(String id, String employeeId) async {
+    try {
+      final response = await _apiClient.dio.post('/tickets/$id/assign', data: {'assigned_to': employeeId});
+      if (response.data is Map<String, dynamic>) {
+        final updated = TicketModel.fromJson(response.data as Map<String, dynamic>);
+        await _updateCachedTicket(updated);
+        return updated;
+      }
+    } catch (e) {
+      throw ApiClient.toFriendly(e);
+    }
+    throw Exception('Unexpected response from server.');
+  }
+
   // ── Add Ticket Comment ─────────────────────────────────────────────────────
 
   Future<TicketCommentModel> addTicketComment(String id, String message) async {

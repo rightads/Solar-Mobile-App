@@ -24,6 +24,13 @@ async def lifespan(app: FastAPI):
         init_mongo()
     except Exception as e:
         logger.warning("Could not auto-initialize MongoDB on startup", error=str(e))
+    try:
+        from app.services.workflow import migrate_legacy_customers
+        migrated = migrate_legacy_customers()
+        if migrated:
+            logger.info("Migrated customers to the 4-stage workflow", count=migrated)
+    except Exception as e:
+        logger.warning("Workflow migration skipped", error=str(e))
     yield
     logger.info("Shutting down Solar Backend Application")
 

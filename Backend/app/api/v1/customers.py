@@ -46,14 +46,16 @@ class CustomerPatch(BaseModel):
     inverter_brand: Optional[str] = Field(None, max_length=100)
     structure_type: Optional[str] = Field(None, max_length=100)
     notes: Optional[str] = Field(None, max_length=2000)
-    # Admin-only assignment fields
+    # Assigned employees. Sales may set the Site-ops and KEDL employee on its
+    # own customers; the sales owner and service engineer are admin-only.
+    # An empty string / null un-assigns.
     sales_id: Optional[str] = Field(None, max_length=64)
     service_employee_id: Optional[str] = Field(None, max_length=64)
     kedl_employee_id: Optional[str] = Field(None, max_length=64)
     site_employee_id: Optional[str] = Field(None, max_length=64)
 
 
-ADMIN_ONLY_FIELDS = {"sales_id", "service_employee_id", "kedl_employee_id", "site_employee_id"}
+ADMIN_ONLY_FIELDS = {"sales_id", "service_employee_id"}
 
 
 class MilestoneIn(BaseModel):
@@ -89,7 +91,10 @@ async def create_customer(
         data["sales_id"], data["sales_name"] = current_user.id, current_user.name
     for forbidden in ("stage", "paid_amount", "documents", "documents_count", "milestones", "id", "user_id"):
         data.pop(forbidden, None)
-    return mongo_create_customer(data)
+    created = mongo_create_customer(data)
+    from app.services import workflow
+    workflow.on_customer_created(created["id"])
+    return _format_mongo_doc(get_mongo_db()["customers"].find_one({"_id": created["id"]}))
 
 
 @router.get("", summary="List customers visible to the caller")
@@ -138,27 +143,40 @@ async def update_customer(
     for field in ("name", "address", "panel_brand", "inverter_brand", "structure_type", "notes", "location_gps"):
         if isinstance(updates.get(field), str):
             updates[field] = updates[field].strip()
+    from app.services import workflow
     db = get_mongo_db()
-    for key, name_key, no_key in (
-        ("sales_id", "sales_name", None),
-        ("service_employee_id", "service_employee_name", "service_employee_no"),
-        ("kedl_employee_id", "kedl_employee_name", None),
-        ("site_employee_id", "site_employee_name", None),
-    ):
-        if updates.get(key):
-            emp = db["users"].find_one({"_id": updates[key], "is_active": True})
-            if not emp or str(emp.get("role")) == "client":
-                raise BadRequestException(f"{key} must reference an active employee.")
+    labels = {"sales": "Sales", "site": "Site-ops", "kedl": "KEDL", "service": "Service"}
+    changed_assignments = []
+    for key, (department, name_key, no_key) in workflow.ASSIGNMENT_FIELDS.items():
+        if key not in updates:
+            continue
+        if not updates[key]:
+            if key == "sales_id":
+                raise BadRequestException("A customer must keep a sales owner.")
+            updates[key] = None
+            updates[name_key] = None
+            if no_key:
+                updates[no_key] = None
+        else:
+            emp = db["users"].find_one({"_id": updates[key], "is_active": True, "deleted_at": None})
+            if not emp or access.department_of(emp) != department or emp.get("approval_status") in ("pending", "rejected"):
+                raise BadRequestException(f"Please choose an active {labels[department]} employee.")
             updates[name_key] = emp.get("name")
             if no_key:
                 updates[no_key] = emp.get("employee_no")
+        if str(cust.get(key) or "") != str(updates[key] or ""):
+            changed_assignments.append(key)
     if "capacity_kw" in updates and "kw" not in updates:
         updates["kw"] = updates["capacity_kw"]
     if "final_price" in updates:
         updates["total_amount"] = updates["final_price"]
     if not updates:
         return _format_mongo_doc(cust)
-    return mongo_update_customer(str(cust["_id"]), updates)
+    res = mongo_update_customer(str(cust["_id"]), updates)
+    if changed_assignments:
+        workflow.on_assignment_changed(str(cust["_id"]), changed_assignments, current_user)
+        res = _format_mongo_doc(db["customers"].find_one({"_id": cust["_id"]}))
+    return res
 
 
 @router.patch("/{customer_id}/stage", summary="Move a customer to a lifecycle stage (Admin)")
@@ -217,9 +235,6 @@ async def upload_document(
     if count == len(KYC_DOCUMENTS):
         updates["documents_verified"] = True
     mongo_update_customer(str(cust["_id"]), updates)
-    if count == len(KYC_DOCUMENTS):
-        from app.services.workflow import mark_stage
-        mark_stage(str(cust["_id"]), "DOCUMENTS_RECEIVED", True, current_user)
     return {"status": "success", "doc_type": doc_key, "document": meta, "documents_count": count}
 
 
@@ -237,8 +252,6 @@ async def delete_document(
     docs[key] = None
     count = sum(1 for k in KYC_DOCUMENTS if docs.get(k))
     mongo_update_customer(str(cust["_id"]), {"documents": docs, "documents_count": count, "documents_verified": False})
-    from app.services.workflow import mark_stage
-    mark_stage(str(cust["_id"]), "DOCUMENTS_RECEIVED", False, current_user)
     return {"status": "success", "doc_type": key, "documents_count": count}
 
 
@@ -248,7 +261,7 @@ async def list_documents(customer_id: str, current_user: MongoUserProxy = Depend
     return cust.get("documents") or {}
 
 
-@router.get("/{customer_id}/timeline", summary="Live 10-stage timeline")
+@router.get("/{customer_id}/timeline", summary="Live project timeline")
 async def get_timeline(customer_id: str, current_user: MongoUserProxy = Depends(require_staff)):
     from app.services.workflow import build_timeline
     cust = access.require_customer(current_user, customer_id)

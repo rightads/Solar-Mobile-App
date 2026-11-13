@@ -234,5 +234,5 @@ async def convert_lead(lead_id: str, payload: Optional[ConvertIn] = None, curren
         {"_id": lead["_id"]},
         {"$set": {"status": "converted", "closed_at": now, "customer_id": cust["id"], "updated_at": now}},
     )
-    workflow.mark_stage(cust["id"], "SALE_CONFIRMED", True, current_user)
+    workflow.on_customer_created(cust["id"])
     return _format_mongo_doc(get_mongo_db()["customers"].find_one({"_id": cust["id"]}))

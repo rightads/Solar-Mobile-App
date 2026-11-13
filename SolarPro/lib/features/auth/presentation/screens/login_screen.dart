@@ -77,6 +77,8 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
   final _regPhoneCtrl = TextEditingController();
   final _regEmailCtrl = TextEditingController();
   final _regPasswordCtrl = TextEditingController();
+  final _regConfirmCtrl = TextEditingController();
+  bool _regObscure = true;
   String _regDepartment = 'sales';
 
   bool _isLoading = false;
@@ -99,7 +101,7 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
   void dispose() {
     for (final c in [
       _identifierCtrl, _passwordCtrl, _phoneCtrl, _otpCtrl,
-      _regNameCtrl, _regPhoneCtrl, _regEmailCtrl, _regPasswordCtrl,
+      _regNameCtrl, _regPhoneCtrl, _regEmailCtrl, _regPasswordCtrl, _regConfirmCtrl,
     ]) {
       c.dispose();
     }
@@ -227,6 +229,7 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
     if (password.length < 8 || !RegExp(r'[A-Za-z]').hasMatch(password) || !RegExp(r'\d').hasMatch(password)) {
       return _fail('Password must be at least 8 characters with letters and numbers');
     }
+    if (password != _regConfirmCtrl.text) return _fail('Passwords do not match');
 
     if (_portal == _Portal.admin) return _fail('Admin accounts are created by the Super Admin.');
     final role = _portal == _Portal.client ? 'client' : _regDepartment;
@@ -236,14 +239,13 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
       _error = null;
     });
     try {
-      await ApiClient().registerUser(name: name, phone: phone, email: email, password: password, role: role);
+      final res = await ApiClient().registerUser(name: name, phone: phone, email: email, password: password, role: role);
       if (!mounted) return;
       setState(() => _isLoading = false);
-      if (_portal == _Portal.client) {
-        _showEmailVerificationSheet(email);
-      } else {
-        _showPendingApprovalDialog();
-      }
+      _showSignupVerificationSheet(
+        res?['email']?.toString() ?? email,
+        res?['phone']?.toString() ?? phone,
+      );
     } catch (e) {
       if (mounted) _fail(e.toString());
     }
@@ -565,19 +567,7 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
                         obscure: _obscure,
                         autofillHints: const [AutofillHints.password],
                         onSubmitted: (_) => _handlePasswordLogin(),
-                        suffix: IconButton(
-                          onPressed: () => setState(() => _obscure = !_obscure),
-                          icon: AnimatedSwitcher(
-                            duration: AppMotion.fast,
-                            transitionBuilder: (c, a) => RotationTransition(turns: a, child: FadeTransition(opacity: a, child: c)),
-                            child: Icon(
-                              _obscure ? Icons.visibility_outlined : Icons.visibility_off_outlined,
-                              key: ValueKey(_obscure),
-                              color: AppColors.ink700,
-                              size: 20,
-                            ),
-                          ),
-                        ),
+                        suffix: _eyeToggle(_obscure, () => setState(() => _obscure = !_obscure)),
                       ),
                     ),
                     if (_portal != _Portal.admin)
@@ -811,9 +801,22 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
             controller: _regPasswordCtrl,
             hint: 'Password (8+ letters & numbers)',
             icon: Icons.lock_outline_rounded,
-            obscure: true,
+            obscure: _regObscure,
+            autofillHints: const [AutofillHints.newPassword],
+            suffix: _eyeToggle(_regObscure, () => setState(() => _regObscure = !_regObscure)),
+          ),
+        ),
+        const SizedBox(height: 12),
+        SpEntrance(
+          index: 6,
+          child: _PixelField(
+            controller: _regConfirmCtrl,
+            hint: 'Confirm password',
+            icon: Icons.lock_reset_rounded,
+            obscure: _regObscure,
             autofillHints: const [AutofillHints.newPassword],
             onSubmitted: (_) => _handleRegister(),
+            suffix: _eyeToggle(_regObscure, () => setState(() => _regObscure = !_regObscure)),
           ),
         ),
         const SizedBox(height: 22),
@@ -834,7 +837,189 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
     );
   }
 
+  Widget _eyeToggle(bool obscured, VoidCallback onPressed) {
+    return IconButton(
+      tooltip: obscured ? 'Show password' : 'Hide password',
+      onPressed: onPressed,
+      icon: AnimatedSwitcher(
+        duration: AppMotion.fast,
+        transitionBuilder: (c, a) => RotationTransition(turns: a, child: FadeTransition(opacity: a, child: c)),
+        child: Icon(
+          obscured ? Icons.visibility_outlined : Icons.visibility_off_outlined,
+          key: ValueKey(obscured),
+          color: AppColors.ink700,
+          size: 20,
+        ),
+      ),
+    );
+  }
+
   // ── Sheets & dialogs ──────────────────────────────────────────────────────
+
+  /// New accounts verify both the email (code by email) and the mobile
+  /// (separate code by SMS) before they can be used.
+  void _showSignupVerificationSheet(String email, String phone) {
+    final emailCodeCtrl = TextEditingController();
+    final phoneCodeCtrl = TextEditingController();
+    bool verifying = false;
+    bool resendingEmail = false;
+    bool resendingSms = false;
+    String? sheetError;
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      isDismissible: false,
+      backgroundColor: Colors.transparent,
+      builder: (sheetCtx) => StatefulBuilder(
+        builder: (ctx, setSheet) {
+          Future<void> verify() async {
+            if (emailCodeCtrl.text.trim().length != 6 || phoneCodeCtrl.text.trim().length != 6) {
+              setSheet(() => sheetError = 'Please enter both 6-digit codes');
+              return;
+            }
+            setSheet(() {
+              verifying = true;
+              sheetError = null;
+            });
+            try {
+              final res = await ApiClient().verifySignup(
+                email: email,
+                emailCode: emailCodeCtrl.text,
+                phone: phone,
+                phoneCode: phoneCodeCtrl.text,
+              );
+              if (!sheetCtx.mounted) return;
+              Navigator.pop(sheetCtx);
+              if (res?['access_token'] is String) {
+                await _playSuccessAndNavigate(res);
+              } else {
+                _showPendingApprovalDialog();
+              }
+            } catch (e) {
+              if (!sheetCtx.mounted) return;
+              setSheet(() {
+                verifying = false;
+                sheetError = e.toString().replaceFirst('Exception: ', '');
+              });
+            }
+          }
+
+          Widget resendButton({required bool busy, required String label, required Future<void> Function() onTap}) {
+            return Align(
+              alignment: Alignment.centerRight,
+              child: TextButton.icon(
+                icon: busy
+                    ? const SizedBox(width: 30, height: 12, child: SpPixelLoader(size: 5))
+                    : const Icon(Icons.refresh_rounded, size: 16),
+                label: Text(busy ? 'Sending…' : label),
+                onPressed: busy ? null : onTap,
+              ),
+            );
+          }
+
+          return Container(
+            padding: EdgeInsets.fromLTRB(24, 14, 24, MediaQuery.of(ctx).viewInsets.bottom + 28),
+            decoration: const BoxDecoration(
+              color: AppColors.navy800,
+              borderRadius: BorderRadius.vertical(top: Radius.circular(AppRadius.xxl)),
+              border: Border(top: BorderSide(color: AppColors.navy500, width: 1.4)),
+            ),
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Center(
+                    child: Container(
+                      width: 44,
+                      height: 5,
+                      decoration: BoxDecoration(color: AppColors.navy500, borderRadius: BorderRadius.circular(3)),
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  Text('Verify your account', textAlign: TextAlign.center,
+                      style: AppTextStyles.displaySmall.copyWith(fontSize: 22)),
+                  const SizedBox(height: 6),
+                  Text(
+                    'We sent one code to your email and another by SMS to your mobile.',
+                    textAlign: TextAlign.center,
+                    style: AppTextStyles.bodyMedium.copyWith(color: AppColors.grey400),
+                  ),
+                  const SizedBox(height: 16),
+                  _ErrorBanner(message: sheetError),
+                  Text.rich(
+                    TextSpan(children: [
+                      TextSpan(text: 'Email code  ', style: AppTextStyles.labelLarge),
+                      TextSpan(text: email, style: AppTextStyles.bodySmall.copyWith(color: AppColors.grey400)),
+                    ]),
+                  ),
+                  const SizedBox(height: 8),
+                  _PixelOtpField(controller: emailCodeCtrl, onCompleted: (_) {}),
+                  resendButton(
+                    busy: resendingEmail,
+                    label: 'Resend email code',
+                    onTap: () async {
+                      setSheet(() => resendingEmail = true);
+                      final ok = await ApiClient().sendEmailVerification(email);
+                      if (!sheetCtx.mounted) return;
+                      setSheet(() {
+                        resendingEmail = false;
+                        sheetError = ok ? null : 'Could not resend the email code. Please try again.';
+                      });
+                      if (ok) _snack('New code sent to $email');
+                    },
+                  ),
+                  Text.rich(
+                    TextSpan(children: [
+                      TextSpan(text: 'Mobile (SMS) code  ', style: AppTextStyles.labelLarge),
+                      TextSpan(text: '+91 ${_maskPhone(phone)}', style: AppTextStyles.bodySmall.copyWith(color: AppColors.grey400)),
+                    ]),
+                  ),
+                  const SizedBox(height: 8),
+                  _PixelOtpField(controller: phoneCodeCtrl, autofocus: false, onCompleted: (_) => verify()),
+                  resendButton(
+                    busy: resendingSms,
+                    label: 'Resend SMS code',
+                    onTap: () async {
+                      setSheet(() => resendingSms = true);
+                      String? err;
+                      try {
+                        await ApiClient().sendPhoneVerification(phone);
+                      } catch (e) {
+                        err = e.toString().replaceFirst('Exception: ', '');
+                      }
+                      if (!sheetCtx.mounted) return;
+                      setSheet(() {
+                        resendingSms = false;
+                        sheetError = err;
+                      });
+                      if (err == null) _snack('New SMS code sent');
+                    },
+                  ),
+                  const SizedBox(height: 8),
+                  SpPixelButton(label: 'Verify & Continue', isLoading: verifying, onPressed: verify),
+                  const SizedBox(height: 4),
+                  Center(
+                    child: TextButton(
+                      onPressed: () {
+                        Navigator.pop(sheetCtx);
+                        _go(_Stage.signIn, forward: false);
+                      },
+                      child: const Text('Verify later'),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
+      ),
+    ).whenComplete(() {
+      emailCodeCtrl.dispose();
+      phoneCodeCtrl.dispose();
+    });
+  }
 
   void _showPendingApprovalDialog() {
     showGeneralDialog(
@@ -1375,7 +1560,8 @@ class _PixelFieldState extends State<_PixelField> {
 class _PixelOtpField extends StatefulWidget {
   final TextEditingController controller;
   final ValueChanged<String> onCompleted;
-  const _PixelOtpField({required this.controller, required this.onCompleted});
+  final bool autofocus;
+  const _PixelOtpField({required this.controller, required this.onCompleted, this.autofocus = true});
 
   @override
   State<_PixelOtpField> createState() => _PixelOtpFieldState();
@@ -1389,9 +1575,11 @@ class _PixelOtpFieldState extends State<_PixelOtpField> {
     super.initState();
     widget.controller.addListener(_onChange);
     _focus.addListener(() => setState(() {}));
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) _focus.requestFocus();
-    });
+    if (widget.autofocus) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _focus.requestFocus();
+      });
+    }
   }
 
   void _onChange() {

@@ -8,7 +8,7 @@ class ClientRepository {
 
   ClientRepository({ApiClient? apiClient}) : _apiClient = apiClient ?? ApiClient();
 
-  /// Fetch 10-stage milestones, assigned employee with Employee No, specs, and financials
+  /// Fetch project milestones, assigned employee with Employee No, specs, and financials
   Future<Map<String, dynamic>> getClientHomeData() async {
     try {
       final res = await _apiClient.dio.get('/client/home');

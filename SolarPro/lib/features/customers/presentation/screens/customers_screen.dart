@@ -16,7 +16,13 @@ class _CustomersScreenState extends State<CustomersScreen> {
   String _filterStage = 'All';
   String _searchQuery = '';
 
-  final _stages = ['All', 'Sale Confirmed', 'Work In Progress', 'KEDL Process', 'Live'];
+  final _stages = ['All', 'Site Installation', 'KEDL Process', 'Live'];
+
+  /// Stages from the old 10-step flow all belong to Site Installation now.
+  static const _installStages = {
+    'SALE_CONFIRMED', 'DOCUMENTS_RECEIVED', 'ADVANCE_VERIFIED',
+    'STRUCTURE_WORK', 'ELECTRICAL_WORK', 'CIVIL_WORK', 'INSTALLATION_COMPLETE',
+  };
 
   List<_Customer> _customers = [];
   bool _isLoading = true;
@@ -48,7 +54,7 @@ class _CustomersScreenState extends State<CustomersScreen> {
           address: item['address']?.toString() ?? 'Site Location',
           locationGps: item['location_gps']?.toString(),
           kw: (item['kw'] is num) ? (item['kw'] as num).toInt() : 5,
-          stage: item['stage']?.toString() ?? 'SALE_CONFIRMED',
+          stage: item['stage']?.toString() ?? 'INSTALLATION_COMPLETE',
           amount: (item['total_amount'] is num) ? (item['total_amount'] as num).toInt() : 250000,
           paid: (item['paid_amount'] is num) ? (item['paid_amount'] as num).toInt() : 0,
           phone: item['phone']?.toString() ?? item['mobile']?.toString() ?? '',
@@ -74,14 +80,8 @@ class _CustomersScreenState extends State<CustomersScreen> {
   }
 
   Color _stageColor(String stage) {
+    if (_installStages.contains(stage)) return AppColors.orange500;
     return switch (stage) {
-      'SALE_CONFIRMED' => AppColors.info,
-      'DOCUMENTS_RECEIVED' => AppColors.teal500,
-      'ADVANCE_VERIFIED' => AppColors.warning,
-      'STRUCTURE_WORK' => AppColors.orange500,
-      'ELECTRICAL_WORK' => AppColors.purple500,
-      'CIVIL_WORK' => AppColors.grey400,
-      'INSTALLATION_COMPLETE' => AppColors.success,
       'KEDL_PROCESS' => AppColors.gold500,
       'SYSTEM_LIVE' => AppColors.green400,
       'HANDED_OVER' => AppColors.teal500,
@@ -90,14 +90,8 @@ class _CustomersScreenState extends State<CustomersScreen> {
   }
 
   String _stageLabel(String stage) {
+    if (_installStages.contains(stage)) return 'Site Installation';
     return switch (stage) {
-      'SALE_CONFIRMED' => 'Sale Confirmed',
-      'DOCUMENTS_RECEIVED' => 'Docs Received',
-      'ADVANCE_VERIFIED' => 'Advance Verified',
-      'STRUCTURE_WORK' => 'Structure Work',
-      'ELECTRICAL_WORK' => 'Electrical Work',
-      'CIVIL_WORK' => 'Civil Work',
-      'INSTALLATION_COMPLETE' => 'Installed',
       'KEDL_PROCESS' => 'KEDL Process',
       'SYSTEM_LIVE' => 'System Live',
       'HANDED_OVER' => 'Handed Over ✓',
@@ -115,16 +109,8 @@ class _CustomersScreenState extends State<CustomersScreen> {
       if (!matchesSearch) return false;
 
       if (_filterStage == 'All') return true;
-      if (_filterStage == 'Sale Confirmed') {
-        return c.stage == 'SALE_CONFIRMED' ||
-            c.stage == 'DOCUMENTS_RECEIVED' ||
-            c.stage == 'ADVANCE_VERIFIED';
-      }
-      if (_filterStage == 'Work In Progress') {
-        return c.stage == 'STRUCTURE_WORK' ||
-            c.stage == 'ELECTRICAL_WORK' ||
-            c.stage == 'CIVIL_WORK' ||
-            c.stage == 'INSTALLATION_COMPLETE';
+      if (_filterStage == 'Site Installation') {
+        return _installStages.contains(c.stage);
       }
       if (_filterStage == 'KEDL Process') {
         return c.stage == 'KEDL_PROCESS';

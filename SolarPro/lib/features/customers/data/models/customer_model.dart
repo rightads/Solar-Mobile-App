@@ -81,24 +81,21 @@ class CustomerModel {
   /// Human-readable customer stage label
   String get stageDisplayLabel {
     switch (stage.toUpperCase()) {
+      // The old sales / structure / electrical / civil stages are all part of
+      // the single Site Installation stage now.
       case 'SALE_CONFIRMED':
-        return 'Sale Confirmed';
       case 'DOCUMENTS_RECEIVED':
-        return 'Docs Received';
       case 'ADVANCE_VERIFIED':
-        return 'Advance Verified';
       case 'STRUCTURE_WORK':
-        return 'Structure Work';
       case 'ELECTRICAL_WORK':
-        return 'Electrical Work';
       case 'CIVIL_WORK':
-        return 'Civil Work';
       case 'INSTALLATION_COMPLETE':
-        return 'Installation Done';
+        return 'Site Installation';
       case 'KEDL_PROCESS':
         return 'KEDL Process';
+      case 'SYSTEM_LIVE':
       case 'NET_METER_INSTALLED':
-        return 'Net Meter Installed';
+        return 'System Live';
       case 'HANDED_OVER':
         return 'Handed Over';
       default:
@@ -110,16 +107,16 @@ class CustomerModel {
   Color get stageColor {
     switch (stage.toUpperCase()) {
       case 'SALE_CONFIRMED':
-        return AppColors.info;
       case 'DOCUMENTS_RECEIVED':
-        return AppColors.purple500;
       case 'ADVANCE_VERIFIED':
-        return AppColors.gold500;
       case 'STRUCTURE_WORK':
       case 'ELECTRICAL_WORK':
       case 'CIVIL_WORK':
-        return AppColors.warning;
       case 'INSTALLATION_COMPLETE':
+        return AppColors.warning;
+      case 'KEDL_PROCESS':
+        return AppColors.purple500;
+      case 'SYSTEM_LIVE':
       case 'NET_METER_INSTALLED':
         return AppColors.teal500;
       case 'HANDED_OVER':
@@ -149,7 +146,7 @@ class CustomerModel {
       panelCount: (json['panel_count'] is num) ? (json['panel_count'] as num).toInt() : 0,
       inverterBrand: json['inverter_brand']?.toString() ?? '',
       structureType: json['structure_type']?.toString() ?? '',
-      stage: json['stage']?.toString() ?? 'SALE_CONFIRMED',
+      stage: json['stage']?.toString() ?? 'INSTALLATION_COMPLETE',
       salesId: json['sales_id']?.toString(),
       userId: json['user_id']?.toString(),
       documentsCount: (json['documents_count'] is num) ? (json['documents_count'] as num).toInt() : 0,

@@ -59,7 +59,7 @@ def _ensure_project(user: MongoUserProxy) -> Optional[dict]:
     return doc
 
 
-@router.get("/home", summary="Client dashboard: project, 10-stage timeline, contacts, payments")
+@router.get("/home", summary="Client dashboard: project, timeline, contacts, payments")
 async def get_client_home(current_user: MongoUserProxy = Depends(require_client)):
     customer = _ensure_project(current_user)
     data = mongo_get_client_home(load_user(current_user.id) or {}, customer)

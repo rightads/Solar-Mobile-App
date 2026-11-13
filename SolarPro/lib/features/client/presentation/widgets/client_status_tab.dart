@@ -368,13 +368,13 @@ class ClientStatusTab extends StatelessWidget {
             ),
           ),
 
-          // SECTION TITLE: 10-Stage Project Milestones
+          // SECTION TITLE: Project Milestones
           SliverToBoxAdapter(
             child: Padding(
               padding: const EdgeInsets.fromLTRB(16, 20, 16, 8),
               child: Row(
                 children: [
-                  Text('10-Stage Project Milestones', style: AppTextStyles.headlineSmall),
+                  Text('Project Milestones', style: AppTextStyles.headlineSmall),
                   const Spacer(),
                   Text('Real-time sync',
                       style: AppTextStyles.caption.copyWith(color: AppColors.grey500)),

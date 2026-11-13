@@ -25,7 +25,7 @@ void main() {
       expect(emp.id, 'emp-srv-104');
       expect(emp.name, 'Vikram Singh');
       expect(emp.employeeNo, 'EMP-SRV-104');
-      expect(emp.roleDisplayName, 'Service Technician');
+      expect(emp.roleDisplayName, 'Service');
       expect(emp.taskCount, 3);
       expect(emp.isActive, true);
     });

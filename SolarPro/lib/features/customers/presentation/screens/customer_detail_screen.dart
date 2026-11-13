@@ -3,6 +3,9 @@ import 'package:solar_pro/core/services/media_picker.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:timeline_tile/timeline_tile.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:solar_pro/core/constants/app_constants.dart';
+import 'package:solar_pro/core/constants/staff_departments.dart';
 import 'package:solar_pro/core/network/api_client.dart';
 import 'package:solar_pro/core/theme/app_theme.dart';
 
@@ -21,20 +24,15 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen>
   late _CustomerInfo _customer;
   bool _isLoading = true;
 
+  // Site-ops (installation) → KEDL (paperwork, system live) → Service (handover).
   static const _stageMeta = [
-    ('SALE_CONFIRMED', 'Sale Confirmed', Icons.handshake_rounded),
-    ('DOCUMENTS_RECEIVED', 'Docs Received', Icons.folder_rounded),
-    ('ADVANCE_VERIFIED', 'Advance Verified', Icons.verified_rounded),
-    ('STRUCTURE_WORK', 'Structure Work', Icons.foundation_rounded),
-    ('ELECTRICAL_WORK', 'Electrical Work', Icons.electrical_services_rounded),
-    ('CIVIL_WORK', 'Civil Work', Icons.construction_rounded),
-    ('INSTALLATION_COMPLETE', 'Installation Done', Icons.solar_power_rounded),
+    ('INSTALLATION_COMPLETE', 'Site Installation (Site Ops)', Icons.solar_power_rounded),
     ('KEDL_PROCESS', 'KEDL Process', Icons.description_rounded),
     ('SYSTEM_LIVE', 'System Live / Net Meter', Icons.bolt_rounded),
-    ('HANDED_OVER', 'Handed Over', Icons.celebration_rounded),
+    ('HANDED_OVER', 'Handed Over (Service)', Icons.celebration_rounded),
   ];
 
-  // Live 10-stage timeline from the backend (never hardcoded).
+  // Live project timeline from the backend (never hardcoded).
   List<_StageInfo> _stages = [
     for (final m in _stageMeta) _StageInfo(m.$1, m.$2, false, AppColors.grey600, m.$3),
   ];
@@ -95,6 +93,11 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen>
     }
   }
 
+  // Employees assigned to this customer (sales owner, Site-ops, KEDL).
+  Map<String, String?> _assignees = const {};
+  bool _canAssign = false;
+  String? _assigningField;
+
   late List<_DocItem> _documents;
   List<_MilestoneItem> _milestones = [];
   List<Map<String, dynamic>> _workAssignments = [];
@@ -106,6 +109,88 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen>
     _tabController = TabController(length: 5, vsync: this);
     _initCustomerDefaults();
     _loadFromBackend();
+    SharedPreferences.getInstance().then((prefs) {
+      final role = prefs.getString(AppConstants.kUserRole)?.toLowerCase() ?? '';
+      // Admins and the customer's sales owner assign the Site-ops and KEDL employees.
+      final canAssign = role == 'admin' || role == 'manager' || role == 'vendor' || departmentOf(role) == 'sales';
+      if (mounted && canAssign) setState(() => _canAssign = true);
+    });
+  }
+
+  Future<void> _pickAssignee(String field, StaffDepartment dept) async {
+    final staff = await ApiClient().getEmployees(trade: dept.key);
+    if (!mounted) return;
+    final currentId = _assignees[field];
+    final choice = await showModalBottomSheet<Map<String, dynamic>>(
+      context: context,
+      backgroundColor: AppColors.navy800,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (ctx) => SafeArea(
+        child: ConstrainedBox(
+          constraints: BoxConstraints(maxHeight: MediaQuery.of(ctx).size.height * 0.7),
+          child: ListView(
+            shrinkWrap: true,
+            padding: const EdgeInsets.symmetric(vertical: 12),
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 4, 20, 8),
+                child: Text('Assign ${dept.label} employee', style: AppTextStyles.headlineSmall),
+              ),
+              if (staff.isEmpty)
+                Padding(
+                  padding: const EdgeInsets.all(20),
+                  child: Text('No active ${dept.label} employees yet. An admin can add one in the Staff Directory.',
+                      style: AppTextStyles.bodyMedium.copyWith(color: AppColors.grey400)),
+                ),
+              for (final e in staff)
+                ListTile(
+                  leading: CircleAvatar(
+                    backgroundColor: dept.color.withValues(alpha: 0.15),
+                    child: Icon(dept.icon, color: dept.color, size: 20),
+                  ),
+                  title: Text(e['name']?.toString() ?? 'Employee'),
+                  subtitle: Text([e['employee_no'], e['phone']].where((v) => v != null && '$v'.isNotEmpty).join(' • ')),
+                  trailing: (e['id']?.toString() ?? '') == currentId
+                      ? const Icon(Icons.check_circle_rounded, color: AppColors.success)
+                      : Text('${e['task_count'] ?? 0} tasks', style: AppTextStyles.caption),
+                  onTap: () => Navigator.pop(ctx, e),
+                ),
+              if (currentId != null && currentId.isNotEmpty)
+                ListTile(
+                  leading: const Icon(Icons.person_remove_alt_1_rounded, color: AppColors.error),
+                  title: const Text('Remove assignment', style: TextStyle(color: AppColors.error)),
+                  onTap: () => Navigator.pop(ctx, const <String, dynamic>{'id': ''}),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+    if (choice == null || !mounted) return;
+    final newId = choice['id']?.toString() ?? '';
+    if (newId == (currentId ?? '')) return;
+    setState(() => _assigningField = field);
+    try {
+      await ApiClient().updateCustomer(customerId: widget.customerId, data: {field: newId});
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(newId.isEmpty
+            ? '${dept.label} assignment removed'
+            : '${choice['name']} assigned as ${dept.label}'),
+        backgroundColor: AppColors.success,
+      ));
+      await _loadFromBackend();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(ApiClient.toFriendly(e).toString().replaceFirst('Exception: ', '')),
+          backgroundColor: AppColors.error,
+        ));
+      }
+    } finally {
+      if (mounted) setState(() => _assigningField = null);
+    }
   }
 
   void _initCustomerDefaults() {
@@ -162,7 +247,14 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen>
         final finalPrice = (cMap['final_price'] ?? cMap['total_amount'] ?? 250000) as num;
         final paidAmt = (cMap['paid_amount'] ?? 0) as num;
         final phase = (cMap['phase'] ?? 'Three Phase').toString();
-        final stage = (cMap['stage'] ?? 'SALE_CONFIRMED').toString();
+        final stage = (cMap['stage'] ?? 'INSTALLATION_COMPLETE').toString();
+        final assignees = <String, String?>{
+          'sales_name': cMap['sales_name']?.toString(),
+          'site_employee_id': cMap['site_employee_id']?.toString(),
+          'site_employee_name': cMap['site_employee_name']?.toString(),
+          'kedl_employee_id': cMap['kedl_employee_id']?.toString(),
+          'kedl_employee_name': cMap['kedl_employee_name']?.toString(),
+        };
 
         // Documents
         final rawDocs = cMap['documents'] is Map ? cMap['documents'] as Map : {};
@@ -194,6 +286,7 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen>
             paid: paidAmt.toInt(),
             stage: stage,
           );
+          _assignees = assignees;
           _documents = updatedDocs;
           _milestones = parsedMilestones;
           _workAssignments = works;
@@ -638,7 +731,17 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen>
               body: TabBarView(
                 controller: _tabController,
                 children: [
-                  _TimelineTab(stages: _stages, busyKey: _togglingStage, onToggle: _toggleStage),
+                  _TimelineTab(
+                    stages: _stages,
+                    busyKey: _togglingStage,
+                    onToggle: _toggleStage,
+                    header: _AssignedTeamCard(
+                      assignees: _assignees,
+                      canAssign: _canAssign,
+                      busyField: _assigningField,
+                      onAssign: _pickAssignee,
+                    ),
+                  ),
                   _DocumentsTab(
                     docs: _documents,
                     onToggleUpload: _uploadDocument,
@@ -694,19 +797,112 @@ class _SliverAppBarDelegate extends SliverPersistentHeaderDelegate {
 
 // ── Timeline Tab ──────────────────────────────────────────────────────────────
 
+/// Who works on this project. Sales assigns the Site-ops and KEDL employees;
+/// Service engineers pick up the customer's raised tickets.
+class _AssignedTeamCard extends StatelessWidget {
+  final Map<String, String?> assignees;
+  final bool canAssign;
+  final String? busyField;
+  final Future<void> Function(String field, StaffDepartment dept) onAssign;
+
+  const _AssignedTeamCard({
+    required this.assignees,
+    required this.canAssign,
+    required this.busyField,
+    required this.onAssign,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    StaffDepartment dept(String key) => kStaffDepartments.firstWhere((d) => d.key == key);
+
+    Widget row(StaffDepartment d, String? name, {String? field}) {
+      final assigned = name != null && name.isNotEmpty;
+      final busy = field != null && busyField == field;
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: 6),
+        child: Row(
+          children: [
+            CircleAvatar(
+              radius: 18,
+              backgroundColor: d.color.withValues(alpha: 0.15),
+              child: Icon(d.icon, size: 18, color: d.color),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(d.label, style: AppTextStyles.caption.copyWith(color: AppColors.grey500)),
+                  Text(
+                    assigned ? name : 'Not assigned',
+                    style: AppTextStyles.labelLarge.copyWith(
+                      color: assigned ? AppColors.fg : AppColors.warning,
+                      fontWeight: assigned ? FontWeight.w600 : FontWeight.w500,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            if (field != null && canAssign)
+              busy
+                  ? const SizedBox(width: 22, height: 22, child: CircularProgressIndicator(strokeWidth: 2))
+                  : TextButton.icon(
+                      onPressed: () => onAssign(field, d),
+                      icon: Icon(assigned ? Icons.swap_horiz_rounded : Icons.person_add_alt_1_rounded, size: 18),
+                      label: Text(assigned ? 'Change' : 'Assign'),
+                    ),
+          ],
+        ),
+      );
+    }
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 20),
+      padding: const EdgeInsets.fromLTRB(16, 14, 8, 10),
+      decoration: BoxDecoration(
+        color: AppColors.navy800,
+        borderRadius: BorderRadius.circular(AppRadius.lg),
+        border: Border.all(color: AppColors.navy600),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('Assigned Team', style: AppTextStyles.headlineSmall.copyWith(fontSize: 16)),
+          const SizedBox(height: 4),
+          row(dept('sales'), assignees['sales_name']),
+          row(dept('site'), assignees['site_employee_name'], field: 'site_employee_id'),
+          row(dept('kedl'), assignees['kedl_employee_name'], field: 'kedl_employee_id'),
+          Padding(
+            padding: const EdgeInsets.only(top: 6, right: 8),
+            child: Text(
+              'Service engineers handle the tickets this customer raises.',
+              style: AppTextStyles.caption.copyWith(color: AppColors.grey500),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _TimelineTab extends StatelessWidget {
   final List<_StageInfo> stages;
   final String? busyKey;
   final ValueChanged<_StageInfo> onToggle;
-  const _TimelineTab({required this.stages, required this.busyKey, required this.onToggle});
+  final Widget? header;
+  const _TimelineTab({required this.stages, required this.busyKey, required this.onToggle, this.header});
 
   @override
   Widget build(BuildContext context) {
+    final offset = header == null ? 0 : 1;
     return ListView.builder(
       padding: const EdgeInsets.fromLTRB(16, 20, 16, 40),
       physics: const BouncingScrollPhysics(),
-      itemCount: stages.length,
-      itemBuilder: (context, i) {
+      itemCount: stages.length + offset,
+      itemBuilder: (context, index) {
+        if (header != null && index == 0) return header!;
+        final i = index - offset;
         final stage = stages[i];
         final isFirst = i == 0;
         final isLast = i == stages.length - 1;

@@ -78,10 +78,14 @@ class _ServiceTicketsTabState extends State<ServiceTicketsTab>
     ).then((_) => _loadTickets());
   }
 
+  /// Raised tickets still waiting for (or assigned to) an engineer.
+  static bool _isOpen(TicketModel t) =>
+      t.status == TicketStatus.open || t.status == TicketStatus.assigned || t.status == TicketStatus.reopened;
+
   List<TicketModel> _getFilteredTicketsForTab(int tabIndex) {
     switch (tabIndex) {
       case 0: // Assigned to me
-        return _tickets.where((t) => t.status == TicketStatus.assigned || t.status == TicketStatus.open).toList();
+        return _tickets.where(_isOpen).toList();
       case 1: // In progress
         return _tickets.where((t) => t.status == TicketStatus.inProgress).toList();
       case 2: // Resolved
@@ -248,11 +252,9 @@ class _ServiceTicketsTabState extends State<ServiceTicketsTab>
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        const Text('Assigned'),
+                        const Text('Open'),
                         const SizedBox(width: 6),
-                        _buildCountBadge(
-                          _tickets.where((t) => t.status == TicketStatus.assigned || t.status == TicketStatus.open).length,
-                        ),
+                        _buildCountBadge(_tickets.where(_isOpen).length),
                       ],
                     ),
                   ),

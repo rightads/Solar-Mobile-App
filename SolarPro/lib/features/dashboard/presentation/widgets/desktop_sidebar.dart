@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:go_router/go_router.dart';
+import 'package:solar_pro/shared/widgets/change_password_sheet.dart';
 import 'package:solar_pro/core/constants/app_constants.dart';
 import 'package:solar_pro/core/network/api_client.dart';
 import 'package:solar_pro/core/theme/app_theme.dart';
@@ -261,11 +262,19 @@ class _DesktopSidebarState extends State<DesktopSidebar> {
                     ),
                   ),
                   IconButton(
+                    icon: const Icon(Icons.key_rounded, size: 18, color: AppColors.grey500),
+                    tooltip: 'Change Password',
+                    onPressed: () => showChangePasswordSheet(context),
+                  ),
+                  IconButton(
                     icon: const Icon(Icons.logout_rounded, size: 18, color: AppColors.error),
                     tooltip: 'Log Out',
-                    onPressed: () {
-                      context.go(AppRoutes.login);
-                      ScaffoldMessenger.of(context).showSnackBar(
+                    onPressed: () async {
+                      final messenger = ScaffoldMessenger.of(context);
+                      final router = GoRouter.of(context);
+                      await ApiClient().logout();
+                      router.go(AppRoutes.login);
+                      messenger.showSnackBar(
                         const SnackBar(
                           content: Text('Logged out successfully'),
                           backgroundColor: AppColors.navy700,

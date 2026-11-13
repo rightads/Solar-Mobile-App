@@ -4,7 +4,7 @@ import 'package:solar_pro/core/theme/app_theme.dart';
 import 'package:solar_pro/shared/animations/pixel_art.dart';
 
 /// Client home hero: capacity, current stage, pixel house and a segmented
-/// 10-stage progress bar that fills one block at a time.
+/// Project progress bar that fills one block per completed stage.
 class SpSolarSystemCard extends StatelessWidget {
   final double capacityKw;
   final String stageLabel;
