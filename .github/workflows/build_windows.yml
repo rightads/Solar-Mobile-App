@@ -36,11 +36,10 @@ jobs:
         run: flutter pub get
         working-directory: ./SolarPro
 
+      # API endpoint (VPS IP + port) and its pinned certificate fingerprint
+      # live in lib/core/constants/app_constants.dart; no overrides here.
       - name: Build Windows Desktop App
-        run: |
-          flutter build windows --release `
-            --dart-define=API_BASE_URL=${{ vars.API_BASE_URL || 'https://api.solarpro-app.in/api/v1' }} `
-            --dart-define=API_LIVE_HOST=${{ vars.API_LIVE_HOST || 'https://api.solarpro-app.in' }}
+        run: flutter build windows --release
         working-directory: ./SolarPro
 
       - name: Package Windows Release (ZIP)

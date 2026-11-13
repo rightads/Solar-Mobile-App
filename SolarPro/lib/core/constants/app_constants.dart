@@ -25,8 +25,12 @@ class AppConstants {
   static const String serverBaseUrl = '$serverHost/api/v1';
 
   /// SHA-256 of the API server's certificate (DER, lowercase hex).
-  static const String apiCertSha256 =
-      String.fromEnvironment('API_CERT_SHA256', defaultValue: '');
+  /// Printed by scripts/deploy.sh ("App settings"); valid until 2036.
+  static const String apiCertSha256 = String.fromEnvironment(
+    'API_CERT_SHA256',
+    defaultValue:
+        '89a63f6cb346b38df113e320a8b88f550ccb586878cfd004e4e7b65e4ef6af4c',
+  );
 
   static const String _apiBaseUrlOverride =
       String.fromEnvironment('API_BASE_URL');

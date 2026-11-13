@@ -59,13 +59,13 @@ jobs:
             echo "keyPassword=$KEY_PASSWORD"
           } > key.properties
 
+      # API endpoint (VPS IP + port) and its pinned certificate fingerprint
+      # live in lib/core/constants/app_constants.dart; no overrides here.
       - name: Build Android Release APK
         working-directory: ./SolarPro
         run: |
           flutter build apk --release \
-            --obfuscate --split-debug-info=build/symbols \
-            --dart-define=API_BASE_URL=${{ vars.API_BASE_URL || 'https://api.solarpro-app.in/api/v1' }} \
-            --dart-define=API_LIVE_HOST=${{ vars.API_LIVE_HOST || 'https://api.solarpro-app.in' }}
+            --obfuscate --split-debug-info=build/symbols
 
       - name: Rename Release APK
         run: |
