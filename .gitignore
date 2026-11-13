@@ -27,3 +27,9 @@ SECURITY_AUDIT_REPORT.md
 *.mp4
 scratch/
 Backend/uploads/
+
+# Signing keys and credentials must never be committed
+*.jks
+*.keystore
+*.p12
+key.properties
