@@ -18,7 +18,7 @@
 [![Security Grade](https://img.shields.io/badge/Security%20Audit-A%2B%20Hardened-brightgreen?style=for-the-badge&logo=shield&logoColor=white)](#-security--production-hardening)
 [![License](https://img.shields.io/badge/License-MIT-orange?style=for-the-badge)](LICENSE)
 
-[Key Features](#-key-features) • [Visual Showcase](#-visual-showcase) • [System Architecture](#-system-architecture) • [Workflow Engine](#-solar-lifecycle-workflow) • [Tech Stack](#-technology-stack) • [Quick Start](#-quick-start--installation) • [API Schema](#-api-endpoints-overview)
+[Live Deployment](#-live-deployment) • [Key Features](#-key-features) • [Visual Showcase](#-visual-showcase) • [System Architecture](#-system-architecture) • [Workflow Engine](#-solar-lifecycle-workflow) • [Tech Stack](#-technology-stack) • [Quick Start](#-quick-start--installation) • [API Schema](#-api-endpoints-overview)
 
 </div>
 
@@ -41,6 +41,48 @@ SolarPro orchestrates the entire company into a **unified reactive ecosystem**:
 2. **4-Role Field Employee Engine:** Strict automated handoff transitions: `Sales Executive` ➡️ `Site EPC Operations` ➡️ `KEDL Discom Liaison` ➡️ `Service & O&M Engineer`.
 3. **Executive Super Admin Hub:** Master inventory tracking, workforce role approvals, milestone escrow reconciliation, and executive business analytics.
 4. **Dual-Core Asynchronous Engine:** Combines **PostgreSQL** (ACID ledgers & transactional integrity) with **MongoDB Motor** (high-throughput sensor telemetry, JSON documents, and flexible milestone workflows).
+
+---
+
+## 🌐 Live Deployment
+
+| Component | URL | Port | Notes |
+|:---|:---|:---:|:---|
+| **Website** | [`https://solarpro-app.in`](https://solarpro-app.in) | `443` | React site with app downloads, served by LiteSpeed (CyberPanel) |
+| **Backend API** | `https://82.29.165.43:8443/api/v1` | `8443` | FastAPI behind nginx, reached **by IP only** (no domain) |
+| **Health check** | `https://82.29.165.43:8443/api/v1/health` | `8443` | Returns `{"status":"ok","db":"mongodb"}` |
+| **Android app** | [GitHub Release `Android`](https://github.com/rightads/Solar-Mobile-App/releases/tag/Android) | – | Signed release APK, rebuilt on every push to `main` |
+| **Windows app** | [GitHub Release `Windows`](https://github.com/rightads/Solar-Mobile-App/releases/tag/Windows) | – | Zipped desktop build, rebuilt on every push to `main` |
+
+**How the app reaches the backend**
+
+* The domain `solarpro-app.in` belongs to the website only. The mobile and desktop apps call the API directly at the VPS IP on port **8443**. These values are set in [`SolarPro/lib/core/constants/app_constants.dart`](SolarPro/lib/core/constants/app_constants.dart) (`serverIp`, `serverPort`).
+* The API uses HTTPS with a **self-signed certificate** issued for `82.29.165.43` (valid until 2036). It is created on the server by `Backend/scripts/deploy.sh` and stored in `Backend/certs/` (not in git).
+* The app trusts **only** that certificate. Its SHA-256 fingerprint is pinned in `app_constants.dart` (`apiCertSha256`) and enforced by [`pinned_http_overrides.dart`](SolarPro/lib/core/network/pinned_http_overrides.dart):
+  ```
+  89a63f6cb346b38df113e320a8b88f550ccb586878cfd004e4e7b65e4ef6af4c
+  ```
+* Browsers and tools like `curl` will report the certificate as untrusted. That is expected. To call the API from a terminal, trust the certificate explicitly:
+  ```bash
+  openssl s_client -connect 82.29.165.43:8443 </dev/null 2>/dev/null | openssl x509 > api.crt
+  curl --cacert api.crt https://82.29.165.43:8443/api/v1/health
+  ```
+
+> [!WARNING]
+> **Do not delete `Backend/certs/` on the VPS.** If the certificate is regenerated (deleted folder or a new server IP), every installed app stops connecting until `apiCertSha256` is updated and new builds are shipped. The new fingerprint is printed in the deploy log as `📌 App settings: API_PORT=… API_CERT_SHA256=…`.
+
+**Deployment (CI/CD)**
+
+Everything deploys from GitHub Actions on push to `main`. Nothing is deployed by hand:
+
+| Workflow | Triggered by changes in | What it does |
+|:---|:---|:---|
+| `backend-ci-cd.yml` | `Backend/**`, `website/**` | Compile, lint, security regression suite, `pip-audit`, then SSH to the Hostinger VPS, `git reset --hard origin/main`, and run `Backend/scripts/deploy.sh` |
+| `build_android.yml` | `SolarPro/**` | Builds the signed release APK and publishes it to the `Android` release |
+| `build_windows.yml` | `SolarPro/**` | Builds the Windows desktop app and publishes it to the `Windows` release |
+| `build_macos.yml` | `SolarPro/**` | Builds the macOS app as a workflow artifact |
+
+`deploy.sh` starts the Docker containers (`backend`, `nginx`, `website`). It saves the API port in `Backend/.env` as `API_HOST_PORT` (first free port from 8443, reused on later deploys), creates the certificate if it is missing, checks API health over HTTPS, and installs the website build into LiteSpeed for `solarpro-app.in`.
 
 ---
 
@@ -199,7 +241,7 @@ SolarPro has completed a comprehensive security audit (**Grade A+**) adhering to
 * 📲 **Carrier-Grade OTP Gateways:** Real SMS OTP verification via **2Factor.in** and **Fast2SMS** fallback with SHA-256 OTP hashing and brute-force rate-limiting.
 * 🔐 **Fine-Grained Role Escalation Prevention:** Strict whitelist validation on `/api/v1/auth/register`. Client accounts cannot elevate to staff/admin roles without cryptographic master authorization.
 * 🛡️ **NoSQL & ReDoS Sanitization:** Strict regex sanitization (`re.escape`) across search parameters, eliminating NoSQL injection vectors.
-* 🌐 **Secure Transport Enforcement:** Android `usesCleartextTraffic=false` enforced in production manifests with TLS 1.3 pinning.
+* 🌐 **Secure Transport Enforcement:** HTTPS only (TLS 1.2 / 1.3) on the API port `8443`, with **certificate pinning** in the app: it trusts only the server's own certificate fingerprint. Android `usesCleartextTraffic=false`, and release builds refuse any non-`https://` API URL.
 * 🔑 **Production Keystore Signing:** Standardized Android keystore configuration (`upload-keystore.jks`) using environmental signature injection.
 
 ---
@@ -229,8 +271,10 @@ SolarPro has completed a comprehensive security audit (**Grade A+**) adhering to
 Solar-Mobile-App/
 ├── .github/
 │   └── workflows/
-│       ├── backend-ci-cd.yml          # Automated CI/CD pipeline for VPS deployment
-│       └── flutter-build.yml          # Flutter APK/AAB build automation
+│       ├── backend-ci-cd.yml          # Backend CI + deploy to Hostinger VPS
+│       ├── build_android.yml          # Signed release APK -> "Android" release
+│       ├── build_windows.yml          # Windows desktop build -> "Windows" release
+│       └── build_macos.yml            # macOS app build (artifact)
 ├── Backend/                           # FastAPI Core Engine
 │   ├── app/
 │   │   ├── api/v1/                    # Domain API Routers (Auth, Leads, KEDL, Client, etc.)
@@ -279,7 +323,7 @@ Solar-Mobile-App/
 #### Option A: Docker Compose (Recommended)
 ```bash
 # Clone the repository
-git clone https://github.com/aryanjadaun/Solar-Mobile-App.git
+git clone https://github.com/rightads/Solar-Mobile-App.git
 cd Solar-Mobile-App/Backend
 
 # Configure environment variables
@@ -322,12 +366,17 @@ flutter pub get
 # Check attached devices / emulators
 flutter devices
 
-# Run in debug mode on connected device
+# Run in debug mode on connected device (uses the live API by default)
 flutter run
 
-# Or build release Android APK
+# Point a debug build at a local backend instead
+flutter run --dart-define=API_BASE_URL=http://10.0.2.2:8000/api/v1
+
+# Or build release Android APK (live API, pinned certificate)
 flutter build apk --release
 ```
+
+The app connects to the live backend at `https://82.29.165.43:8443/api/v1` by default. Release builds only accept `https://` URLs.
 
 ---
 
