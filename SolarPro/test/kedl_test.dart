@@ -2,12 +2,14 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:solar_pro/features/kedl/data/models/kedl_model.dart';
 import 'package:solar_pro/features/kedl/data/repositories/kedl_repository.dart';
+import 'helpers/fake_backend.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   setUp(() async {
     SharedPreferences.setMockInitialValues({});
+    FakeBackend.install();
   });
 
   group('KEDL Models & Enums Tests', () {

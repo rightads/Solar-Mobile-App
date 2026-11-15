@@ -21,6 +21,7 @@ import 'package:solar_pro/features/dashboard/presentation/widgets/desktop_header
 import 'package:solar_pro/features/dashboard/presentation/screens/desktop_overview_pane.dart';
 import 'package:solar_pro/shared/widgets/sp_stat_card.dart';
 import 'package:solar_pro/shared/widgets/sp_section_header.dart';
+import 'package:solar_pro/features/dashboard/data/admin_stats.dart';
 
 class VendorDashboardScreen extends StatefulWidget {
   const VendorDashboardScreen({super.key});
@@ -229,11 +230,20 @@ class _DashboardHome extends StatefulWidget {
 class _DashboardHomeState extends State<_DashboardHome> {
   static const _recent = <_RA>[];
   int _pendingCount = 0;
+  AdminStats _stats = const AdminStats();
 
   @override
   void initState() {
     super.initState();
     _loadPendingApprovals();
+    _loadStats();
+  }
+
+  Future<void> _loadStats() async {
+    try {
+      final stats = await AdminStats.load();
+      if (mounted) setState(() => _stats = stats);
+    } catch (_) {}
   }
 
   Future<void> _loadPendingApprovals() async {
@@ -345,42 +355,42 @@ class _DashboardHomeState extends State<_DashboardHome> {
                 children: [
                   GestureDetector(
                     onTap: () => widget.onNavigateTab(1), // Leads tab
-                    child: const SpStatCard(
+                    child: SpStatCard(
                         label: 'Active Leads',
-                        value: '0',
+                        value: '${_stats.activeLeads}',
                         icon: Icons.trending_up_rounded,
                         iconColor: AppColors.teal500,
-                        change: 'Pipeline clean',
+                        change: _stats.activeLeads == 0 ? 'Pipeline clean' : 'In pipeline',
                         delay: 0),
                   ),
                   GestureDetector(
                     onTap: () => widget.onNavigateTab(2), // Customers tab
-                    child: const SpStatCard(
+                    child: SpStatCard(
                         label: 'Customers',
-                        value: '0',
+                        value: '${_stats.customers}',
                         icon: Icons.groups_rounded,
                         iconColor: AppColors.gold500,
-                        change: 'Ready for enroll',
+                        change: '${_stats.liveSystems} live',
                         delay: 100),
                   ),
                   GestureDetector(
                     onTap: () => context.push(AppRoutes.payments),
-                    child: const SpStatCard(
+                    child: SpStatCard(
                         label: 'Pending Payments',
-                        value: '₹0',
+                        value: AdminStats.rupees(_stats.pendingPaymentsPaise),
                         icon: Icons.payments_rounded,
                         iconColor: AppColors.orange500,
-                        change: '0 awaiting',
+                        change: '${_stats.pendingPayments} awaiting',
                         delay: 200),
                   ),
                   GestureDetector(
                     onTap: () => context.push(AppRoutes.workAssign),
-                    child: const SpStatCard(
+                    child: SpStatCard(
                         label: 'Active Works',
-                        value: '0',
+                        value: '${_stats.activeWorks}',
                         icon: Icons.construction_rounded,
                         iconColor: AppColors.purple500,
-                        change: '0 teams',
+                        change: '${_stats.activeTeams} teams',
                         delay: 300),
                   ),
                 ],
@@ -476,7 +486,7 @@ class _DashboardHomeState extends State<_DashboardHome> {
               const SizedBox(height: 14),
               _PipeRow(
                 label: 'Payments to verify',
-                count: 0,
+                count: _stats.pendingPayments,
                 color: AppColors.orange500,
                 icon: Icons.verified_rounded,
                 route: AppRoutes.payments,
@@ -485,7 +495,7 @@ class _DashboardHomeState extends State<_DashboardHome> {
               const SizedBox(height: 10),
               _PipeRow(
                 label: 'Work assignments due',
-                count: 0,
+                count: _stats.worksDue,
                 color: AppColors.teal500,
                 icon: Icons.calendar_today_rounded,
                 route: AppRoutes.workAssign,
@@ -494,7 +504,7 @@ class _DashboardHomeState extends State<_DashboardHome> {
               const SizedBox(height: 10),
               _PipeRow(
                 label: 'KEDL files pending',
-                count: 0,
+                count: _stats.kedlPending,
                 color: AppColors.purple500,
                 icon: Icons.description_rounded,
                 route: AppRoutes.kedl,
@@ -503,7 +513,7 @@ class _DashboardHomeState extends State<_DashboardHome> {
               const SizedBox(height: 10),
               _PipeRow(
                 label: 'Open service tickets',
-                count: 0,
+                count: _stats.openTickets,
                 color: AppColors.error,
                 icon: Icons.support_agent_rounded,
                 route: AppRoutes.serviceTickets,

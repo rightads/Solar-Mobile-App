@@ -5,6 +5,7 @@ import 'package:solar_pro/core/constants/app_constants.dart';
 import 'package:solar_pro/core/network/api_client.dart';
 import 'package:solar_pro/core/theme/app_theme.dart';
 import 'package:solar_pro/shared/widgets/sp_stat_card.dart';
+import 'package:solar_pro/features/dashboard/data/admin_stats.dart';
 
 class DesktopOverviewPane extends StatefulWidget {
   final ValueChanged<int> onNavigateTab;
@@ -20,11 +21,20 @@ class DesktopOverviewPane extends StatefulWidget {
 
 class _DesktopOverviewPaneState extends State<DesktopOverviewPane> {
   int _pendingCount = 0;
+  AdminStats _stats = const AdminStats();
 
   @override
   void initState() {
     super.initState();
     _loadPendingCount();
+    _loadStats();
+  }
+
+  Future<void> _loadStats() async {
+    try {
+      final stats = await AdminStats.load();
+      if (mounted) setState(() => _stats = stats);
+    } catch (_) {}
   }
 
   Future<void> _loadPendingCount() async {
@@ -114,35 +124,35 @@ class _DesktopOverviewPaneState extends State<DesktopOverviewPane> {
           // ── Top 4-Column KPI Metrics ───────────────────────────────────────
           Row(
             children: [
-              const Expanded(
+              Expanded(
                 child: SpStatCard(
-                  label: 'Total Revenue',
-                  value: '₹0',
+                  label: 'Contract Value',
+                  value: AdminStats.rupees(_stats.contractValuePaise),
                   icon: Icons.currency_rupee_rounded,
                   iconColor: AppColors.gold500,
-                  change: 'Live pipeline',
+                  change: 'Across ${_stats.customers} customers',
                   delay: 0,
                 ),
               ),
               const SizedBox(width: 16),
-              const Expanded(
+              Expanded(
                 child: SpStatCard(
                   label: 'Active Customers',
-                  value: '0 Systems',
+                  value: '${_stats.customers} Systems',
                   icon: Icons.solar_power_rounded,
                   iconColor: AppColors.teal500,
-                  change: '0 active',
+                  change: '${_stats.liveSystems} live',
                   delay: 80,
                 ),
               ),
               const SizedBox(width: 16),
-              const Expanded(
+              Expanded(
                 child: SpStatCard(
                   label: 'KEDL In Progress',
-                  value: '0 Files',
+                  value: '${_stats.kedlPending} Files',
                   icon: Icons.description_rounded,
                   iconColor: AppColors.purple500,
-                  change: '0 in progress',
+                  change: '${_stats.kedlPending} in progress',
                   delay: 160,
                 ),
               ),

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -36,15 +37,23 @@ class SolarProApp extends ConsumerStatefulWidget {
 }
 
 class _SolarProAppState extends ConsumerState<SolarProApp> {
+  Timer? _updateCheckTimer;
+
   @override
   void initState() {
     super.initState();
     // Let the splash screen route first, then look for a newer APK.
-    Future.delayed(const Duration(seconds: 4), () {
+    _updateCheckTimer = Timer(const Duration(seconds: 4), () {
       if (!mounted) return;
       final router = ref.read(routerProvider);
       UpdateService.checkForUpdate(() => router.routerDelegate.navigatorKey.currentContext);
     });
+  }
+
+  @override
+  void dispose() {
+    _updateCheckTimer?.cancel();
+    super.dispose();
   }
 
   @override

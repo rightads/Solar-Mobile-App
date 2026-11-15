@@ -2,12 +2,14 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:solar_pro/features/tickets/data/models/ticket_model.dart';
 import 'package:solar_pro/features/tickets/data/repositories/ticket_repository.dart';
+import 'helpers/fake_backend.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   setUp(() async {
     SharedPreferences.setMockInitialValues({});
+    FakeBackend.install();
   });
 
   group('Service Ticket Models & Enums Tests', () {
@@ -82,7 +84,7 @@ void main() {
   });
 
   group('TicketRepository & Business Logic Tests', () {
-    test('Listing tickets returns seeded tickets when offline or API unavailable', () async {
+    test('Listing tickets returns the tickets from the API', () async {
       final repo = TicketRepository();
       final tickets = await repo.listTickets();
       expect(tickets.isNotEmpty, isTrue);
@@ -152,35 +154,38 @@ void main() {
       expect(refreshed.comments.any((c) => c.message == 'Arriving on site in 20 minutes.'), isTrue);
     });
 
-    test('Adding visit photos persists in ticket images list', () async {
+    test('Adding visit photos returns photo records for the ticket', () async {
       final repo = TicketRepository();
       final tickets = await repo.listTickets();
       final target = tickets.first;
 
-      final initialCount = target.images.length;
+      // Visit photos are kept on the device; the API has no ticket photo
+      // upload endpoint yet, so the server copy is not expected to change.
       final added = await repo.addVisitPhotos(target.id, ['/mock/path/visit_rectified.jpg']);
       expect(added.length, 1);
-
-      final refreshed = await repo.getTicketById(target.id);
-      expect(refreshed.images.length, initialCount + 1);
+      expect(added.single.ticketId, target.id);
+      expect(added.single.fileKey, 'visit_rectified.jpg');
     });
 
     test('Reverse serial lookup returns correct warranty and customer profile', () async {
       final repo = TicketRepository();
 
       // Test active warranty inverter
-      final activeInv = await repo.lookupSerial('INV-GW-5K-9901');
-      expect(activeInv.serialNo, 'INV-GW-5K-9901');
+      final activeInv = await repo.lookupSerial('inv-active-001'); // normalised to upper case
+      expect(activeInv.serialNo, 'INV-ACTIVE-001');
       expect(activeInv.brand, 'Growatt');
       expect(activeInv.isUnderWarranty, isTrue);
-      expect(activeInv.customerName, 'Sunil Verma');
-      expect(activeInv.customerPhone, '9829012345');
+      expect(activeInv.customerName, 'Test Customer A');
+      expect(activeInv.customerPhone, '9000000101');
 
       // Test expired warranty inverter
-      final expiredInv = await repo.lookupSerial('INV-LUM-3K-0012');
-      expect(expiredInv.serialNo, 'INV-LUM-3K-0012');
+      final expiredInv = await repo.lookupSerial('INV-EXPIRED-002');
+      expect(expiredInv.serialNo, 'INV-EXPIRED-002');
       expect(expiredInv.isUnderWarranty, isFalse);
-      expect(expiredInv.customerName, 'Pooja Agarwal');
+      expect(expiredInv.customerName, 'Test Customer B');
+
+      // Unknown serials surface a friendly error
+      expect(() => repo.lookupSerial('NOPE-404'), throwsA(isA<Exception>()));
     });
   });
 }

@@ -3,9 +3,11 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:solar_pro/core/constants/app_constants.dart';
 import 'package:solar_pro/features/employee/common/employee_shell.dart';
+import 'helpers/fake_backend.dart';
 
 void main() {
-  testWidgets('Test rendering Vikram Singh portal shell', (WidgetTester tester) async {
+  testWidgets('Service portal shell shows the signed-in employee', (WidgetTester tester) async {
+    FakeBackend.install();
     SharedPreferences.setMockInitialValues({
       AppConstants.kAccessToken: 'mock_jwt_token',
       AppConstants.kUserId: 'emp-srv-104',
@@ -18,6 +20,7 @@ void main() {
 
     tester.view.physicalSize = const Size(1080, 2400);
     tester.view.devicePixelRatio = 2.0;
+    addTearDown(tester.view.reset);
 
     await tester.pumpWidget(
       const MaterialApp(
@@ -25,22 +28,16 @@ void main() {
       ),
     );
 
-    // Initial pump
+    // Let the saved profile load from SharedPreferences.
     await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
 
-    // Verify top bar
-    expect(find.text('Vikram Singh'), findsOneWidget);
+    // Header greets the employee by first name and names the portal.
+    expect(find.text('Hi, Vikram'), findsOneWidget);
     expect(find.textContaining('Service Desk'), findsOneWidget);
 
-    // Check if ServiceHomeTab widgets are present
-    print('Checking for Service & Maintenance banner: ${find.text('Service & Maintenance').evaluate().length}');
-    print('Checking for Assigned metric card: ${find.text('Assigned').evaluate().length}');
-
-    // Let any async tasks complete
-    await tester.pumpAndSettle();
-
-    print('After pumpAndSettle:');
-    print('Checking for Service & Maintenance banner: ${find.text('Service & Maintenance').evaluate().length}');
-    print('Checking for Assigned metric card: ${find.text('Assigned').evaluate().length}');
+    // Unmount and let pending work (API calls, animations) finish.
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump(const Duration(seconds: 1));
   });
 }

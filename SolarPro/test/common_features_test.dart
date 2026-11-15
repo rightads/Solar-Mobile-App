@@ -6,12 +6,16 @@ import 'package:solar_pro/core/services/shared_upload_service.dart';
 import 'package:solar_pro/core/utils/permission_helper.dart';
 import 'package:solar_pro/features/notifications/data/models/notification_model.dart';
 import 'package:solar_pro/features/notifications/data/repositories/notification_repository.dart';
+import 'helpers/fake_backend.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
+  late FakeBackend backend;
+
   setUp(() async {
     SharedPreferences.setMockInitialValues({});
+    backend = FakeBackend.install();
   });
 
   group('Prompt 9: Notification Model & Role Deep-Linking Tests', () {
@@ -122,6 +126,8 @@ void main() {
       // Even if network fails, token is safely recorded locally
       final prefs = await SharedPreferences.getInstance();
       expect(prefs.getString('solar_registered_fcm_token'), 'test_fcm_token_xyz_123');
+      expect(res, isTrue);
+      expect(backend.registeredFcmToken, 'test_fcm_token_xyz_123');
     });
   });
 

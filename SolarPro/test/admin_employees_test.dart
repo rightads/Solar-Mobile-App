@@ -4,6 +4,7 @@ import 'package:solar_pro/features/admin/employees/models/admin_employee_model.d
 import 'package:solar_pro/features/admin/employees/screens/admin_employees_screen.dart';
 import 'package:solar_pro/features/admin/employees/widgets/assign_task_dialog.dart';
 import 'package:solar_pro/features/admin/employees/widgets/employee_task_sheet.dart';
+import 'helpers/fake_backend.dart';
 
 void main() {
   group('AdminEmployee & EmployeeTask Models Tests', () {
@@ -56,6 +57,7 @@ void main() {
 
   group('Admin Employees UI Tests', () {
     testWidgets('Renders AdminEmployeesScreen with header and search controls', (tester) async {
+      FakeBackend.install();
       const mockEmployees = [
         AdminEmployee(
           id: 'emp-srv-104',
@@ -77,6 +79,8 @@ void main() {
         ),
       );
       await tester.pump();
+      // Let the pending-approvals request finish against the fake API.
+      await tester.pump(const Duration(milliseconds: 50));
 
       expect(find.text('Staff & Employees Directory'), findsOneWidget);
       expect(find.text('Total Staff'), findsOneWidget);

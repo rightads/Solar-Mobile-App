@@ -520,7 +520,8 @@ class ApiClient {
     String? address,
     String? locationGps,
     double kw = 5.0,
-    int finalPrice = 250000,
+    /// Final price in paise (the API's money unit).
+    required int finalPrice,
     List<Map<String, dynamic>>? milestones,
     Map<String, dynamic>? documents,
     String? salesId,

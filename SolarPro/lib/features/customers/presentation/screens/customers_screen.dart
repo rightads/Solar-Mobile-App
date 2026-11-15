@@ -55,8 +55,9 @@ class _CustomersScreenState extends State<CustomersScreen> {
           locationGps: item['location_gps']?.toString(),
           kw: (item['kw'] is num) ? (item['kw'] as num).toInt() : 5,
           stage: item['stage']?.toString() ?? 'INSTALLATION_COMPLETE',
-          amount: (item['total_amount'] is num) ? (item['total_amount'] as num).toInt() : 250000,
-          paid: (item['paid_amount'] is num) ? (item['paid_amount'] as num).toInt() : 0,
+          // The API stores money in paise; this screen works in rupees.
+          amount: (item['total_amount'] is num) ? (item['total_amount'] as num) ~/ 100 : 0,
+          paid: (item['paid_amount'] is num) ? (item['paid_amount'] as num) ~/ 100 : 0,
           phone: item['phone']?.toString() ?? item['mobile']?.toString() ?? '',
           documentsCount: docCnt,
         ));
@@ -541,7 +542,7 @@ class _CustomersScreenState extends State<CustomersScreen> {
                             builtMilestones.add({
                               'id': 'm_${i + 1}',
                               'title': m['title']!.text.trim(),
-                              'amount': int.tryParse(m['amount']!.text.trim()) ?? 25000,
+                              'amount': (int.tryParse(m['amount']!.text.trim()) ?? 25000) * 100, // rupees -> paise
                               'status': i == 0 ? 'verified' : 'pending',
                               'due_date': DateTime.now()
                                   .add(Duration(days: i * 7))
@@ -569,7 +570,7 @@ class _CustomersScreenState extends State<CustomersScreen> {
                               address: address.isEmpty ? 'Site Location' : address,
                               locationGps: locationGpsCtrl.text.trim(),
                               kw: kw,
-                              finalPrice: finalPrice,
+                              finalPrice: finalPrice * 100, // rupees -> paise
                               milestones: builtMilestones,
                               documents: builtDocs,
                             );

@@ -66,7 +66,9 @@ class _ClientTicketsTabState extends State<ClientTicketsTab> {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text('Solar Customer Care Desk', style: AppTextStyles.headlineMedium),
+                            // Banner background is always dark, so the title must stay light.
+                            Text('Solar Customer Care Desk',
+                                style: AppTextStyles.headlineMedium.copyWith(color: Colors.white)),
                             Text('Fast response by certified solar maintenance crew',
                                 style: AppTextStyles.caption.copyWith(color: AppColors.orange400)),
                           ],

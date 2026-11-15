@@ -174,18 +174,25 @@ class _AdminApprovalsScreenState extends State<AdminApprovalsScreen> {
               child: const Icon(Icons.verified_user_rounded, color: AppColors.orange500, size: 20),
             ),
             const SizedBox(width: 12),
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: const [
-                Text(
-                  'Super Admin Authorization',
-                  style: TextStyle(color: AppColors.fg, fontSize: 17, fontWeight: FontWeight.bold),
-                ),
-                Text(
-                  'Review Employee & Admin Sign-up Requests',
-                  style: TextStyle(color: AppColors.grey400, fontSize: 12),
-                ),
-              ],
+            // Expanded + ellipsis so the title fits narrow phone screens.
+            const Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Staff Approvals',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(color: AppColors.fg, fontSize: 17, fontWeight: FontWeight.bold),
+                  ),
+                  Text(
+                    'Review employee & admin sign-up requests',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(color: AppColors.grey400, fontSize: 12),
+                  ),
+                ],
+              ),
             ),
           ],
         ),

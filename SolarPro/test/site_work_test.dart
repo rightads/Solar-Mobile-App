@@ -4,12 +4,16 @@ import 'package:solar_pro/features/work_assignment/data/models/site_customer_sco
 import 'package:solar_pro/features/work_assignment/data/models/work_assignment_model.dart';
 import 'package:solar_pro/features/work_assignment/data/repositories/work_assignment_repository.dart';
 import 'package:solar_pro/features/work_assignment/data/services/site_offline_queue_service.dart';
+import 'helpers/fake_backend.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
+  late FakeBackend backend;
+
   setUp(() async {
     SharedPreferences.setMockInitialValues({});
+    backend = FakeBackend.install();
     final queue = SiteOfflineQueueService();
     await queue.init();
     await queue.clearAll();
@@ -141,15 +145,18 @@ void main() {
 
     test('Completing a job with at least 1 photo succeeds and updates status to completed', () async {
       final repo = WorkAssignmentRepository();
+      const jobId = 'job_electrical_1';
+      backend.addJobPhoto(jobId); // photo proof already on the server
       final photo = WorkPhotoModel(
         id: 'photo_test_01',
-        workAssignmentId: 'job_test_001',
+        workAssignmentId: jobId,
         fileKey: 'proof.jpg',
         createdAt: DateTime.now(),
       );
 
-      final completed = await repo.completeWork('job_elec_001', existingPhotos: [photo]);
+      final completed = await repo.completeWork(jobId, existingPhotos: [photo]);
       expect(completed.status, WorkStatus.completed);
+      expect(completed.isPendingSync, isFalse);
     });
   });
 

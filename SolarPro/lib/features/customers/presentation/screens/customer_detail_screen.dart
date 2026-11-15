@@ -244,8 +244,9 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen>
         final addr = (cMap['address'] ?? _customer.address).toString();
         final gps = (cMap['location_gps'] ?? cMap['gps'] ?? '').toString();
         final kw = (cMap['kw'] ?? cMap['capacity_kw'] ?? 5.0) as num;
-        final finalPrice = (cMap['final_price'] ?? cMap['total_amount'] ?? 250000) as num;
-        final paidAmt = (cMap['paid_amount'] ?? 0) as num;
+        // The API stores money in paise; this screen works in rupees.
+        final finalPrice = ((cMap['final_price'] ?? cMap['total_amount'] ?? 0) as num) / 100;
+        final paidAmt = ((cMap['paid_amount'] ?? 0) as num) / 100;
         final phase = (cMap['phase'] ?? 'Three Phase').toString();
         final stage = (cMap['stage'] ?? 'INSTALLATION_COMPLETE').toString();
         final assignees = <String, String?>{
@@ -373,7 +374,7 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen>
         milestoneId: m.id,
         data: {
           'title': m.title,
-          'amount': m.amount,
+          'amount': m.amount * 100, // rupees -> paise
           'status': newStatus,
           'employee_verified_date': newStatus == 'verified' ? today : '',
           'customer_verified_date': newStatus == 'verified' ? today : '',
@@ -489,7 +490,7 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen>
                     milestoneId: newId,
                     data: {
                       'title': title,
-                      'amount': amt,
+                      'amount': amt * 100, // rupees -> paise
                       'status': 'pending',
                     },
                   );
@@ -2037,7 +2038,7 @@ class _MilestoneItem {
     return _MilestoneItem(
       id: (m['id'] ?? m['milestone_id'] ?? '').toString(),
       title: (m['title'] ?? 'Payment Milestone').toString(),
-      amount: (m['amount'] ?? 0) as int,
+      amount: ((m['amount'] ?? 0) as num) ~/ 100, // paise -> rupees
       status: (m['status'] ?? 'pending').toString(),
       dueDate: (m['due_date'] ?? 'On Schedule').toString(),
       verifiedBy: (m['verified_by'] ?? '').toString(),

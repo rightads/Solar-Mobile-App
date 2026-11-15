@@ -59,7 +59,6 @@ class NotificationRepository {
     } catch (e) {
       throw ApiClient.toFriendly(e);
     }
-    throw Exception('Unexpected response from server.');
   }
 
   // ── Mark All As Read ───────────────────────────────────────────────────────
@@ -70,7 +69,6 @@ class NotificationRepository {
     } catch (e) {
       throw ApiClient.toFriendly(e);
     }
-    throw Exception('Unexpected response from server.');
   }
 
   // ── Register FCM Token ─────────────────────────────────────────────────────
@@ -83,16 +81,15 @@ class NotificationRepository {
     await prefs.setString(_kFcmTokenKey, cleanToken);
 
     try {
-      final response = await _apiClient.dio.post(
-        '/auth/fcm-token',
-        data: {
-          'token': cleanToken,
-          'platform': 'android',
-        },
+      final response = await _apiClient.dio.put(
+        '/auth/me/fcm-token',
+        data: {'fcm_token': cleanToken},
       );
       return response.statusCode == 200 || response.statusCode == 201;
     } catch (e) {
-      throw ApiClient.toFriendly(e);
+      // The token is already saved locally; registration is retried next launch.
+      dev.log('FCM token registration failed: $e');
+      return false;
     }
   }
 

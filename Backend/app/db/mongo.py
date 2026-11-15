@@ -1508,6 +1508,19 @@ def mongo_get_kedl_file_by_id(file_id: str) -> Optional[Dict[str, Any]]:
     return _format_mongo_doc(doc) if doc else None
 
 
+def _parse_dt(value: Any) -> Optional[datetime]:
+    """Parse a stored date (datetime or ISO string, with or without time) as UTC."""
+    if isinstance(value, datetime):
+        return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+
+
 def mongo_get_kedl_dashboard() -> Dict[str, Any]:
     """Calculate aggregate KEDL tracking counts and metrics."""
     db = get_mongo_db()
@@ -1525,16 +1538,38 @@ def mongo_get_kedl_dashboard() -> Dict[str, Any]:
     demands_paid = kedl_col.count_documents({"status": "demand_paid"})
     approved = kedl_col.count_documents({"status": "approved"})
 
-    cursor = kedl_col.find({"status": "demand_raised"})
-    total_demand_amt = sum(int(doc.get("demand_amount", 0)) for doc in cursor)
+    # Breakdown the app's KEDL desk reads (by type/status, open + overdue demands).
+    by_file_type: Dict[str, int] = {}
+    by_status: Dict[str, int] = {}
+    open_demands_count = 0
+    overdue_demands_count = 0
+    open_demand_paise = 0
+    now = datetime.now(timezone.utc)
+    for doc in kedl_col.find({}, {"file_type": 1, "status": 1, "demands": 1}):
+        ftype = str(doc.get("file_type") or "unknown")
+        fstatus = str(doc.get("status") or "not_started")
+        by_file_type[ftype] = by_file_type.get(ftype, 0) + 1
+        by_status[fstatus] = by_status.get(fstatus, 0) + 1
+        for demand in doc.get("demands") or []:
+            if str(demand.get("status", "open")) != "open":
+                continue
+            open_demands_count += 1
+            open_demand_paise += int(demand.get("amount_paise") or demand.get("amount") or 0)
+            due = _parse_dt(demand.get("due_date"))
+            if due is not None and due < now:
+                overdue_demands_count += 1
 
     return {
         "total_files": total,
         "open_demands": demands_raised,
-        "total_demand_paise": total_demand_amt * 100,  # paise
+        "total_demand_paise": open_demand_paise,  # demand amounts are stored in paise
         "completed_files": approved,
         "pending_files": max(0, total - approved),
         "demands_paid_count": demands_paid,
+        "by_file_type": by_file_type,
+        "by_status": by_status,
+        "open_demands_count": open_demands_count,
+        "overdue_demands_count": overdue_demands_count,
     }
 
 

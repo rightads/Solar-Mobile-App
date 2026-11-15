@@ -12,12 +12,14 @@ import 'package:solar_pro/features/tickets/data/models/ticket_model.dart';
 import 'package:solar_pro/features/tickets/data/repositories/ticket_repository.dart';
 import 'package:solar_pro/features/work_assignment/data/models/work_assignment_model.dart';
 import 'package:solar_pro/features/work_assignment/data/repositories/work_assignment_repository.dart';
+import 'helpers/fake_backend.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   setUp(() async {
     SharedPreferences.setMockInitialValues({});
+    FakeBackend.install();
   });
 
   group('Prompt 10: Routing Matrix & Session Isolation Tests', () {
