@@ -3,7 +3,7 @@ import React, { useEffect } from 'react';
 export default function DownloadModal({ platform, onClose, onDownload }) {
   const OFFICIAL_RELEASES = {
     android: 'https://github.com/rightads/Solar-Mobile-App/releases/download/Android/SolarPro-Android.apk',
-    windows: 'https://github.com/rightads/Solar-Mobile-App/releases/download/Windows/SolarPro-Windows-x64-v1.0.0.zip'
+    windows: 'https://github.com/rightads/Solar-Mobile-App/releases/download/Windows/SolarPro-Windows-Release.zip'
   };
 
   useEffect(() => {
@@ -55,22 +55,22 @@ export default function DownloadModal({ platform, onClose, onDownload }) {
               </div>
               <div>
                 <h3>Download SolarPro for Windows</h3>
-                <span className="m-ver">v1.0.0 • 64-bit Desktop Command Center</span>
+                <span className="m-ver">Latest • 64-bit Desktop Command Center</span>
               </div>
             </div>
 
             <div className="modal-instructions">
               <h4>🚀 Quick 3-Step Setup:</h4>
               <ol>
-                <li>Click the download button below to get the official <code>SolarPro-Windows-x64-v1.0.0.zip</code> package (~16 MB).</li>
+                <li>Click the download button below to get the official <code>SolarPro-Windows-Release.zip</code> package (~17 MB).</li>
                 <li>Extract the ZIP archive to any folder on your PC (e.g. <code>C:\SolarPro</code> or Desktop).</li>
-                <li>Double-click <strong><code>solar_pro.exe</code></strong> to launch the app immediately!</li>
+                <li>Double-click <strong><code>solar_pro.exe</code></strong> to launch the app. Future updates install themselves from inside the app.</li>
               </ol>
             </div>
 
             <div className="modal-checksum">
               <span className="chk-label">Package Verification:</span>
-              <code>SHA-256: B764009B57F3B2B1F364A0EEB0F779DBDC5F04E28AA126353B54D7C3194B0E29</code>
+              <code>Release Tag: Windows • SolarPro-Windows-Release.zip</code>
             </div>
 
             <div className="modal-actions">
@@ -84,7 +84,7 @@ export default function DownloadModal({ platform, onClose, onDownload }) {
                   <polyline points="7 10 12 15 17 10"></polyline>
                   <line x1="12" y1="15" x2="12" y2="3"></line>
                 </svg>
-                <span>Download Windows ZIP (15.4 MB)</span>
+                <span>Download Windows ZIP (Latest)</span>
               </a>
             </div>
           </div>

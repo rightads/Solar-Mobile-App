@@ -38,8 +38,10 @@ jobs:
 
       # API endpoint (VPS IP + port) and its pinned certificate fingerprint
       # live in lib/core/constants/app_constants.dart; no overrides here.
+      # Build number = CI run number, so installed apps can tell they are older
+      # (in-app updater: lib/core/services/update_service.dart).
       - name: Build Windows Desktop App
-        run: flutter build windows --release
+        run: flutter build windows --release --build-name=1.0.${{ github.run_number }} --build-number=${{ github.run_number }} --dart-define=APP_BUILD=${{ github.run_number }}
         working-directory: ./SolarPro
 
       - name: Package Windows Release (ZIP)
@@ -63,14 +65,48 @@ jobs:
           name: SolarPro-Windows-Release
           path: SolarPro-Windows-Release.zip
 
+      # version.json is what installed apps read to decide whether to update.
+      # Repository variable WINDOWS_MIN_BUILD forces older builds to update.
+      - name: Prepare version manifest
+        shell: pwsh
+        env:
+          COMMIT_MSG: ${{ github.event.head_commit.message }}
+          MIN_BUILD: ${{ vars.WINDOWS_MIN_BUILD }}
+        run: |
+          $build = [int]$env:GITHUB_RUN_NUMBER
+          $notes = (($env:COMMIT_MSG -split "`r?`n")[0])
+          if ($notes.Length -gt 300) { $notes = $notes.Substring(0, 300) }
+          $manifest = [ordered]@{
+            build        = $build
+            version      = "1.0.$build"
+            download_url = "https://github.com/$env:GITHUB_REPOSITORY/releases/download/Windows/SolarPro-Windows-Release.zip"
+            notes        = $notes
+            min_build    = [int]("0$env:MIN_BUILD")
+          }
+          $manifest | ConvertTo-Json -Compress | Set-Content -Path version.json -Encoding utf8NoBOM
+          Get-Content version.json
+
+      # The zip is uploaded before version.json so an app never sees a new
+      # build number while the old zip is still the download.
       - name: Publish Windows App to GitHub Release
         uses: softprops/action-gh-release@v2
         if: github.ref == 'refs/heads/main'
         with:
           tag_name: Windows
-          name: "SolarPro Windows Desktop Release"
+          name: "SolarPro Windows 1.0.${{ github.run_number }}"
           draft: false
           prerelease: false
+          overwrite_files: true
           files: SolarPro-Windows-Release.zip
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Publish version manifest
+        uses: softprops/action-gh-release@v2
+        if: github.ref == 'refs/heads/main'
+        with:
+          tag_name: Windows
+          overwrite_files: true
+          files: version.json
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

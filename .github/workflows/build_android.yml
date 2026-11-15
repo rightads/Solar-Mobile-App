@@ -86,6 +86,7 @@ jobs:
               "build": build,
               "version": f"1.0.{build}",
               "apk_url": f"https://github.com/{repo}/releases/download/Android/SolarPro-Android.apk",
+              "download_url": f"https://github.com/{repo}/releases/download/Android/SolarPro-Android.apk",
               "notes": ((os.environ.get("COMMIT_MSG") or "").splitlines() or [""])[0][:300],
               "min_build": int(os.environ.get("MIN_BUILD") or 0),
           }

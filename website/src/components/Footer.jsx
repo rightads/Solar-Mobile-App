@@ -70,7 +70,7 @@ export default function Footer({ onOpenModal }) {
         <div className="container footer-bottom-inner">
           <div>© 2026 SolarPro Enterprise Management. All Rights Reserved.</div>
           <div className="footer-badges">
-            <span className="f-pill">v1.0.0 Stable</span>
+            <span className="f-pill">Latest Stable</span>
             <span className="f-pill live">Cloud Connected</span>
           </div>
         </div>

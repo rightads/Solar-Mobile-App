@@ -3,7 +3,7 @@ import React from 'react';
 export default function DownloadCenter({ userPlatform, onOpenModal, onDownload }) {
   const OFFICIAL_RELEASES = {
     android: 'https://github.com/rightads/Solar-Mobile-App/releases/download/Android/SolarPro-Android.apk',
-    windows: 'https://github.com/rightads/Solar-Mobile-App/releases/download/Windows/SolarPro-Windows-x64-v1.0.0.zip'
+    windows: 'https://github.com/rightads/Solar-Mobile-App/releases/download/Windows/SolarPro-Windows-Release.zip'
   };
 
   const isAndroid = userPlatform === 'android';
@@ -13,7 +13,7 @@ export default function DownloadCenter({ userPlatform, onOpenModal, onDownload }
     <section className="section downloads-section" id="downloads">
       <div className="container">
         <div className="section-badge">OFFICIAL DOWNLOAD HUB</div>
-        <h2 className="section-title">Get SolarPro v1.0.0 Now</h2>
+        <h2 className="section-title">Get SolarPro Now</h2>
         <p className="section-subtitle">
           Experience lightning fast solar management on your Windows PC and Android phones. Choose your platform below.
         </p>
@@ -33,7 +33,7 @@ export default function DownloadCenter({ userPlatform, onOpenModal, onDownload }
               </div>
               <div>
                 <h3>SolarPro for Windows</h3>
-                <span className="dl-version-tag">Version 1.0.0 Stable (64-bit)</span>
+                <span className="dl-version-tag">Latest Stable (64-bit)</span>
               </div>
             </div>
 
@@ -52,7 +52,7 @@ export default function DownloadCenter({ userPlatform, onOpenModal, onDownload }
               </div>
               <div className="spec-row">
                 <span>Package Size</span>
-                <strong>~16 MB (Self-contained)</strong>
+                <strong>~17 MB (Self-contained)</strong>
               </div>
               <div className="spec-row">
                 <span>Cloud Telemetry</span>
@@ -72,7 +72,7 @@ export default function DownloadCenter({ userPlatform, onOpenModal, onDownload }
                   <polyline points="7 10 12 15 17 10"></polyline>
                   <line x1="12" y1="15" x2="12" y2="3"></line>
                 </svg>
-                <span>Download Windows Package (.ZIP • 15.4 MB)</span>
+                <span>Download Windows Package (.ZIP • Latest)</span>
               </a>
               
               <button

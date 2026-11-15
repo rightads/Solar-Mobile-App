@@ -115,7 +115,7 @@ export default function Navbar({ pingMs, onOpenModal, onDownload }) {
             <span>Download Android APK (Latest)</span>
           </a>
           <a
-            href="https://github.com/rightads/Solar-Mobile-App/releases/download/Windows/SolarPro-Windows-x64-v1.0.0.zip"
+            href="https://github.com/rightads/Solar-Mobile-App/releases/download/Windows/SolarPro-Windows-Release.zip"
             className="btn btn-primary btn-block"
             onClick={() => {
               onDownload('windows');
@@ -125,7 +125,7 @@ export default function Navbar({ pingMs, onOpenModal, onDownload }) {
             <svg className="icon-svg" viewBox="0 0 24 24" fill="currentColor">
               <path d="M0 3.449L9.75 2.1v9.451H0m10.949-9.602L24 0v11.4H10.949M0 12.6h9.75v9.451L0 20.699M10.949 12.6H24V24l-12.949-1.801"/>
             </svg>
-            <span>Download Windows ZIP (15 MB)</span>
+            <span>Download Windows ZIP (Latest)</span>
           </a>
         </div>
       </div>

@@ -9,7 +9,7 @@ export default function Hero({ onOpenModal }) {
         {/* Release Announcement Pill */}
         <div className="hero-pill-badge" id="hero-release-pill">
           <span className="pill-sparkle">⚡</span>
-          <span className="pill-text"><strong>v1.0.0 Now Live</strong> for Windows 10/11 &amp; Android</span>
+          <span className="pill-text"><strong>Now Live</strong> for Windows 10/11 &amp; Android</span>
           <span className="pill-arrow">→</span>
         </div>
 
