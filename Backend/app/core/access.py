@@ -140,6 +140,11 @@ def require_client_customer(user: Any) -> Dict[str, Any]:
 
 # ── Customers ────────────────────────────────────────────────────────────────
 
+def sales_customer_query(user: Any) -> Dict[str, Any]:
+    """Mongo filter for customers a sales user owns (or that have no owner yet)."""
+    return {"$or": [{"sales_id": user_id(user)}, {"sales_id": None}, {"sales_id": ""}, {"sales_id": {"$exists": False}}]}
+
+
 def staff_can_view_customer(user: Any, cust: Dict[str, Any]) -> bool:
     role = role_of(user)
     uid = user_id(user)
@@ -152,7 +157,11 @@ def staff_can_view_customer(user: Any, cust: Dict[str, Any]) -> bool:
     if role in KEDL_ROLES:
         if cust.get("kedl_employee_id") == uid:
             return True
-        return db["kedl_files"].find_one({"customer_id": cid}) is not None
+        # Only files handed to this employee, or still in the unassigned queue.
+        return db["kedl_files"].find_one({
+            "customer_id": cid,
+            "$or": [{"assigned_to": uid}, {"assigned_to": None}, {"assigned_to": ""}, {"assigned_to": {"$exists": False}}],
+        }) is not None
     if role in SITE_ROLES and db["work_assignments"].find_one({
         "customer_id": cid,
         "$or": [{"assigned_to": uid}, {"assigned_employee_id": uid},
@@ -229,8 +238,12 @@ def site_trades(user: Any) -> Set[str]:
 def work_scope_query(user: Any) -> Dict[str, Any]:
     """Mongo filter limiting which work assignments a user can see."""
     role = role_of(user)
-    if role in MANAGER_ROLES or role in SALES_ROLES:
+    if role in MANAGER_ROLES:
         return {}
+    if role in SALES_ROLES:
+        # Sales plans work only for its own (or still unowned) customers.
+        ids = [str(c["_id"]) for c in _db()["customers"].find(sales_customer_query(user), {"_id": 1})]
+        return {"customer_id": {"$in": ids}}
     if role in SITE_ROLES:
         uid = user_id(user)
         unassigned: Dict[str, Any] = {"$or": [{"assigned_to": None}, {"assigned_to": ""}, {"assigned_to": {"$exists": False}}]}

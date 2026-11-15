@@ -31,6 +31,13 @@ async def lifespan(app: FastAPI):
             logger.info("Migrated customers to the 4-stage workflow", count=migrated)
     except Exception as e:
         logger.warning("Workflow migration skipped", error=str(e))
+    try:
+        from app.services.workflow import dedupe_site_work
+        result = dedupe_site_work()
+        if any(result.values()):
+            logger.info("Cleaned up duplicate site work", **result)
+    except Exception as e:
+        logger.warning("Site work cleanup skipped", error=str(e))
     yield
     logger.info("Shutting down Solar Backend Application")
 

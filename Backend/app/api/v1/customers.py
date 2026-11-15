@@ -115,8 +115,14 @@ async def list_customers(
     if search:
         s = re.escape(search.strip())
         query["$or"] = [{f: {"$regex": s, "$options": "i"}} for f in ("name", "phone", "mobile", "address")]
+    role = access.role_of(current_user)
+    if role in access.SALES_ROLES:
+        query = {"$and": [query, access.sales_customer_query(current_user)]}
     cursor = db["customers"].find(query).sort("created_at", -1)
-    visible = [c for c in cursor if access.staff_can_view_customer(current_user, c)]
+    if role in access.MANAGER_ROLES | access.SALES_ROLES:
+        visible = list(cursor)  # already scoped by the query
+    else:
+        visible = [c for c in cursor if access.staff_can_view_customer(current_user, c)]
     total = len(visible)
     start = (page - 1) * page_size
     items = [_format_mongo_doc(c) for c in visible[start:start + page_size]]
@@ -185,8 +191,21 @@ async def update_customer_stage(
     payload: CustomerStageUpdate,
     current_user: MongoUserProxy = Depends(require_roles(UserRole.ADMIN)),
 ):
+    """Stages before the target become Done and the target onward Incomplete,
+    through the workflow, so stage, progress and department hand-offs stay
+    consistent (writing ``stage`` directly was overwritten on the next event)."""
+    from app.services import workflow
     cust = access.require_customer(current_user, customer_id)
-    return mongo_update_customer(str(cust["_id"]), {"stage": payload.stage.value})
+    target = payload.stage.value
+    if target not in workflow.STAGES:
+        raise BadRequestException(f"Stage must be one of: {', '.join(workflow.STAGES)}.")
+    cid = str(cust["_id"])
+    cut = workflow.STAGES.index(target)
+    for i, stage in enumerate(workflow.STAGES):
+        if workflow.is_done(cust, stage) != (i < cut):
+            workflow.mark_stage(cid, stage, i < cut, current_user, cascade=False)
+    workflow.advance(cid)
+    return _format_mongo_doc(get_mongo_db()["customers"].find_one({"_id": cust["_id"]}))
 
 
 @router.post("/{customer_id}/milestones", summary="Add or verify a payment milestone")

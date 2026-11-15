@@ -185,24 +185,55 @@ def advance(customer_id: str) -> None:
     db["customers"].update_one({"_id": cust["_id"]}, {"$set": updates})
 
 
+_WORK_RANK = {"completed": 4, "in_progress": 3, "active": 3, "assigned": 2, "pending": 1}
+
+# Mongo filter for site work rows that are real (not cancelled / merged duplicates).
+LIVE_WORK = {"status": {"$ne": "cancelled"}, "duplicate_of": {"$exists": False}}
+
+
+def _work_rank(w: Dict[str, Any]) -> tuple:
+    return (_WORK_RANK.get(str(w.get("status") or ""), 0), len(w.get("photos") or []))
+
+
+def site_work_by_type(rows: Iterable[Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
+    """One row per site trade: the furthest-along live row (earliest wins ties).
+
+    A project can carry several rows for the same trade (manual re-assignment,
+    legacy data); picking an arbitrary one hides completed work.
+    """
+    best: Dict[str, Dict[str, Any]] = {}
+    for w in rows:
+        wt = str(w.get("work_type") or "").lower()
+        if wt not in SITE_SEQUENCE or w.get("status") == "cancelled" or w.get("duplicate_of"):
+            continue
+        if wt not in best or _work_rank(w) > _work_rank(best[wt]):
+            best[wt] = w
+    return best
+
+
+def _site_works(db, cid: str) -> Dict[str, Dict[str, Any]]:
+    rows = db["work_assignments"].find({"customer_id": cid, "work_type": {"$in": SITE_SEQUENCE}}).sort("created_at", 1)
+    return site_work_by_type(rows)
+
+
 def _activate_site_work(db, cust: Dict[str, Any]) -> None:
     """Create the structure → electrical → civil tasks for the Site-ops team."""
     cid = str(cust["_id"])
     now = _now()
     for wt in SITE_SEQUENCE:
-        if db["work_assignments"].find_one({"customer_id": cid, "work_type": wt}):
-            continue
         aid = str(uuid.uuid4())
         emp_id = cust.get("site_employee_id")
-        db["work_assignments"].insert_one({
-            "_id": aid, "id": aid, "customer_id": cid, "customer_name": cust.get("name", ""),
-            "location": cust.get("address", ""), "work_type": wt, "team_name": "",
+        # Upsert so concurrent hand-offs can't create the same task twice.
+        # customer_id / work_type come from the filter on insert.
+        db["work_assignments"].update_one({"customer_id": cid, "work_type": wt}, {"$setOnInsert": {
+            "_id": aid, "id": aid, "customer_name": cust.get("name", ""),
+            "location": cust.get("address", ""), "team_name": "",
             "assigned_to": emp_id, "assigned_employee_id": emp_id,
             "assigned_employee_name": cust.get("site_employee_name"), "assigned_staff": cust.get("site_employee_name"),
             "status": "assigned" if wt == "structure" else "pending",
             "start_date": now.strftime("%Y-%m-%d"), "end_date": now.strftime("%Y-%m-%d"),
             "notes": "", "photos": [], "created_at": now, "updated_at": now,
-        })
+        }}, upsert=True)
 
 
 def _init_kedl_files(db, cust: Dict[str, Any]) -> None:
@@ -275,7 +306,7 @@ def on_work_status(work: Dict[str, Any], actor: Any) -> None:
             {"customer_id": cid, "work_type": nxt, "status": "pending"},
             {"$set": {"status": "assigned", "updated_at": _now()}},
         )
-    works = {w.get("work_type"): w for w in db["work_assignments"].find({"customer_id": cid, "work_type": {"$in": SITE_SEQUENCE}})}
+    works = _site_works(db, cid)
     all_done = all(works.get(t, {}).get("status") == "completed" for t in SITE_SEQUENCE)
     cust = db["customers"].find_one({"_id": cid}) or {}
     installed = is_done(cust, "INSTALLATION_COMPLETE")
@@ -302,6 +333,71 @@ def on_kedl_file_status(kfile: Dict[str, Any], actor: Any) -> None:
 def on_payment_verified(customer_id: str, actor: Any) -> None:
     """Payments no longer gate the timeline; keep derived fields fresh."""
     advance(customer_id)
+
+
+def dedupe_site_work() -> Dict[str, int]:
+    """Collapse duplicate site-work rows and re-sync installation milestones.
+
+    For each customer + trade with several live rows, the furthest-along row is
+    kept; the rest are marked ``cancelled`` with ``duplicate_of`` (not deleted),
+    and their photos are moved onto the kept row. Then every project whose
+    structure, electrical and civil work is all completed gets its Installation
+    stage marked done. Idempotent.
+    """
+    from collections import defaultdict
+    db = _db()
+    if db is None:
+        return {"duplicates": 0, "installed": 0}
+    now = _now()
+    groups: Dict[tuple, List[Dict[str, Any]]] = defaultdict(list)
+    query = {"work_type": {"$in": SITE_SEQUENCE}, **LIVE_WORK}
+    for w in db["work_assignments"].find(query).sort("created_at", 1):
+        cid = str(w.get("customer_id") or "")
+        if cid:
+            groups[(cid, w["work_type"])].append(w)
+
+    duplicates = 0
+    for (cid, wt), rows in groups.items():
+        if len(rows) < 2:
+            continue
+        keep = site_work_by_type(rows)[wt]
+        dups = [r for r in rows if r["_id"] != keep["_id"]]
+        seen = {p.get("id") for p in keep.get("photos") or []}
+        moved = []
+        for r in dups:
+            for p in r.get("photos") or []:
+                if p.get("id") not in seen:
+                    seen.add(p.get("id"))
+                    moved.append({**p, "work_assignment_id": str(keep["_id"])})
+        keep_update: Dict[str, Any] = {"$set": {"updated_at": now}}
+        if moved:
+            # $addToSet: safe if several gunicorn workers run this at startup.
+            keep_update["$addToSet"] = {"photos": {"$each": moved}}
+        if not keep.get("assigned_to"):
+            owner = next((r for r in dups if r.get("assigned_to")), None)
+            if owner:
+                for f in ("assigned_to", "assigned_employee_id", "assigned_employee_name",
+                          "assigned_employee_no", "assigned_staff"):
+                    if owner.get(f):
+                        keep_update["$set"][f] = owner[f]
+        db["work_assignments"].update_one({"_id": keep["_id"]}, keep_update)
+        db["work_assignments"].update_many(
+            {"_id": {"$in": [r["_id"] for r in dups]}},
+            {"$set": {"status": "cancelled", "duplicate_of": str(keep["_id"]), "updated_at": now}},
+        )
+        duplicates += len(dups)
+        logger.info("site_work_deduped", customer_id=cid, work_type=wt, kept=str(keep["_id"]), removed=len(dups))
+
+    installed = 0
+    for cid in {cid for cid, _ in groups}:
+        works = _site_works(db, cid)
+        if not all(works.get(t, {}).get("status") == "completed" for t in SITE_SEQUENCE):
+            continue
+        cust = db["customers"].find_one({"_id": cid})
+        if cust and not is_done(cust, "INSTALLATION_COMPLETE"):
+            mark_stage(cid, "INSTALLATION_COMPLETE", True, None, cascade=True)
+            installed += 1
+    return {"duplicates": duplicates, "installed": installed}
 
 
 def migrate_legacy_customers() -> int:

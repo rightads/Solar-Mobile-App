@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:solar_pro/core/constants/app_constants.dart';
 
 enum OfflineActionType {
   startWork,
@@ -50,6 +51,9 @@ class QueuedOfflineAction {
   final Map<String, dynamic> payload;
   final DateTime createdAt;
   final int retryCount;
+  /// User who queued the action. Only that user's session may replay it, so a
+  /// different person signing in on the same device never submits it.
+  final String ownerId;
 
   const QueuedOfflineAction({
     required this.id,
@@ -58,6 +62,7 @@ class QueuedOfflineAction {
     required this.payload,
     required this.createdAt,
     this.retryCount = 0,
+    this.ownerId = '',
   });
 
   factory QueuedOfflineAction.fromJson(Map<String, dynamic> json) {
@@ -68,6 +73,7 @@ class QueuedOfflineAction {
       payload: (json['payload'] as Map<String, dynamic>?) ?? {},
       createdAt: DateTime.tryParse(json['created_at']?.toString() ?? '') ?? DateTime.now(),
       retryCount: json['retry_count'] as int? ?? 0,
+      ownerId: json['owner_id']?.toString() ?? '',
     );
   }
 
@@ -78,6 +84,7 @@ class QueuedOfflineAction {
         'payload': payload,
         'created_at': createdAt.toIso8601String(),
         'retry_count': retryCount,
+        'owner_id': ownerId,
       };
 
   QueuedOfflineAction copyWith({int? retryCount}) {
@@ -88,6 +95,7 @@ class QueuedOfflineAction {
       payload: payload,
       createdAt: createdAt,
       retryCount: retryCount ?? this.retryCount,
+      ownerId: ownerId,
     );
   }
 }
@@ -126,6 +134,15 @@ class SiteOfflineQueueService extends ChangeNotifier {
     notifyListeners();
   }
 
+  static Future<String> currentUserId() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getString(AppConstants.kUserId) ?? '';
+  }
+
+  /// Actions the signed-in user may replay (legacy untagged actions included).
+  List<QueuedOfflineAction> actionsFor(String userId) =>
+      _actions.where((a) => a.ownerId.isEmpty || a.ownerId == userId).toList();
+
   Future<void> _persist() async {
     final prefs = await SharedPreferences.getInstance();
     final encoded = jsonEncode(_actions.map((a) => a.toJson()).toList());
@@ -141,6 +158,7 @@ class SiteOfflineQueueService extends ChangeNotifier {
       type: OfflineActionType.startWork,
       payload: {'timestamp': DateTime.now().toIso8601String()},
       createdAt: DateTime.now(),
+      ownerId: await currentUserId(),
     );
     _actions.add(action);
     await _persist();
@@ -161,6 +179,7 @@ class SiteOfflineQueueService extends ChangeNotifier {
         if (captions != null) 'captions': captions,
       },
       createdAt: DateTime.now(),
+      ownerId: await currentUserId(),
     );
     _actions.add(action);
     await _persist();
@@ -174,6 +193,7 @@ class SiteOfflineQueueService extends ChangeNotifier {
       type: OfflineActionType.completeWork,
       payload: {'timestamp': DateTime.now().toIso8601String()},
       createdAt: DateTime.now(),
+      ownerId: await currentUserId(),
     );
     _actions.add(action);
     await _persist();

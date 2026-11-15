@@ -71,6 +71,14 @@ class SessionStore {
       'user_team',
       'user_team_type',
       'user_employee_no',
+      // Offline data caches hold the previous user's customers (names,
+      // addresses, tickets); the next user on this device must not see them.
+      'site_work_assignments_cache_v1',
+      'kedl_files_cache_v1',
+      'service_tickets_cache_v1',
+      'solar_notifications_cache_v1',
+      // Forces this device's push token to be registered for the next user.
+      'solar_registered_fcm_token',
     ]) {
       await prefs.remove(key);
     }

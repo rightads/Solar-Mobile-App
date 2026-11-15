@@ -799,13 +799,14 @@ def mongo_get_employee_tasks(employee_id: str) -> List[Dict[str, Any]]:
     tasks = []
 
     # 1. Work Assignments
+    # Match by id only: names are not unique and blank employee numbers would
+    # match every unnumbered task.
+    id_values = list({eid, str(employee_id)})
     w_cursor = db["work_assignments"].find({
+        "duplicate_of": {"$exists": False},
         "$or": [
-            {"assigned_employee_id": eid},
-            {"assigned_to": eid},
-            {"assigned_employee_name": emp_name},
-            {"assigned_staff": emp_name},
-            {"assigned_employee_no": emp_no},
+            {"assigned_employee_id": {"$in": id_values}},
+            {"assigned_to": {"$in": id_values}},
         ]
     }).sort("created_at", -1)
     for w in w_cursor:
@@ -827,13 +828,7 @@ def mongo_get_employee_tasks(employee_id: str) -> List[Dict[str, Any]]:
         })
 
     # 2. Service Tickets
-    t_cursor = db["tickets"].find({
-        "$or": [
-            {"assigned_to": eid},
-            {"assigned_staff": emp_name},
-            {"assigned_staff_emp_no": emp_no},
-        ]
-    }).sort("created_at", -1)
+    t_cursor = db["tickets"].find({"assigned_to": {"$in": id_values}}).sort("created_at", -1)
     for t in t_cursor:
         ft = _format_mongo_doc(t)
         tasks.append({
@@ -898,6 +893,26 @@ def mongo_assign_task_to_employee(employee_id: str, task_data: dict) -> dict:
     assignment_id = str(task_data.get("id") or uuid.uuid4())
     now = datetime.now(timezone.utc)
     work_type = str(task_data.get("work_type") or task_data.get("category") or "general").lower()
+
+    # A project has one task per site trade: hand the existing one to this
+    # employee instead of creating a duplicate card.
+    from app.services.workflow import LIVE_WORK, SITE_SEQUENCE
+    cust_id = str(task_data.get("customer_id") or "")
+    if cust_id and work_type in SITE_SEQUENCE:
+        existing = db["work_assignments"].find_one(
+            {"customer_id": cust_id, "work_type": work_type, **LIVE_WORK}, sort=[("created_at", 1)])
+        if existing:
+            updates: Dict[str, Any] = {
+                "assigned_employee_id": eid, "assigned_employee_name": emp_name, "assigned_employee_no": emp_no,
+                "assigned_to": eid, "assigned_staff": emp_name, "updated_at": now,
+            }
+            for key in ("start_date", "end_date"):
+                if task_data.get(key):
+                    updates[key] = task_data[key]
+            if task_data.get("notes"):
+                updates["notes"] = sanitize_input(task_data["notes"])
+            db["work_assignments"].update_one({"_id": existing["_id"]}, {"$set": updates})
+            return _format_mongo_doc(db["work_assignments"].find_one({"_id": existing["_id"]}))
 
     doc = {
         "_id": assignment_id,
@@ -1247,10 +1262,9 @@ def mongo_get_client_home(user: Dict[str, Any], customer: Optional[Dict[str, Any
         "$or": [{"customer_id": cid}, {"customer_id": customer.get("id")}]
     })) if cid else []
 
-    work_by_type = {}
-    for wa in cust_work_assignments:
-        wt = str(wa.get("work_type", "")).lower()
-        work_by_type[wt] = wa
+    # One row per trade, so a stale duplicate can't hide completed work.
+    from app.services.workflow import site_work_by_type
+    work_by_type = site_work_by_type(sorted(cust_work_assignments, key=lambda w: str(w.get("created_at") or "")))
 
     # Check KEDL file status
     kedl_file = db["kedl_files"].find_one({

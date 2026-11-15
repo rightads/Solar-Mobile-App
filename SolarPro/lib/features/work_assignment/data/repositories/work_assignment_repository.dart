@@ -337,11 +337,11 @@ class WorkAssignmentRepository {
   // ── Sync Offline Queue ─────────────────────────────────────────────────────
 
   Future<int> syncPendingQueue() async {
-    if (_offlineQueue.actions.isEmpty) return 0;
+    final actionsToProcess = _offlineQueue.actionsFor(await SiteOfflineQueueService.currentUserId());
+    if (actionsToProcess.isEmpty) return 0;
     _offlineQueue.setSyncing(true);
 
     int successCount = 0;
-    final actionsToProcess = List<QueuedOfflineAction>.from(_offlineQueue.actions);
 
     for (final action in actionsToProcess) {
       try {

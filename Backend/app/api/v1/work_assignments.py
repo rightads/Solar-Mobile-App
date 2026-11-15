@@ -6,7 +6,7 @@ import uuid
 from fastapi import APIRouter, Depends, File, Form, Query, UploadFile, status
 from pydantic import BaseModel, ConfigDict, Field
 from app.core import access
-from app.core.deps import MongoUserProxy, require_roles, require_staff
+from app.core.deps import MongoUserProxy, require_roles
 from app.core.exceptions import BadRequestException, ForbiddenException
 from app.core.uploads import save_upload
 from app.db.mongo import _format_mongo_doc, get_mongo_db
@@ -56,11 +56,45 @@ def _validate_site_employee(emp_id: str) -> dict:
     return emp
 
 
+def _reschedule_existing(work: dict, data: WorkCreate, emp: Optional[dict]) -> dict:
+    """A project has one task per site trade: re-assigning updates it instead of duplicating it."""
+    from pymongo import ReturnDocument
+    if work.get("status") == "completed":
+        raise BadRequestException(
+            f"{data.work_type.capitalize()} work for this customer is already completed. Reopen it for rework instead."
+        )
+    updates: dict = {"updated_at": datetime.now(timezone.utc)}
+    for field in ("team_name", "lead_name", "lead_phone", "notes"):
+        value = (getattr(data, field) or "").strip()
+        if value:
+            updates[field] = value
+    if data.start_date:
+        updates["start_date"] = data.start_date.isoformat()
+        updates["end_date"] = (data.end_date or data.start_date).isoformat()
+    elif data.end_date:
+        updates["end_date"] = data.end_date.isoformat()
+    if emp:
+        updates.update({"assigned_to": str(emp["_id"]), "assigned_employee_id": str(emp["_id"]),
+                        "assigned_employee_name": emp.get("name"), "assigned_staff": emp.get("name"),
+                        "assigned_employee_no": emp.get("employee_no")})
+    res = get_mongo_db()["work_assignments"].find_one_and_update(
+        {"_id": work["_id"]}, {"$set": updates}, return_document=ReturnDocument.AFTER,
+    )
+    return _format_mongo_doc(res)
+
+
 def _create(user: MongoUserProxy, data: WorkCreate) -> dict:
     cust = access.require_customer_write(user, data.customer_id)
     now = datetime.now(timezone.utc)
     aid = str(uuid.uuid4())
     emp = _validate_site_employee(data.assigned_to) if data.assigned_to else None
+    if data.work_type in workflow.SITE_SEQUENCE:
+        existing = get_mongo_db()["work_assignments"].find_one(
+            {"customer_id": str(cust["_id"]), "work_type": data.work_type, **workflow.LIVE_WORK},
+            sort=[("created_at", 1)],
+        )
+        if existing:
+            return _reschedule_existing(existing, data, emp)
     doc = {
         "_id": aid, "id": aid,
         "customer_id": str(cust["_id"]), "customer_name": cust.get("name", ""),
@@ -98,7 +132,7 @@ async def list_work_assignments(
     status: Optional[str] = Query(default=None, max_length=20),
     current_user: MongoUserProxy = Depends(require_site),
 ):
-    clauses = [access.work_scope_query(current_user)]
+    clauses = [access.work_scope_query(current_user), {"duplicate_of": {"$exists": False}}]
     if customer_id:
         clauses.append({"customer_id": customer_id})
     if work_type and work_type.lower() != "all":
@@ -115,7 +149,7 @@ async def get_calendar_schedule(
     to_date: Optional[date] = Query(default=None),
     current_user: MongoUserProxy = Depends(require_site),
 ):
-    clauses = [access.work_scope_query(current_user)]
+    clauses = [access.work_scope_query(current_user), {"duplicate_of": {"$exists": False}}]
     if from_date:
         clauses.append({"end_date": {"$gte": from_date.isoformat()}})
     if to_date:
