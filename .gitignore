@@ -25,6 +25,8 @@ backend_prompts/
 # Local-only artefacts (may contain secrets / large media)
 SECURITY_AUDIT_REPORT.md
 *.mp4
+# ...except the compressed promo video shown in the README
+!docs/assets/*.mp4
 scratch/
 Backend/uploads/
 

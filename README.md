@@ -33,6 +33,20 @@
 
 <br/>
 
+## 🎬 See it in action
+
+<div align="center">
+
+<a href="docs/assets/solarpro-promo.mp4">
+  <img src="docs/assets/solarpro-promo-preview.webp" alt="SolarPro promo: from WhatsApp chaos to zero-delay handoffs" width="100%" />
+</a>
+
+<sub>▶️ <a href="docs/assets/solarpro-promo.mp4"><b>Watch the full video</b></a> (41 s, with sound)</sub>
+
+</div>
+
+<br/>
+
 ## ☀️ Why SolarPro
 
 Most solar installers still run projects on WhatsApp groups, paper forms and spreadsheets. Files for the electricity board get lost, payment proofs go missing, site teams don't know what's next, and clients keep calling to ask where their project is.
