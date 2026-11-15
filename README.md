@@ -37,11 +37,15 @@
 
 <div align="center">
 
-<a href="docs/assets/solarpro-promo.mp4">
-  <img src="docs/assets/solarpro-promo-preview.webp" alt="SolarPro promo: from WhatsApp chaos to zero-delay handoffs" width="100%" />
+<a href="https://youtu.be/MwXk973bB_o">
+  <img src="docs/assets/solarpro-promo-preview.webp" alt="SolarPro promo video: from WhatsApp chaos to zero-delay handoffs" width="100%" />
 </a>
 
-<sub>▶️ <a href="docs/assets/solarpro-promo.mp4"><b>Watch the full video</b></a> (41 s, with sound)</sub>
+<br/><br/>
+
+[![Watch on YouTube](https://img.shields.io/badge/Watch%20on-YouTube-FF0000?style=for-the-badge&logo=youtube&logoColor=white)](https://youtu.be/MwXk973bB_o)
+
+<sub>41 seconds, with sound</sub>
 
 </div>
 
