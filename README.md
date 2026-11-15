@@ -1,5 +1,4 @@
 <div align="center">
-
 # ☀️ SolarPro
 
 ### **Next-Gen Clean Energy & Rooftop Solar EPC Operating System**
