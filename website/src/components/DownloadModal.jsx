@@ -2,7 +2,7 @@ import React, { useEffect } from 'react';
 
 export default function DownloadModal({ platform, onClose, onDownload }) {
   const OFFICIAL_RELEASES = {
-    android: 'https://github.com/rightads/Solar-Mobile-App/releases/download/Android/SolarPro-Android-v1.5.0.apk',
+    android: 'https://github.com/rightads/Solar-Mobile-App/releases/download/Android/SolarPro-Android.apk',
     windows: 'https://github.com/rightads/Solar-Mobile-App/releases/download/Windows/SolarPro-Windows-x64-v1.0.0.zip'
   };
 
@@ -101,7 +101,7 @@ export default function DownloadModal({ platform, onClose, onDownload }) {
               </div>
               <div>
                 <h3>Download SolarPro for Android</h3>
-                <span className="m-ver">v1.5.0 • Mobile &amp; Field Companion</span>
+                <span className="m-ver">Latest • Mobile &amp; Field Companion</span>
               </div>
             </div>
 
@@ -127,14 +127,14 @@ export default function DownloadModal({ platform, onClose, onDownload }) {
                 <ul>
                   <li>Scan the QR code or tap the direct download button on your Android phone.</li>
                   <li>When prompted, allow <em>&quot;Install from Unknown Sources&quot;</em> for your browser.</li>
-                  <li>Open <code>SolarPro-Android-v1.5.0.apk</code> and tap <strong>Install</strong>.</li>
+                  <li>Open <code>SolarPro-Android.apk</code> and tap <strong>Install</strong>. Future updates are offered inside the app.</li>
                 </ul>
               </div>
             </div>
 
             <div className="modal-checksum" style={{ marginTop: '-10px', marginBottom: '16px' }}>
               <span className="chk-label">Package Verification:</span>
-              <code>Release Tag: Android • SolarPro-Android-v1.5.0.apk</code>
+              <code>Release Tag: Android • SolarPro-Android.apk</code>
             </div>
 
             <div className="modal-actions">

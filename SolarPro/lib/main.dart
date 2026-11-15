@@ -5,6 +5,7 @@ import 'dart:io' show HttpOverrides, Platform;
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:solar_pro/core/network/pinned_http_overrides.dart';
 import 'package:solar_pro/core/router/app_router.dart';
+import 'package:solar_pro/core/services/update_service.dart';
 import 'package:solar_pro/core/theme/app_theme.dart';
 
 void main() async {
@@ -27,11 +28,27 @@ void main() async {
   runApp(const ProviderScope(child: SolarProApp()));
 }
 
-class SolarProApp extends ConsumerWidget {
+class SolarProApp extends ConsumerStatefulWidget {
   const SolarProApp({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<SolarProApp> createState() => _SolarProAppState();
+}
+
+class _SolarProAppState extends ConsumerState<SolarProApp> {
+  @override
+  void initState() {
+    super.initState();
+    // Let the splash screen route first, then look for a newer APK.
+    Future.delayed(const Duration(seconds: 4), () {
+      if (!mounted) return;
+      final router = ref.read(routerProvider);
+      UpdateService.checkForUpdate(() => router.routerDelegate.navigatorKey.currentContext);
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final router = ref.watch(routerProvider);
     return MaterialApp.router(
       title: 'SolarPro',

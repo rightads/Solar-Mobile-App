@@ -61,30 +61,73 @@ jobs:
 
       # API endpoint (VPS IP + port) and its pinned certificate fingerprint
       # live in lib/core/constants/app_constants.dart; no overrides here.
+      # Every CI build gets a higher build number (versionCode) so phones can
+      # install it over the previous one, and so the app knows its own build
+      # for the in-app update check (lib/core/services/update_service.dart).
       - name: Build Android Release APK
         working-directory: ./SolarPro
         run: |
-          flutter build apk --release \
-            --obfuscate --split-debug-info=build/symbols
+          flutter build apk --release             --build-name=1.0.${{ github.run_number }}             --build-number=${{ github.run_number }}             --dart-define=APP_BUILD=${{ github.run_number }}             --obfuscate --split-debug-info=build/symbols
 
-      - name: Rename Release APK
+      # version.json is what installed apps read to decide whether to prompt.
+      # Set the repository variable ANDROID_MIN_BUILD to force every older
+      # build to update (non-dismissable dialog).
+      - name: Prepare APK and version manifest
+        env:
+          COMMIT_MSG: ${{ github.event.head_commit.message }}
+          MIN_BUILD: ${{ vars.ANDROID_MIN_BUILD }}
         run: |
-          cp SolarPro/build/app/outputs/flutter-apk/app-release.apk SolarPro-Android-v1.5.0.apk
+          cp SolarPro/build/app/outputs/flutter-apk/app-release.apk SolarPro-Android.apk
+          python3 - <<'PY'
+          import json, os
+          build = int(os.environ["GITHUB_RUN_NUMBER"])
+          repo = os.environ["GITHUB_REPOSITORY"]
+          manifest = {
+              "build": build,
+              "version": f"1.0.{build}",
+              "apk_url": f"https://github.com/{repo}/releases/download/Android/SolarPro-Android.apk",
+              "notes": ((os.environ.get("COMMIT_MSG") or "").splitlines() or [""])[0][:300],
+              "min_build": int(os.environ.get("MIN_BUILD") or 0),
+          }
+          with open("version.json", "w") as f:
+              json.dump(manifest, f)
+          print(manifest)
+          PY
 
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: SolarPro-Android-v1.5.0
-          path: SolarPro-Android-v1.5.0.apk
+          name: SolarPro-Android-1.0.${{ github.run_number }}
+          path: SolarPro-Android.apk
 
+      # The APK is uploaded before version.json so an app never sees a new
+      # build number while the old APK is still the download.
       - name: Publish APK to GitHub Release
         uses: softprops/action-gh-release@v2
         if: github.ref == 'refs/heads/main'
         with:
           tag_name: Android
-          name: "SolarPro Android Release"
+          name: "SolarPro Android 1.0.${{ github.run_number }}"
           draft: false
           prerelease: false
-          files: SolarPro-Android-v1.5.0.apk
+          make_latest: true
+          overwrite_files: true
+          files: SolarPro-Android.apk
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Publish version manifest
+        uses: softprops/action-gh-release@v2
+        if: github.ref == 'refs/heads/main'
+        with:
+          tag_name: Android
+          overwrite_files: true
+          files: version.json
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Remove superseded APK name
+        if: github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release delete-asset Android SolarPro-Android-v1.5.0.apk --repo "$GITHUB_REPOSITORY" -y || true

@@ -2,7 +2,7 @@ import React from 'react';
 
 export default function DownloadCenter({ userPlatform, onOpenModal, onDownload }) {
   const OFFICIAL_RELEASES = {
-    android: 'https://github.com/rightads/Solar-Mobile-App/releases/download/Android/SolarPro-Android-v1.5.0.apk',
+    android: 'https://github.com/rightads/Solar-Mobile-App/releases/download/Android/SolarPro-Android.apk',
     windows: 'https://github.com/rightads/Solar-Mobile-App/releases/download/Windows/SolarPro-Windows-x64-v1.0.0.zip'
   };
 
@@ -98,7 +98,7 @@ export default function DownloadCenter({ userPlatform, onOpenModal, onDownload }
               </div>
               <div>
                 <h3>SolarPro for Android</h3>
-                <span className="dl-version-tag">Version 1.5.0 Stable (APK)</span>
+                <span className="dl-version-tag">Latest Stable (APK)</span>
               </div>
             </div>
 
