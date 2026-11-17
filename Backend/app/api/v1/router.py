@@ -9,13 +9,12 @@ from app.api.v1.kedl import router as kedl_router
 from app.api.v1.leads import router as leads_router
 from app.api.v1.notifications import router as notifications_router
 from app.api.v1.payments import router as payments_router
+from app.api.v1.reports import router as reports_router
 from app.api.v1.teams import router as teams_router
 from app.api.v1.tickets import router as tickets_router
 from app.api.v1.users import router as users_router
 from app.api.v1.work_assignments import router as work_assignments_router
 
-# The reports router is not mounted: it is built on the retired PostgreSQL
-# layer (get_db yields None in Mongo mode). Inventory runs on MongoDB.
 api_v1_router = APIRouter()
 api_v1_router.include_router(health_router)
 api_v1_router.include_router(auth_router)
@@ -31,6 +30,7 @@ api_v1_router.include_router(client_router)
 api_v1_router.include_router(tickets_router)
 api_v1_router.include_router(notifications_router)
 api_v1_router.include_router(inventory_router)
+api_v1_router.include_router(reports_router)
 
 
 

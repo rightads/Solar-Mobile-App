@@ -10,7 +10,7 @@ import 'package:uuid/uuid.dart';
 class PaymentPlanBuilderCard extends StatefulWidget {
   final PaymentPlanModel plan;
   final int finalPricePaise;
-  final ValueChanged<PaymentPlanModel> onSavePlan;
+  final Future<void> Function(PaymentPlanModel) onSavePlan;
 
   const PaymentPlanBuilderCard({
     super.key,
@@ -327,16 +327,20 @@ class _PaymentPlanBuilderCardState extends State<PaymentPlanBuilderCard> {
     }
   }
 
-  void _doSave() {
+  Future<void> _doSave() async {
     final updatedPlan = widget.plan.copyWith(milestones: _milestones);
-    widget.onSavePlan(updatedPlan);
-
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Payment plan saved successfully!'),
-        backgroundColor: AppColors.success,
-      ),
-    );
+    try {
+      await widget.onSavePlan(updatedPlan);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Payment plan saved.'), backgroundColor: AppColors.success),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(e.toString().replaceFirst('Exception: ', '')), backgroundColor: AppColors.error),
+      );
+    }
   }
 
   @override

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:solar_pro/core/theme/app_theme.dart';
+import 'package:solar_pro/core/utils/geo_input.dart';
 
 /// Interactive Location and GPS preview card for customer site mapping.
 class LocationPickerCard extends StatefulWidget {
@@ -50,31 +51,51 @@ class _LocationPickerCardState extends State<LocationPickerCard> {
     super.dispose();
   }
 
-  Future<void> _acquireCurrentLocation() async {
+  /// The phone's real GPS position.
+  Future<void> _useCurrentLocation() async {
     setState(() => _isAcquiring = true);
-    // Simulate real GPS acquisition delay
-    await Future.delayed(const Duration(milliseconds: 700));
-
-    // Default to central solar hub coordinates (e.g. Delhi NCR) or jittered site coordinate
-    const lat = 28.613939;
-    const lng = 77.209021;
-
-    if (mounted) {
-      setState(() {
-        _isAcquiring = false;
-        _latController.text = lat.toStringAsFixed(6);
-        _lngController.text = lng.toStringAsFixed(6);
-      });
-      widget.onLocationChanged(lat, lng);
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('GPS coordinates captured successfully (±5m accuracy)'),
-          backgroundColor: AppColors.success,
-          duration: Duration(seconds: 2),
-        ),
-      );
+    try {
+      final fix = await GeoInput.currentLocation();
+      if (!mounted) return;
+      _latController.text = fix.point.lat.toStringAsFixed(6);
+      _lngController.text = fix.point.lng.toStringAsFixed(6);
+      widget.onLocationChanged(fix.point.lat, fix.point.lng);
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text('Site location captured (±${fix.accuracyM.round()} m)'),
+        backgroundColor: AppColors.success,
+      ));
+    } on GeoError catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(e.message),
+        backgroundColor: AppColors.warning,
+        duration: const Duration(seconds: 6),
+        action: e.canOpenSettings ? SnackBarAction(label: 'Settings', onPressed: GeoInput.openAppSettings) : null,
+      ));
+    } finally {
+      if (mounted) setState(() => _isAcquiring = false);
     }
+  }
+
+  /// Paste the pin copied from Google Maps (never a guessed location).
+  Future<void> _pasteFromMaps() async {
+    setState(() => _isAcquiring = true);
+    final point = await GeoInput.fromClipboard();
+    if (!mounted) return;
+    setState(() => _isAcquiring = false);
+    if (point == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('No coordinates on the clipboard. ${GeoInput.pasteHelp}'),
+            backgroundColor: AppColors.warning, duration: Duration(seconds: 6)),
+      );
+      return;
+    }
+    _latController.text = point.lat.toStringAsFixed(6);
+    _lngController.text = point.lng.toStringAsFixed(6);
+    widget.onLocationChanged(point.lat, point.lng);
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('Site location set to ${point.display}'), backgroundColor: AppColors.success),
+    );
   }
 
   void _onManualCoordinateChanged() {
@@ -141,29 +162,57 @@ class _LocationPickerCardState extends State<LocationPickerCard> {
           ),
           const SizedBox(height: 12),
 
-          // Action button
-          SizedBox(
-            width: double.infinity,
-            child: OutlinedButton.icon(
-              onPressed: _isAcquiring ? null : _acquireCurrentLocation,
-              icon: _isAcquiring
-                  ? const SizedBox(
-                      width: 16,
-                      height: 16,
-                      child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.teal500),
-                    )
-                  : const Icon(Icons.my_location_rounded, color: AppColors.teal500, size: 18),
-              label: Text(
-                _isAcquiring ? 'Detecting Site GPS...' : 'Use Current Location',
-                style: const TextStyle(color: AppColors.fg, fontWeight: FontWeight.w600, fontSize: 13),
-              ),
-              style: OutlinedButton.styleFrom(
-                side: const BorderSide(color: AppColors.teal500),
-                padding: const EdgeInsets.symmetric(vertical: 12),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.md)),
+          if (GeoInput.gpsSupported) ...[
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                onPressed: _isAcquiring ? null : _useCurrentLocation,
+                icon: _isAcquiring
+                    ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.teal500))
+                    : const Icon(Icons.my_location_rounded, color: AppColors.teal500, size: 18),
+                label: Text(_isAcquiring ? 'Getting GPS fix…' : 'Use current location (at the site)',
+                    style: const TextStyle(color: AppColors.fg, fontWeight: FontWeight.w600, fontSize: 13)),
+                style: OutlinedButton.styleFrom(
+                  side: const BorderSide(color: AppColors.teal500),
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.md)),
+                ),
               ),
             ),
+            const SizedBox(height: 8),
+          ],
+          // Not at the site: pin it in Google Maps, then paste it here.
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: () => GeoInput.openMaps(widget.address),
+                  icon: const Icon(Icons.map_outlined, color: AppColors.teal500, size: 18),
+                  label: const Text('Open Maps', style: TextStyle(color: AppColors.fg, fontWeight: FontWeight.w600, fontSize: 13)),
+                  style: OutlinedButton.styleFrom(
+                    side: const BorderSide(color: AppColors.teal500),
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.md)),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: _isAcquiring ? null : _pasteFromMaps,
+                  icon: const Icon(Icons.content_paste_rounded, color: AppColors.teal500, size: 18),
+                  label: const Text('Paste location', style: TextStyle(color: AppColors.fg, fontWeight: FontWeight.w600, fontSize: 13)),
+                  style: OutlinedButton.styleFrom(
+                    side: const BorderSide(color: AppColors.teal500),
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.md)),
+                  ),
+                ),
+              ),
+            ],
           ),
+          const SizedBox(height: 6),
+          const Text('Not at the site? ${GeoInput.pasteHelp}', style: TextStyle(color: AppColors.grey500, fontSize: 11)),
           const SizedBox(height: 12),
 
           // Latitude and Longitude fields

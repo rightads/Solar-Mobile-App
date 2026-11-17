@@ -314,10 +314,10 @@ class _KedlScreenState extends State<KedlScreen> {
                     final loc = locCtrl.text.trim();
                     final dem = int.tryParse(demandCtrl.text.trim()) ?? 0;
                     final ref = demandRefCtrl.text.trim();
-                    if (cust.isEmpty) {
+                    if (cust.isEmpty || selectedCustId == null) {
                       ScaffoldMessenger.of(context).showSnackBar(
                         const SnackBar(
-                          content: Text('Please enter or select a customer name'),
+                          content: Text('Select the customer from the list (KEDL files belong to a registered project).'),
                           backgroundColor: AppColors.warning,
                         ),
                       );
@@ -330,19 +330,21 @@ class _KedlScreenState extends State<KedlScreen> {
                     try {
                       if (initAllThree) {
                         // Create all 3 files
-                        final cId = selectedCustId ?? DateTime.now().millisecondsSinceEpoch.toString();
-                        await ApiClient().initKedlFiles(cId);
+                        await ApiClient().initKedlFiles(selectedCustId!);
                       } else {
-                        await ApiClient().saveKedlFile({
-                          'customer_id': selectedCustId ?? DateTime.now().millisecondsSinceEpoch.toString(),
-                          'customer_name': cust,
-                          'location': loc.isEmpty ? 'Substation Area' : loc,
+                        final file = await ApiClient().saveKedlFile({
+                          'customer_id': selectedCustId,
                           'file_type': type,
-                          'status': dem > 0 ? 'demand_raised' : 'submitted',
-                          'demand_amount': dem,
-                          'demand_notice_ref': ref,
-                          'assigned_employee_name': 'KEDL Liaison',
+                          if (loc.isNotEmpty) 'remarks': 'Site: $loc',
                         });
+                        final fileId = (file?['id'] ?? file?['_id'])?.toString();
+                        if (fileId != null) {
+                          if (dem > 0) {
+                            await ApiClient().raiseKedlDemand(fileId: fileId, amountRupees: dem, noticeNo: ref);
+                          } else {
+                            await ApiClient().setKedlFileStatus(fileId, 'submitted');
+                          }
+                        }
                       }
 
                       await _fetchData();

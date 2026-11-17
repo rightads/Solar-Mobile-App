@@ -94,3 +94,79 @@ class CustomerRead(CustomerBase):
 
     class Config:
         from_attributes = True
+
+
+# ── Project bill of materials (equipment scope beyond panels) ───────────────
+from pydantic import ConfigDict as _ConfigDict  # noqa: E402
+
+_S60 = Field(None, max_length=60)
+_S120 = Field(None, max_length=120)
+
+
+class ProjectBom(BaseModel):
+    """Equipment details captured by sales at conversion. Shown to the site
+    team as their scope of work (never prices)."""
+    model_config = _ConfigDict(extra="forbid")
+    is_subsidy: Optional[bool] = None
+    inverter_count: Optional[int] = Field(None, ge=0, le=100)
+    inverter_capacity_kw: Optional[float] = Field(None, ge=0, le=1000)
+    structure_count: Optional[int] = Field(None, ge=0, le=10000)
+    structure_height: Optional[str] = _S60
+    ac_wire_brand: Optional[str] = _S60
+    ac_wire_size: Optional[str] = _S60
+    dc_wire_brand: Optional[str] = _S60
+    dc_wire_size: Optional[str] = _S60
+    earthing_wire_brand: Optional[str] = _S60
+    earthing_wire_size: Optional[str] = _S60
+    spd_ac_brand: Optional[str] = _S60
+    spd_ac_details: Optional[str] = _S120
+    spd_dc_brand: Optional[str] = _S60
+    spd_dc_details: Optional[str] = _S120
+    solar_meter_brand: Optional[str] = _S60
+    solar_meter_count: Optional[int] = Field(None, ge=0, le=20)
+    civil_work: Optional[str] = Field(None, max_length=2000)
+    earthing_notes: Optional[str] = Field(None, max_length=2000)
+
+    def cleaned(self) -> Dict[str, Any]:
+        out: Dict[str, Any] = {}
+        for k, v in self.model_dump(exclude_none=True).items():
+            if isinstance(v, str):
+                v = v.strip()
+                if not v:
+                    continue
+            out[k] = v
+        return out
+
+
+# ── Payment plan & bank loan (managed by sales, visible to admins) ──────────
+class PlanMilestone(BaseModel):
+    model_config = _ConfigDict(extra="ignore")
+    id: str = Field(..., min_length=1, max_length=64)
+    title: str = Field(..., min_length=1, max_length=100)
+    isPercentage: bool = True
+    percentage: float = Field(0, ge=0, le=100)
+    fixedAmountPaise: int = Field(0, ge=0, le=10_000_000_00)
+    dueCondition: str = Field("", max_length=200)
+
+
+class PaymentPlanIn(BaseModel):
+    model_config = _ConfigDict(extra="ignore")
+    isLocked: bool = False
+    milestones: List[PlanMilestone] = Field(default_factory=list, max_length=20)
+
+
+class LoanInstallment(BaseModel):
+    model_config = _ConfigDict(extra="ignore")
+    id: str = Field(..., min_length=1, max_length=64)
+    amountPaise: int = Field(0, ge=0, le=10_000_000_00)
+    expectedDate: datetime
+    isReceived: bool = False
+    notes: str = Field("", max_length=500)
+
+
+class LoanDetailsIn(BaseModel):
+    model_config = _ConfigDict(extra="ignore")
+    hasLoan: bool = False
+    bankName: str = Field("", max_length=100)
+    loanAmountPaise: int = Field(0, ge=0, le=10_000_000_00)
+    installments: List[LoanInstallment] = Field(default_factory=list, max_length=50)

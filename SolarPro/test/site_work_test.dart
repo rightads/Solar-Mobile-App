@@ -57,29 +57,53 @@ void main() {
       expect(exported.containsKey('payment_summary'), isFalse);
     });
 
-    test('SiteCustomerScope extracts technical equipment specs by discipline safely', () {
-      const scope = SiteCustomerScope(
-        structureBrand: 'Tata Solar Heavy GI',
-        panelBrand: 'Adani Solar DCR Bifacial',
-        panelCount: 12,
-        panelWatt: 540,
-        structureHeight: '8 ft Elevated Rooftop',
-        inverterBrand: 'Growatt Grid-Tie',
-        inverterCapacityKw: 6.0,
-        phase: 'Three Phase (415V)',
-      );
+    test('SiteCustomerScope shows the recorded equipment by discipline', () {
+      final scope = SiteCustomerScope.fromScopeJson({
+        'customer_name': 'Ravi Kumar',
+        'address': 'Plot 4, Sector 9',
+        'location_gps': '28.459500,77.026600',
+        'capacity_kw': 6.0,
+        'phase': 'three',
+        'panel_brand': 'Adani Solar DCR Bifacial',
+        'panel_watt': 540,
+        'panel_count': 12,
+        'inverter_brand': 'Growatt Grid-Tie',
+        'structure_type': 'Tata Solar Heavy GI',
+        'bom': {
+          'structure_height': '8 ft',
+          'inverter_count': 1,
+          'ac_wire_brand': 'Polycab',
+          'ac_wire_size': '4 sq mm',
+          'civil_work': '8 RCC pedestals',
+        },
+      });
 
-      final structEntries = scope.getEntriesForRole(WorkType.structure);
-      expect(structEntries.any((e) => e.value.contains('Tata Solar Heavy GI')), isTrue);
-      expect(structEntries.any((e) => e.value.contains('12 x Adani Solar DCR Bifacial (540 W)')), isTrue);
+      final structure = scope.getEntriesForRole(WorkType.structure);
+      expect(structure.any((e) => e.value == 'Tata Solar Heavy GI'), isTrue);
+      expect(structure.any((e) => e.value == '12 × Adani Solar DCR Bifacial (540W)'), isTrue);
+      expect(structure.any((e) => e.key == 'GPS' && e.value.startsWith('28.4595')), isTrue);
 
-      final elecEntries = scope.getEntriesForRole(WorkType.electrical);
-      expect(elecEntries.any((e) => e.value.contains('Growatt Grid-Tie')), isTrue);
-      expect(elecEntries.any((e) => e.value.contains('Three Phase')), isTrue);
+      final electrical = scope.getEntriesForRole(WorkType.electrical);
+      expect(electrical.any((e) => e.value.contains('Growatt Grid-Tie') && e.value.contains('Three phase')), isTrue);
+      expect(electrical.any((e) => e.key == 'AC Wiring' && e.value == 'Polycab — 4 sq mm'), isTrue);
 
-      final civilEntries = scope.getEntriesForRole(WorkType.civil);
-      expect(civilEntries.any((e) => e.key == 'Civil Work Scope'), isTrue);
-      expect(civilEntries.any((e) => e.key == 'Earthing Setup'), isTrue);
+      final civil = scope.getEntriesForRole(WorkType.civil);
+      expect(civil.any((e) => e.key == 'Civil Work' && e.value == '8 RCC pedestals'), isTrue);
+    });
+
+    test('SiteCustomerScope never invents equipment that was not recorded', () {
+      final scope = SiteCustomerScope.fromScopeJson({'customer_name': 'New Site', 'bom': <String, dynamic>{}});
+      for (final type in WorkType.values) {
+        for (final entry in scope.getEntriesForRole(type)) {
+          expect(entry.value, SiteCustomerScope.notSpecified, reason: '${entry.key} must not be guessed');
+        }
+      }
+    });
+
+    test('SiteCustomerScope placeholder before loading is "Not specified"', () {
+      const scope = SiteCustomerScope();
+      expect(scope.loaded, isFalse);
+      expect(scope.getEntriesForRole(WorkType.electrical).every((e) => e.value == SiteCustomerScope.notSpecified), isTrue);
     });
   });
 

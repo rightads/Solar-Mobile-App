@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:intl/intl.dart';
 import 'package:solar_pro/core/network/api_client.dart';
+import 'package:solar_pro/core/services/file_downloader.dart';
 import 'package:solar_pro/core/theme/app_theme.dart';
 
 class PaymentsScreen extends StatefulWidget {
@@ -385,18 +386,16 @@ class _PaymentsScreenState extends State<PaymentsScreen>
             const SizedBox(height: 8),
             _slipRow('Status', p.status.toUpperCase()),
             const SizedBox(height: 24),
+            if (p.proofUrl == null)
+              Text('No payment proof was uploaded with this payment.', style: AppTextStyles.caption)
+            else
             Row(
               children: [
                 Expanded(
                   child: GestureDetector(
                     onTap: () {
                       Navigator.pop(ctx);
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(
-                          content: Text('Payment receipt downloaded as PDF!'),
-                          backgroundColor: AppColors.success,
-                        ),
-                      );
+                      FileDownloader.save(context, path: p.proofUrl!, fileName: 'payment_proof_${p.id}');
                     },
                     child: Container(
                       height: 48,
@@ -405,7 +404,7 @@ class _PaymentsScreenState extends State<PaymentsScreen>
                         borderRadius: BorderRadius.circular(AppRadius.md),
                       ),
                       child: Center(
-                        child: Text('Download Receipt',
+                        child: Text('Download Payment Proof',
                             style: AppTextStyles.labelMedium
                                 .copyWith(color: AppColors.ink900)),
                       ),
@@ -439,6 +438,11 @@ class _PaymentsScreenState extends State<PaymentsScreen>
       appBar: AppBar(
         title: const Text('Payments'),
         actions: [
+          IconButton(
+            tooltip: 'Export payments (Excel)',
+            icon: const Icon(Icons.file_download_outlined),
+            onPressed: () => FileDownloader.exportReport(context, 'payments'),
+          ),
           IconButton(
             tooltip: 'Record Payment',
             icon: Container(
@@ -782,7 +786,9 @@ class _VerticalDivider extends StatelessWidget {
 class _Payment {
   final String id, name, label, status, date, mode, ref;
   final int amount;
-  const _Payment(this.id, this.name, this.amount, this.label, this.status, this.date, this.mode, this.ref);
+  final String? proofUrl;
+  const _Payment(this.id, this.name, this.amount, this.label, this.status, this.date, this.mode, this.ref,
+      {this.proofUrl});
 
   /// Backend payment document → row. `amount` is stored in paise; shown in rupees.
   factory _Payment.fromJson(Map<String, dynamic> j) {
@@ -799,6 +805,7 @@ class _Payment {
       when == null ? '—' : DateFormat('dd MMM yyyy').format(when.toLocal()),
       mode.isEmpty ? 'OTHER' : mode,
       ref.isEmpty ? 'No reference' : ref,
+      proofUrl: (j['proof_url'] ?? (j['proof'] is Map ? j['proof']['url'] : null))?.toString(),
     );
   }
 
@@ -812,6 +819,7 @@ class _Payment {
       date,
       mode,
       ref,
+      proofUrl: proofUrl,
     );
   }
 }

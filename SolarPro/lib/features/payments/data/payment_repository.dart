@@ -161,16 +161,24 @@ class PaymentRepository {
     }
   }
 
-  // ── Payment Plan Local Persistence ──────────────────────────────────────────
-  // TODO(backend-gap): Free-form payment plan per customer stored locally until backend endpoint is added
-  static const String _kPlanPrefix = 'solar_payment_plan_';
+  // ── Payment Plan & Loan (stored on the customer, shared with admins) ───────
+  // Older builds kept these only on the salesperson's phone; the first load
+  // after updating uploads that copy to the server, then removes it locally.
 
-  Future<PaymentPlanModel> getPaymentPlan(String customerId) async {
-    final prefs = await SharedPreferences.getInstance();
-    final jsonStr = prefs.getString('$_kPlanPrefix$customerId');
-    if (jsonStr == null || jsonStr.isEmpty) {
-      // Default initial plan: 3 flexible milestones
-      return PaymentPlanModel(
+  static Future<Map<String, dynamic>?> _takeLegacy(String key) async {
+    try {
+      final raw = (await SharedPreferences.getInstance()).getString(key);
+      if (raw == null || raw.isEmpty) return null;
+      return Map<String, dynamic>.from(jsonDecode(raw) as Map);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  static Future<void> _dropLegacy(String key) async =>
+      (await SharedPreferences.getInstance()).remove(key);
+
+  static PaymentPlanModel _defaultPlan(String customerId) => PaymentPlanModel(
         customerId: customerId,
         milestones: const [
           PaymentMilestone(id: 'm1', title: 'Booking Advance', isPercentage: true, percentage: 20.0, dueCondition: 'On contract confirmation'),
@@ -178,42 +186,59 @@ class PaymentRepository {
           PaymentMilestone(id: 'm3', title: 'Installation & Handover', isPercentage: true, percentage: 20.0, dueCondition: 'On testing and net-meter commissioning'),
         ],
       );
-    }
+
+  /// The saved plan, or a suggested 20/60/20 plan if none has been saved yet.
+  Future<PaymentPlanModel> getPaymentPlan(String customerId) async {
     try {
-      final map = jsonDecode(jsonStr) as Map<String, dynamic>;
-      return PaymentPlanModel.fromJson(map);
-    } catch (_) {
-      return PaymentPlanModel(customerId: customerId);
+      final res = await _apiClient.dio.get('/customers/$customerId/payment-plan');
+      if (res.data is Map) {
+        return PaymentPlanModel.fromJson({...Map<String, dynamic>.from(res.data as Map), 'customerId': customerId});
+      }
+      final legacy = await _takeLegacy('solar_payment_plan_$customerId');
+      if (legacy != null) {
+        final plan = PaymentPlanModel.fromJson({...legacy, 'customerId': customerId});
+        await savePaymentPlan(plan);
+        await _dropLegacy('solar_payment_plan_$customerId');
+        return plan;
+      }
+      return _defaultPlan(customerId);
+    } on DioException catch (de) {
+      throw Exception(_parseDioError(de, 'Failed to load payment plan'));
     }
   }
 
   Future<void> savePaymentPlan(PaymentPlanModel plan) async {
-    final prefs = await SharedPreferences.getInstance();
-    final jsonStr = jsonEncode(plan.toJson());
-    await prefs.setString('$_kPlanPrefix${plan.customerId}', jsonStr);
+    try {
+      await _apiClient.dio.put('/customers/${plan.customerId}/payment-plan', data: plan.toJson());
+    } on DioException catch (de) {
+      throw Exception(_parseDioError(de, 'Failed to save payment plan'));
+    }
   }
 
-  // ── Loan Details Local Persistence ──────────────────────────────────────────
-  // TODO(backend-gap): Loan details and installments stored locally until backend endpoint is added
-  static const String _kLoanPrefix = 'solar_loan_details_';
-
   Future<LoanDetailsModel> getLoanDetails(String customerId) async {
-    final prefs = await SharedPreferences.getInstance();
-    final jsonStr = prefs.getString('$_kLoanPrefix$customerId');
-    if (jsonStr == null || jsonStr.isEmpty) {
-      return LoanDetailsModel(customerId: customerId);
-    }
     try {
-      final map = jsonDecode(jsonStr) as Map<String, dynamic>;
-      return LoanDetailsModel.fromJson(map);
-    } catch (_) {
+      final res = await _apiClient.dio.get('/customers/$customerId/loan');
+      if (res.data is Map) {
+        return LoanDetailsModel.fromJson({...Map<String, dynamic>.from(res.data as Map), 'customerId': customerId});
+      }
+      final legacy = await _takeLegacy('solar_loan_details_$customerId');
+      if (legacy != null) {
+        final loan = LoanDetailsModel.fromJson({...legacy, 'customerId': customerId});
+        await saveLoanDetails(loan);
+        await _dropLegacy('solar_loan_details_$customerId');
+        return loan;
+      }
       return LoanDetailsModel(customerId: customerId);
+    } on DioException catch (de) {
+      throw Exception(_parseDioError(de, 'Failed to load loan details'));
     }
   }
 
   Future<void> saveLoanDetails(LoanDetailsModel loan) async {
-    final prefs = await SharedPreferences.getInstance();
-    final jsonStr = jsonEncode(loan.toJson());
-    await prefs.setString('$_kLoanPrefix${loan.customerId}', jsonStr);
+    try {
+      await _apiClient.dio.put('/customers/${loan.customerId}/loan', data: loan.toJson());
+    } on DioException catch (de) {
+      throw Exception(_parseDioError(de, 'Failed to save loan details'));
+    }
   }
 }

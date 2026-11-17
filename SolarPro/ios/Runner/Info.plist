@@ -2,6 +2,8 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>SolarPro records the installation site location when you add a new customer.</string>
 	<key>NSCameraUsageDescription</key>
 	<string>SolarPro uses the camera to capture site proof photos, payment receipts and service ticket evidence.</string>
 	<key>NSPhotoLibraryUsageDescription</key>

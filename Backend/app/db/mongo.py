@@ -378,7 +378,13 @@ def mongo_create_customer(customer_data: Dict[str, Any]) -> Dict[str, Any]:
         "mobile": sanitize_input(customer_data.get("phone", customer_data.get("mobile", ""))),
         "email": sanitize_input(customer_data.get("email", "")),
         "address": sanitize_input(customer_data.get("address", "")),
-        "location_gps": customer_data.get("location_gps") or customer_data.get("gps") or "",
+        "location_gps": customer_data.get("location_gps") or customer_data.get("gps") or (
+            f"{customer_data['latitude']:.6f},{customer_data['longitude']:.6f}"
+            if customer_data.get("latitude") is not None and customer_data.get("longitude") is not None else ""),
+        "latitude": customer_data.get("latitude"),
+        "longitude": customer_data.get("longitude"),
+        "bom": customer_data.get("bom") or {},
+        "lead_id": customer_data.get("lead_id"),
         "kw": float(customer_data.get("kw") or customer_data.get("capacity_kw") or 0),
         "capacity_kw": float(customer_data.get("capacity_kw") or customer_data.get("kw") or 0),
         "final_price": final_price_val,
@@ -485,6 +491,22 @@ def merge_self_registered_projects(project: Dict[str, Any]) -> int:
         recalc = sum(int(p.get("amount", 0)) for p in db["payments"].find({"customer_id": pid, "status": "verified"}))
         db["customers"].update_one({"_id": project["_id"]}, {"$set": {"paid_amount": recalc}})
     return merged
+
+
+def backfill_customer_lead_ids() -> int:
+    """Converted customers created before ``lead_id`` was stored get it back
+    from their lead (``leads.customer_id``). Idempotent."""
+    db = get_mongo_db()
+    if db is None:
+        return 0
+    fixed = 0
+    for lead in db["leads"].find({"customer_id": {"$nin": [None, ""]}}, {"customer_id": 1}):
+        res = db["customers"].update_one(
+            {"_id": str(lead["customer_id"]), "$or": [{"lead_id": {"$exists": False}}, {"lead_id": None}]},
+            {"$set": {"lead_id": str(lead["_id"])}},
+        )
+        fixed += res.modified_count
+    return fixed
 
 
 def repair_self_registered_projects() -> Dict[str, int]:

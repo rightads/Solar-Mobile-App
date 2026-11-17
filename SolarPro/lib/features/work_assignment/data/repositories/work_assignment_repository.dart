@@ -101,6 +101,7 @@ class WorkAssignmentRepository {
         return updated;
       }
     } catch (e) {
+      if (!isOfflineError(e)) throw ApiClient.toFriendly(e);
       dev.log('Network error starting work $id: $e. Queueing offline action.');
       // Queue offline
       await _offlineQueue.queueStartWork(id);
@@ -173,6 +174,7 @@ class WorkAssignmentRepository {
 
       return uploaded;
     } catch (e) {
+      if (!isOfflineError(e)) throw ApiClient.toFriendly(e);
       dev.log('Network error uploading photos: $e. Queueing offline action.');
       // Queue offline
       await _offlineQueue.queuePhotoUpload(id, filePaths, captions: captions);
@@ -226,6 +228,7 @@ class WorkAssignmentRepository {
         return updated;
       }
     } catch (e) {
+      if (!isOfflineError(e)) throw ApiClient.toFriendly(e);
       dev.log('Network error completing work $id: $e. Queueing offline action.');
       // Queue offline
       await _offlineQueue.queueCompleteWork(id);
@@ -385,8 +388,11 @@ class WorkAssignmentRepository {
         }
       } catch (e) {
         dev.log('Sync error for action ${action.id}: $e');
-        // Stop batch on network error
-        break;
+        if (isOfflineError(e)) break; // still offline: keep the rest queued
+        // The server rejected this action (e.g. job reassigned or already
+        // done): retrying can never succeed, so drop it instead of blocking
+        // everything queued behind it.
+        await _offlineQueue.removeAction(action.id);
       }
     }
 
@@ -451,4 +457,16 @@ class WorkAssignmentRepository {
     }).toList();
   }
 
+}
+
+/// True when a request failed because the server could not be reached
+/// (no connection / timeout), as opposed to the server rejecting it.
+bool isOfflineError(Object e) {
+  if (e is! DioException) return false;
+  if (e.response != null) return false;
+  return e.type == DioExceptionType.connectionError ||
+      e.type == DioExceptionType.connectionTimeout ||
+      e.type == DioExceptionType.sendTimeout ||
+      e.type == DioExceptionType.receiveTimeout ||
+      e.type == DioExceptionType.unknown;
 }

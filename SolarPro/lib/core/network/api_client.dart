@@ -833,7 +833,7 @@ class ApiClient {
       return [];
     } catch (e) {
       dev.log('initKedlFiles error: $e');
-      return [];
+      throw toFriendly(e, fallback: 'KEDL files could not be created.');
     }
   }
 

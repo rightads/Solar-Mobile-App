@@ -94,6 +94,7 @@ class CustomerRepository {
     required int panelCount,
     required String inverterBrand,
     required String structureType,
+    Map<String, dynamic>? bom,
   }) async {
     try {
       final payload = <String, dynamic>{
@@ -108,6 +109,7 @@ class CustomerRepository {
         'panel_count': panelCount,
         'inverter_brand': inverterBrand.trim(),
         'structure_type': structureType.trim(),
+        if (bom != null && bom.isNotEmpty) 'bom': bom,
       };
 
       final res = await _apiClient.dio.post('/leads/$leadId/convert', data: payload);
@@ -136,8 +138,7 @@ class CustomerRepository {
       } else if (filePath != null) {
         multipartFile = await MultipartFile.fromFile(filePath, filename: fileName);
       } else {
-        // Fallback dummy file bytes if picking is mocked in tests or simulation
-        multipartFile = MultipartFile.fromBytes([0, 1, 2, 3], filename: fileName);
+        throw Exception('$fileName is no longer available on this device. Please attach it again.');
       }
 
       final formData = FormData.fromMap({

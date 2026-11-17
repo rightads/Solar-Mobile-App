@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:solar_pro/core/network/api_client.dart';
+import 'package:solar_pro/core/services/file_downloader.dart';
 import 'package:solar_pro/core/theme/app_theme.dart';
+import 'package:solar_pro/core/utils/geo_input.dart';
 
 class CustomersScreen extends StatefulWidget {
   const CustomersScreen({super.key});
@@ -239,18 +241,39 @@ class _CustomersScreenState extends State<CustomersScreen> {
 
                 // Current Location Button
                 GestureDetector(
-                  onTap: () {
-                    // Capture site GPS
-                    final mockGps = '28.6139° N, 77.2090° E (Site Auto-Detected)';
-                    locationGpsCtrl.text = mockGps;
+                  // Paste the pin copied from Google Maps; long-press opens Maps.
+                  onLongPress: () => GeoInput.openMaps(addressCtrl.text),
+                  onTap: () async {
+                    GeoPoint? point;
+                    if (GeoInput.gpsSupported) {
+                      try {
+                        point = (await GeoInput.currentLocation()).point;
+                      } on GeoError catch (e) {
+                        if (!context.mounted) return;
+                        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                          content: Text('${e.message} (Long-press to open Google Maps.)'),
+                          backgroundColor: AppColors.warning,
+                          duration: const Duration(seconds: 6),
+                        ));
+                        return;
+                      }
+                    } else {
+                      point = await GeoInput.fromClipboard();
+                    }
+                    if (!context.mounted) return;
+                    if (point == null) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text('No coordinates on the clipboard. Long-press this button to open Google Maps. '
+                              '${GeoInput.pasteHelp}'),
+                          backgroundColor: AppColors.warning,
+                          duration: Duration(seconds: 6),
+                        ),
+                      );
+                      return;
+                    }
+                    locationGpsCtrl.text = '${point.lat.toStringAsFixed(6)},${point.lng.toStringAsFixed(6)}';
                     setSheetState(() {});
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                        content: Text('📍 Current Location GPS captured successfully!'),
-                        backgroundColor: AppColors.success,
-                        duration: Duration(seconds: 2),
-                      ),
-                    );
                   },
                   child: Container(
                     padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
@@ -276,7 +299,9 @@ class _CustomersScreenState extends State<CustomersScreen> {
                         Expanded(
                           child: Text(
                             locationGpsCtrl.text.isEmpty
-                                ? '+ Add Current Location (GPS Option)'
+                                ? (GeoInput.gpsSupported
+                                    ? '+ Use current location (long-press: Maps)'
+                                    : '+ Paste site location from Google Maps')
                                 : 'Location: ${locationGpsCtrl.text}',
                             style: AppTextStyles.labelMedium.copyWith(
                               color: locationGpsCtrl.text.isNotEmpty
@@ -643,6 +668,11 @@ class _CustomersScreenState extends State<CustomersScreen> {
       appBar: AppBar(
         title: const Text('Customers'),
         actions: [
+          IconButton(
+            tooltip: 'Export customers (Excel)',
+            icon: const Icon(Icons.file_download_outlined),
+            onPressed: () => FileDownloader.exportReport(context, 'customers'),
+          ),
           IconButton(
             tooltip: 'Add Customer',
             icon: Container(

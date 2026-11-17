@@ -25,6 +25,13 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning("Could not auto-initialize MongoDB on startup", error=str(e))
     try:
+        from app.db.mongo import backfill_customer_lead_ids
+        n = backfill_customer_lead_ids()
+        if n:
+            logger.info("Linked converted customers back to their leads", count=n)
+    except Exception as e:
+        logger.warning("Lead link backfill skipped", error=str(e))
+    try:
         from app.db.mongo import repair_self_registered_projects
         result = repair_self_registered_projects()
         if any(result.values()):

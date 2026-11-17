@@ -35,6 +35,17 @@ class _SiteJobDetailScreenState extends State<SiteJobDetailScreen> {
     _repo = widget.repository ?? WorkAssignmentRepository();
     _job = widget.initialJob;
     _scope = const SiteCustomerScope();
+    _loadScope();
+  }
+
+  /// Equipment scope for this job (no prices). Kept as "Not specified"
+  /// placeholders if it cannot be loaded, e.g. while offline.
+  Future<void> _loadScope() async {
+    try {
+      final res = await ApiClient().dio.get('/work-assignments/${_job.id}/scope');
+      if (!mounted || res.data is! Map) return;
+      setState(() => _scope = SiteCustomerScope.fromScopeJson(Map<String, dynamic>.from(res.data as Map)));
+    } catch (_) {}
   }
 
   Future<void> _handleStartWork() async {

@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:solar_pro/core/constants/app_constants.dart';
@@ -186,7 +187,10 @@ void main() {
       }
 
       // Add photos
-      final uploaded = await workRepo.uploadPhotos(inProgress.id, ['/mock/site_proof.jpg']);
+      // A real file on disk: a missing file is an error, not an "offline" upload.
+      final photo = File('${Directory.systemTemp.createTempSync('site_proof').path}/site_proof.jpg')
+        ..writeAsBytesSync(const [0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10, 0x4A, 0x46, 0x49, 0x46, 0x00, 0xFF, 0xD9]);
+      final uploaded = await workRepo.uploadPhotos(inProgress.id, [photo.path]);
       expect(uploaded.isNotEmpty, isTrue);
 
       // Complete job with photo succeeds

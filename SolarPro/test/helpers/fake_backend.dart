@@ -325,6 +325,12 @@ class FakeBackend implements HttpClientAdapter {
       w['actual_start'] = _now();
       return (200, w);
     }
+    if (seg.length == 3 && seg[2] == 'photos' && method == 'POST') {
+      // Mirrors the real backend: stores the uploaded photo and returns the new photo records.
+      final photo = {'id': _id('photo'), 'work_assignment_id': w['id'], 'file_key': 'site_proof.jpg', 'created_at': _now()};
+      (w['photos'] as List).add(photo);
+      return (201, [photo]);
+    }
     if (seg.length == 3 && seg[2] == 'complete' && method == 'POST') {
       // Same rule as the real backend: no photo proof, no completion.
       if ((w['photos'] as List).isEmpty) {

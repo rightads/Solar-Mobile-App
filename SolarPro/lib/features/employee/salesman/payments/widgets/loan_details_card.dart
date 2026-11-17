@@ -7,7 +7,7 @@ import 'package:uuid/uuid.dart';
 /// Loan details and flexible installment management card.
 class LoanDetailsCard extends StatefulWidget {
   final LoanDetailsModel loanDetails;
-  final ValueChanged<LoanDetailsModel> onSaveLoan;
+  final Future<void> Function(LoanDetailsModel) onSaveLoan;
 
   const LoanDetailsCard({
     super.key,
@@ -167,7 +167,7 @@ class _LoanDetailsCardState extends State<LoanDetailsCard> {
     );
   }
 
-  void _saveLoan() {
+  Future<void> _saveLoan() async {
     if (_hasLoan && _isExceedingLoanAmount) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -185,14 +185,18 @@ class _LoanDetailsCardState extends State<LoanDetailsCard> {
       installments: _installments,
     );
 
-    widget.onSaveLoan(updated);
-
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Loan details saved successfully!'),
-        backgroundColor: AppColors.success,
-      ),
-    );
+    try {
+      await widget.onSaveLoan(updated);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Loan details saved.'), backgroundColor: AppColors.success),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(e.toString().replaceFirst('Exception: ', '')), backgroundColor: AppColors.error),
+      );
+    }
   }
 
   @override

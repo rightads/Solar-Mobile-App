@@ -1,435 +1,260 @@
-from datetime import datetime, timezone
-import io
-from typing import Any, Dict, List, Optional
-import uuid
-from sqlalchemy import func, select
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
+"""Operations reports and Excel exports, computed from MongoDB.
 
+Collections read: leads, customers, payments, work_assignments, kedl_files
+(demands are embedded), tickets, inventory_items, users. Sign-up placeholders
+(clients awaiting a survey) are not projects, so they are left out of sales
+and billing figures.
+"""
+import io
+from collections import Counter, defaultdict
+from datetime import datetime, timezone
+from typing import Any, Dict, Iterable, List
+
+from app.core import access
 from app.core.config import settings
-from app.models.customer import Customer
-from app.models.enums import (
-    CustomerStage,
-    KedlDemandStatus,
-    LeadStatus,
-    PaymentMode,
-    PaymentStatus,
-    TicketStatus,
-    UserRole,
-    WorkStatus,
-)
-from app.models.inventory import InventoryItem, SerialItem, StockMovement
-from app.models.kedl import KedlDemand, KedlFile
-from app.models.lead import Lead
-from app.models.payment import Payment
-from app.models.team import Team
-from app.models.ticket import ServiceTicket
-from app.models.user import User
-from app.models.work_assignment import WorkAssignment
+from app.core.exceptions import BadRequestException
+from app.db.mongo import get_mongo_db, is_self_registered_project
 from app.schemas.report import (
     DashboardReportResponse,
     KedlReportResponse,
     PaymentsReportResponse,
-    SalesReportResponse,
     SalesRepPerformance,
+    SalesReportResponse,
     TeamWorkMetrics,
     WorkReportResponse,
 )
 
+ACTIVE_WORK = ("assigned", "pending", "in_progress", "active")
+OPEN_TICKETS = ("open", "assigned", "in_progress", "reopened")
+
+
+def _db():
+    db = get_mongo_db()
+    if db is None:
+        raise BadRequestException("Reports are temporarily unavailable. Please try again.")
+    return db
+
+
+def _aware(dt: Any) -> Any:
+    if isinstance(dt, datetime) and dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt
+
+
+def _projects(db) -> List[Dict[str, Any]]:
+    return [c for c in db["customers"].find() if not is_self_registered_project(c)]
+
+
+def _live_work(db) -> Iterable[Dict[str, Any]]:
+    return db["work_assignments"].find({"status": {"$ne": "cancelled"}, "duplicate_of": {"$exists": False}})
+
+
+def _paise(v: Any) -> int:
+    try:
+        return int(v or 0)
+    except (TypeError, ValueError):
+        return 0
+
 
 class ReportService:
     @staticmethod
-    async def get_dashboard_report(db: AsyncSession) -> DashboardReportResponse:
-        # 1. Leads by status
-        lead_stmt = select(Lead.status, func.count(Lead.id)).where(Lead.is_deleted == False).group_by(Lead.status)  # noqa: E712
-        lead_rows = (await db.execute(lead_stmt)).all()
-        leads_by_status = {r[0].value if hasattr(r[0], "value") else str(r[0]): r[1] for r in lead_rows}
-        total_leads = sum(leads_by_status.values())
-
-        # 2. Customers by stage
-        cust_stmt = select(Customer.stage, func.count(Customer.id)).where(Customer.is_deleted == False).group_by(Customer.stage)  # noqa: E712
-        cust_rows = (await db.execute(cust_stmt)).all()
-        customers_by_stage = {r[0].value if hasattr(r[0], "value") else str(r[0]): r[1] for r in cust_rows}
-        total_customers = sum(customers_by_stage.values())
-
-        # 3. Sales this month (paise)
+    def get_dashboard_report() -> DashboardReportResponse:
+        db = _db()
+        leads_by_status = Counter(str(lead.get("status") or "new") for lead in db["leads"].find({}, {"status": 1}))
+        customers = list(db["customers"].find())
+        customers_by_stage = Counter(
+            "REGISTRATION_SUBMITTED" if is_self_registered_project(c) else str(c.get("stage") or "UNKNOWN")
+            for c in customers
+        )
         now = datetime.now(timezone.utc)
         month_start = datetime(now.year, now.month, 1, tzinfo=timezone.utc)
-        sales_stmt = select(func.sum(Customer.final_price)).where(
-            Customer.is_deleted == False,  # noqa: E712
-            Customer.created_at >= month_start,
+        sales_this_month = sum(
+            _paise(c.get("final_price")) for c in customers
+            if not is_self_registered_project(c)
+            and isinstance(_aware(c.get("created_at")), datetime) and _aware(c["created_at"]) >= month_start
         )
-        sales_this_month = (await db.execute(sales_stmt)).scalar_one() or 0
-
-        # 4. Pending payment verifications
-        pend_pay_stmt = select(func.count(Payment.id)).where(
-            Payment.is_deleted == False,  # noqa: E712
-            Payment.status == PaymentStatus.SALES_APPROVED,
+        open_demands = sum(
+            1 for f in db["kedl_files"].find({}, {"demands": 1})
+            for d in f.get("demands") or [] if d.get("status") == "open"
         )
-        pending_payments = (await db.execute(pend_pay_stmt)).scalar_one() or 0
-
-        # 5. Active works count
-        work_stmt = select(func.count(WorkAssignment.id)).where(
-            WorkAssignment.status.in_([WorkStatus.PENDING, WorkStatus.IN_PROGRESS])
+        low_stock = sum(
+            1 for i in db["inventory_items"].find({"is_deleted": {"$ne": True}, "is_active": True})
+            if _paise(i.get("stock_qty")) <= _paise(i.get("min_stock"))
         )
-        active_works = (await db.execute(work_stmt)).scalar_one() or 0
-
-        # 6. Open KEDL demands count
-        kedl_stmt = select(func.count(KedlDemand.id)).where(
-            KedlDemand.status == KedlDemandStatus.OPEN
-        )
-        open_kedl_demands = (await db.execute(kedl_stmt)).scalar_one() or 0
-
-        # 7. Open service tickets count
-        ticket_stmt = select(func.count(ServiceTicket.id)).where(
-            ServiceTicket.status.in_([
-                TicketStatus.OPEN,
-                TicketStatus.ASSIGNED,
-                TicketStatus.IN_PROGRESS,
-                TicketStatus.REOPENED,
-            ])
-        )
-        open_tickets = (await db.execute(ticket_stmt)).scalar_one() or 0
-
-        # 8. Low stock items count
-        stock_stmt = select(func.count(InventoryItem.id)).where(
-            InventoryItem.is_deleted == False,  # noqa: E712
-            InventoryItem.is_active == True,  # noqa: E712
-            InventoryItem.stock_qty <= InventoryItem.min_stock,
-        )
-        low_stock_count = (await db.execute(stock_stmt)).scalar_one() or 0
-
         return DashboardReportResponse(
-            total_leads=total_leads,
-            leads_by_status=leads_by_status,
-            total_customers=total_customers,
-            customers_by_stage=customers_by_stage,
-            sales_this_month_paise=int(sales_this_month),
-            pending_payment_verifications_count=pending_payments,
-            active_works_count=active_works,
-            open_kedl_demands_count=open_kedl_demands,
-            open_service_tickets_count=open_tickets,
-            low_stock_items_count=low_stock_count,
+            total_leads=sum(leads_by_status.values()),
+            leads_by_status=dict(leads_by_status),
+            total_customers=sum(customers_by_stage.values()),
+            customers_by_stage=dict(customers_by_stage),
+            sales_this_month_paise=sales_this_month,
+            pending_payment_verifications_count=db["payments"].count_documents({"status": {"$in": ["pending", "sales_approved"]}}),
+            active_works_count=sum(1 for w in _live_work(db) if w.get("status") in ACTIVE_WORK),
+            open_kedl_demands_count=open_demands,
+            open_service_tickets_count=db["tickets"].count_documents({"status": {"$in": list(OPEN_TICKETS)}}),
+            low_stock_items_count=low_stock,
         )
 
     @staticmethod
-    async def get_sales_report(db: AsyncSession) -> SalesReportResponse:
-        # Get all sales reps
-        reps_stmt = select(User).where(User.role == UserRole.SALES_EXECUTIVE, User.is_deleted == False)  # noqa: E712
-        reps = list((await db.execute(reps_stmt)).scalars().all())
-
-        sales_reps_metrics: List[SalesRepPerformance] = []
-        grand_total_sales = 0
-
-        for rep in reps:
-            # Leads count
-            lead_stmt = select(func.count(Lead.id)).where(Lead.assigned_to == rep.id, Lead.is_deleted == False)  # noqa: E712
-            lead_count = (await db.execute(lead_stmt)).scalar_one() or 0
-
-            # Converted customers & total sales amount
-            cust_stmt = select(func.count(Customer.id), func.sum(Customer.final_price)).where(
-                Customer.sales_rep_id == rep.id,
-                Customer.is_deleted == False,  # noqa: E712
+    def get_sales_report() -> SalesReportResponse:
+        db = _db()
+        reps = [u for u in db["users"].find({"role": {"$in": sorted(access.SALES_ROLES)}})
+                if not u.get("deleted_at")]
+        leads = Counter(str(lead.get("assigned_sales_id") or "") for lead in db["leads"].find({}, {"assigned_sales_id": 1}))
+        won: Dict[str, List[int]] = defaultdict(list)
+        for c in _projects(db):
+            won[str(c.get("sales_id") or "")].append(_paise(c.get("final_price")))
+        rows = [
+            SalesRepPerformance(
+                sales_rep_id=str(r["_id"]), sales_rep_name=r.get("name") or "Sales",
+                total_leads=leads.get(str(r["_id"]), 0),
+                converted_customers=len(won.get(str(r["_id"]), [])),
+                total_sales_paise=sum(won.get(str(r["_id"]), [])),
             )
-            cust_row = (await db.execute(cust_stmt)).first()
-            cust_count = cust_row[0] if cust_row else 0
-            rep_sales = int(cust_row[1] or 0) if cust_row else 0
-
-            grand_total_sales += rep_sales
-            sales_reps_metrics.append(
-                SalesRepPerformance(
-                    sales_rep_id=rep.id,
-                    sales_rep_name=rep.name,
-                    total_leads=lead_count,
-                    converted_customers=cust_count,
-                    total_sales_paise=rep_sales,
-                )
-            )
-
-        return SalesReportResponse(
-            sales_reps=sales_reps_metrics,
-            total_sales_paise=grand_total_sales,
-        )
+            for r in reps
+        ]
+        rows.sort(key=lambda r: r.total_sales_paise, reverse=True)
+        return SalesReportResponse(sales_reps=rows, total_sales_paise=sum(sum(v) for v in won.values()))
 
     @staticmethod
-    async def get_payments_report(db: AsyncSession) -> PaymentsReportResponse:
-        # Total billed
-        billed_stmt = select(func.sum(Customer.final_price)).where(Customer.is_deleted == False)  # noqa: E712
-        total_billed = (await db.execute(billed_stmt)).scalar_one() or 0
-
-        # Total collected
-        coll_stmt = select(func.sum(Payment.amount)).where(
-            Payment.is_deleted == False,  # noqa: E712
-            Payment.status == PaymentStatus.VERIFIED,
-        )
-        total_collected = (await db.execute(coll_stmt)).scalar_one() or 0
-
-        # Payments by mode
-        mode_stmt = select(Payment.mode, func.sum(Payment.amount)).where(
-            Payment.is_deleted == False,  # noqa: E712
-            Payment.status == PaymentStatus.VERIFIED,
-        ).group_by(Payment.mode)
-        mode_rows = (await db.execute(mode_stmt)).all()
-        by_mode = {r[0].value if hasattr(r[0], "value") else str(r[0]): int(r[1] or 0) for r in mode_rows}
-
-        pending_advance = max(0, int(total_billed * 0.2) - int(total_collected))
-        pending_final = max(0, int(total_billed) - int(total_collected))
-
+    def get_payments_report() -> PaymentsReportResponse:
+        db = _db()
+        billed = sum(_paise(c.get("final_price")) for c in _projects(db))
+        collected = 0
+        pending = 0
+        by_mode: Counter = Counter()
+        for p in db["payments"].find():
+            amount = _paise(p.get("amount"))
+            if p.get("status") == "verified":
+                collected += amount
+                by_mode[str(p.get("mode") or "OTHER").lower()] += amount
+            elif p.get("status") in ("pending", "sales_approved"):
+                pending += amount
         return PaymentsReportResponse(
-            total_billed_paise=int(total_billed),
-            total_collected_paise=int(total_collected),
-            pending_advance_paise=pending_advance,
-            pending_final_paise=pending_final,
-            payments_by_mode=by_mode,
+            total_billed_paise=billed,
+            total_collected_paise=collected,
+            pending_verification_paise=pending,
+            pending_advance_paise=max(0, int(billed * 0.2) - collected),
+            pending_final_paise=max(0, billed - collected),
+            payments_by_mode=dict(by_mode),
         )
 
     @staticmethod
-    async def get_work_report(db: AsyncSession) -> WorkReportResponse:
-        teams_stmt = select(Team).where(Team.is_deleted == False)  # noqa: E712
-        teams = list((await db.execute(teams_stmt)).scalars().all())
-
-        team_metrics: List[TeamWorkMetrics] = []
-        total_completed = 0
-        total_active = 0
-
-        for t in teams:
-            status_stmt = select(WorkAssignment.status, func.count(WorkAssignment.id)).where(
-                WorkAssignment.team_id == t.id
-            ).group_by(WorkAssignment.status)
-            rows = (await db.execute(status_stmt)).all()
-            status_counts = {r[0]: r[1] for r in rows}
-
-            comp = status_counts.get(WorkStatus.COMPLETED, 0)
-            in_prog = status_counts.get(WorkStatus.IN_PROGRESS, 0)
-            pend = status_counts.get(WorkStatus.PENDING, 0)
-
-            total_completed += comp
-            total_active += (in_prog + pend)
-
-            team_metrics.append(
-                TeamWorkMetrics(
-                    team_id=t.id,
-                    team_name=t.name,
-                    team_type=t.type.value,
-                    completed_works=comp,
-                    in_progress_works=in_prog,
-                    pending_works=pend,
-                )
-            )
-
+    def get_work_report() -> WorkReportResponse:
+        db = _db()
+        groups: Dict[str, Dict[str, Any]] = {}
+        for w in _live_work(db):
+            key = str(w.get("assigned_to") or "")
+            g = groups.setdefault(key, {
+                "name": w.get("assigned_employee_name") or w.get("assigned_staff") or ("Unassigned" if not key else "Site employee"),
+                "types": set(), "completed": 0, "in_progress": 0, "pending": 0,
+            })
+            g["types"].add(str(w.get("work_type") or "site"))
+            status = w.get("status")
+            if status == "completed":
+                g["completed"] += 1
+            elif status in ("in_progress", "active"):
+                g["in_progress"] += 1
+            elif status in ("assigned", "pending"):
+                g["pending"] += 1
+        teams = [
+            TeamWorkMetrics(team_id=k or "unassigned", team_name=g["name"], team_type=", ".join(sorted(g["types"])),
+                            completed_works=g["completed"], in_progress_works=g["in_progress"], pending_works=g["pending"])
+            for k, g in groups.items()
+        ]
+        teams.sort(key=lambda t: (t.team_id == "unassigned", t.team_name.lower()))
         return WorkReportResponse(
-            teams=team_metrics,
-            total_completed=total_completed,
-            total_active=total_active,
+            teams=teams,
+            total_completed=sum(t.completed_works for t in teams),
+            total_active=sum(t.in_progress_works + t.pending_works for t in teams),
         )
 
     @staticmethod
-    async def get_kedl_report(db: AsyncSession) -> KedlReportResponse:
-        file_stmt = select(KedlFile.status, func.count(KedlFile.id)).group_by(KedlFile.status)
-        f_rows = (await db.execute(file_stmt)).all()
-        files_by_status = {r[0].value if hasattr(r[0], "value") else str(r[0]): r[1] for r in f_rows}
-
-        open_dem_stmt = select(func.count(KedlDemand.id), func.sum(KedlDemand.amount)).where(
-            KedlDemand.status == KedlDemandStatus.OPEN
-        )
-        open_row = (await db.execute(open_dem_stmt)).first()
-        open_count = open_row[0] if open_row else 0
-        open_amount = int(open_row[1] or 0) if open_row else 0
-
-        paid_dem_stmt = select(func.sum(KedlDemand.amount)).where(
-            KedlDemand.status == KedlDemandStatus.PAID
-        )
-        paid_amount = int((await db.execute(paid_dem_stmt)).scalar_one() or 0)
-
+    def get_kedl_report() -> KedlReportResponse:
+        db = _db()
+        files = list(db["kedl_files"].find())
+        open_amounts = [_paise(d.get("amount")) for f in files for d in f.get("demands") or [] if d.get("status") == "open"]
+        paid = sum(_paise(d.get("amount")) for f in files for d in f.get("demands") or [] if d.get("status") == "paid")
         return KedlReportResponse(
-            files_by_status=files_by_status,
-            open_demands_count=open_count,
-            open_demands_total_paise=open_amount,
-            paid_demands_total_paise=paid_amount,
+            files_by_status=dict(Counter(str(f.get("status") or "not_started") for f in files)),
+            open_demands_count=len(open_amounts),
+            open_demands_total_paise=sum(open_amounts),
+            paid_demands_total_paise=paid,
         )
 
-    # ------------------ EXCEL WORKBOOK EXPORTS ------------------
+    # ------------------ EXCEL EXPORTS ------------------
     @staticmethod
-    async def export_customers_excel(db: AsyncSession) -> io.BytesIO:
-        try:
-            import openpyxl
-            from openpyxl.styles import Font, PatternFill
-        except ImportError:
-            raise RuntimeError("openpyxl is required for Excel export.")
+    def _workbook(title: str, headers: List[str], rows: Iterable[List[Any]]) -> io.BytesIO:
+        import openpyxl
+        from openpyxl.styles import Font, PatternFill
 
         wb = openpyxl.Workbook()
         ws = wb.active
-        ws.title = "Customers"
-
-        # Headers
-        headers = [
-            "Customer ID",
-            "Name",
-            "Phone",
-            "Address",
-            "Capacity (kW)",
-            "System Phase",
-            "Panel Brand",
-            "Inverter Brand",
-            "Current Stage",
-            "Final Price (INR)",
-            "Sales Rep",
-            "Created Date",
-        ]
+        ws.title = title
         ws.append(headers)
-
-        header_fill = PatternFill(start_color="1E3A8A", end_color="1E3A8A", fill_type="solid")
-        header_font = Font(color="FFFFFF", bold=True)
-        for col_idx in range(1, len(headers) + 1):
-            cell = ws.cell(row=1, column=col_idx)
-            cell.fill = header_fill
-            cell.font = header_font
-
-        # Query customers
-        stmt = (
-            select(Customer)
-            .options(selectinload(Customer.sales_agent))
-            .where(Customer.is_deleted == False)  # noqa: E712
-            .order_by(Customer.created_at.desc())
-        )
-        customers = list((await db.execute(stmt)).scalars().all())
-
-        for c in customers:
-            ws.append([
-                str(c.id),
-                c.name,
-                c.phone,
-                c.address,
-                float(c.capacity_kw),
-                c.phase.value if c.phase else "",
-                c.panel_brand or "",
-                c.inverter_brand or "",
-                c.stage.value if c.stage else "",
-                float(c.final_price) / 100.0,
-                c.sales_agent.name if c.sales_agent else "",
-                c.created_at.strftime("%Y-%m-%d %H:%M"),
-            ])
-
-        output = io.BytesIO()
-        wb.save(output)
-        output.seek(0)
-        return output
+        color = settings.REPORT_HEADER_COLOR
+        for col in range(1, len(headers) + 1):
+            cell = ws.cell(row=1, column=col)
+            cell.fill = PatternFill(start_color=color, end_color=color, fill_type="solid")
+            cell.font = Font(color="FFFFFF", bold=True)
+        for row in rows:
+            # Spreadsheet formula injection guard: text starting with = + - @ is quoted.
+            ws.append([("'" + v) if isinstance(v, str) and v[:1] in ("=", "+", "-", "@") else v for v in row])
+        for col in ws.columns:
+            width = max(len(str(c.value or "")) for c in col)
+            ws.column_dimensions[col[0].column_letter].width = min(max(12, width + 2), 50)
+        ws.freeze_panes = "A2"
+        out = io.BytesIO()
+        wb.save(out)
+        out.seek(0)
+        return out
 
     @staticmethod
-    async def export_payments_excel(db: AsyncSession) -> io.BytesIO:
-        try:
-            import openpyxl
-            from openpyxl.styles import Font, PatternFill
-        except ImportError:
-            raise RuntimeError("openpyxl is required for Excel export.")
-
-        wb = openpyxl.Workbook()
-        ws = wb.active
-        ws.title = "Payments Ledger"
-
-        headers = [
-            "Payment ID",
-            "Customer Name",
-            "Customer Phone",
-            "Amount (INR)",
-            "Payment Mode",
-            "Status",
-            "Reference No",
-            "Paid Date",
-            "Recorded By",
-        ]
-        ws.append(headers)
-
-        header_color = settings.REPORT_HEADER_COLOR
-        header_fill = PatternFill(start_color=header_color, end_color=header_color, fill_type="solid")
-        header_font = Font(color="FFFFFF", bold=True)
-        for col_idx in range(1, len(headers) + 1):
-            cell = ws.cell(row=1, column=col_idx)
-            cell.fill = header_fill
-            cell.font = header_font
-
-        stmt = (
-            select(Payment)
-            .options(selectinload(Payment.customer), selectinload(Payment.creator))
-            .where(Payment.is_deleted == False)  # noqa: E712
-            .order_by(Payment.created_at.desc())
-        )
-        payments = list((await db.execute(stmt)).scalars().all())
-
-        for p in payments:
-            ws.append([
-                str(p.id),
-                p.customer.name if p.customer else "",
-                p.customer.phone if p.customer else "",
-                float(p.amount) / 100.0,
-                p.mode.value,
-                p.status.value,
-                p.reference_no or "",
-                p.paid_on.strftime("%Y-%m-%d %H:%M") if p.paid_on else "",
-                p.creator.name if p.creator else "",
-            ])
-
-        output = io.BytesIO()
-        wb.save(output)
-        output.seek(0)
-        return output
+    def _date(v: Any) -> str:
+        v = _aware(v)
+        if isinstance(v, datetime):
+            return v.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M")
+        return str(v or "")[:16].replace("T", " ")
 
     @staticmethod
-    async def export_inventory_excel(db: AsyncSession) -> io.BytesIO:
-        try:
-            import openpyxl
-            from openpyxl.styles import Font, PatternFill
-        except ImportError:
-            raise RuntimeError("openpyxl is required for Excel export.")
+    def export_customers_excel() -> io.BytesIO:
+        db = _db()
+        customers = sorted(_projects(db), key=lambda c: str(c.get("created_at") or ""), reverse=True)
+        return ReportService._workbook("Customers", [
+            "Customer ID", "Name", "Phone", "Address", "Capacity (kW)", "Phase", "Panel Brand", "Inverter Brand",
+            "Current Stage", "Final Price (INR)", "Paid (INR)", "Sales Rep", "Created",
+        ], ([
+            str(c["_id"]), c.get("name") or "", c.get("phone") or "", c.get("address") or "",
+            float(c.get("capacity_kw") or 0), c.get("phase") or "", c.get("panel_brand") or "",
+            c.get("inverter_brand") or "", c.get("stage") or "", _paise(c.get("final_price")) / 100.0,
+            _paise(c.get("paid_amount")) / 100.0, c.get("sales_name") or "", ReportService._date(c.get("created_at")),
+        ] for c in customers))
 
-        wb = openpyxl.Workbook()
-        ws = wb.active
-        ws.title = "Inventory Items"
+    @staticmethod
+    def export_payments_excel() -> io.BytesIO:
+        db = _db()
+        payments = sorted(db["payments"].find(), key=lambda p: str(p.get("created_at") or ""), reverse=True)
+        return ReportService._workbook("Payments Ledger", [
+            "Payment ID", "Customer", "Phone", "Amount (INR)", "Mode", "Status", "Reference No", "Paid On",
+            "Approved By (Sales)", "Verified By", "Remarks",
+        ], ([
+            str(p["_id"]), p.get("customer_name") or "", p.get("client_phone") or "", _paise(p.get("amount")) / 100.0,
+            str(p.get("mode") or "").upper(), p.get("status") or "", p.get("reference_no") or "",
+            ReportService._date(p.get("paid_on")), p.get("sales_approved_by_name") or "",
+            p.get("verified_by_name") or "", p.get("remarks") or "",
+        ] for p in payments))
 
-        headers = [
-            "Item ID",
-            "Category",
-            "Name",
-            "Brand",
-            "Model",
-            "Unit",
-            "Has Serials",
-            "Min Safety Stock",
-            "Current Stock Qty",
-            "Stock Status",
-        ]
-        ws.append(headers)
-
-        header_fill = PatternFill(start_color="B45309", end_color="B45309", fill_type="solid")
-        header_font = Font(color="FFFFFF", bold=True)
-        for col_idx in range(1, len(headers) + 1):
-            cell = ws.cell(row=1, column=col_idx)
-            cell.fill = header_fill
-            cell.font = header_font
-
-        stmt = (
-            select(InventoryItem)
-            .where(InventoryItem.is_deleted == False)  # noqa: E712
-            .order_by(InventoryItem.category.asc(), InventoryItem.name.asc())
-        )
-        items = list((await db.execute(stmt)).scalars().all())
-
-        for i in items:
-            stock_status = "LOW STOCK" if i.stock_qty <= i.min_stock else "IN STOCK"
-            ws.append([
-                str(i.id),
-                i.category.value,
-                i.name,
-                i.brand or "",
-                i.model or "",
-                i.unit.value,
-                "YES" if i.has_serial else "NO",
-                i.min_stock,
-                i.stock_qty,
-                stock_status,
-            ])
-
-        output = io.BytesIO()
-        wb.save(output)
-        output.seek(0)
-        return output
+    @staticmethod
+    def export_inventory_excel() -> io.BytesIO:
+        db = _db()
+        items = sorted(db["inventory_items"].find({"is_deleted": {"$ne": True}}), key=lambda i: str(i.get("name") or "").lower())
+        in_stock = Counter(s["item_id"] for s in db["serial_items"].find({"status": "in_stock"}, {"item_id": 1}))
+        return ReportService._workbook("Inventory", [
+            "Item ID", "Name", "Category", "Brand", "Model", "Unit", "Serial Tracked", "In Stock", "Min Stock",
+            "Status", "Serials In Stock",
+        ], ([
+            str(i["_id"]), i.get("name") or "", i.get("category") or "", i.get("brand") or "", i.get("model") or "",
+            i.get("unit") or "", "Yes" if i.get("has_serial") else "No", _paise(i.get("stock_qty")),
+            _paise(i.get("min_stock")),
+            "LOW" if _paise(i.get("stock_qty")) <= _paise(i.get("min_stock")) else "OK",
+            in_stock.get(str(i["_id"]), 0) if i.get("has_serial") else "",
+        ] for i in items))

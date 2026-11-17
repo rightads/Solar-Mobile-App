@@ -79,8 +79,15 @@ class SessionStore {
       'solar_notifications_cache_v1',
       // Forces this device's push token to be registered for the next user.
       'solar_registered_fcm_token',
+      'solar_shared_upload_queue_v1',
     ]) {
       await prefs.remove(key);
+    }
+    // Lead-conversion drafts hold another user's customer names, phones and addresses.
+    for (final key in prefs.getKeys().toList()) {
+      if (key.startsWith('solar_lead_convert_draft_')) {
+        await prefs.remove(key);
+      }
     }
   }
 }

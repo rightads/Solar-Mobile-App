@@ -1,5 +1,5 @@
-from typing import Any, Dict, List, Optional
-import uuid
+"""Operations report schemas (MongoDB-backed; IDs are strings). Money is in paise."""
+from typing import Dict, List
 from pydantic import BaseModel
 
 
@@ -17,7 +17,7 @@ class DashboardReportResponse(BaseModel):
 
 
 class SalesRepPerformance(BaseModel):
-    sales_rep_id: uuid.UUID
+    sales_rep_id: str
     sales_rep_name: str
     total_leads: int
     converted_customers: int
@@ -32,13 +32,15 @@ class SalesReportResponse(BaseModel):
 class PaymentsReportResponse(BaseModel):
     total_billed_paise: int
     total_collected_paise: int
+    pending_verification_paise: int
     pending_advance_paise: int
     pending_final_paise: int
     payments_by_mode: Dict[str, int]
 
 
 class TeamWorkMetrics(BaseModel):
-    team_id: uuid.UUID
+    """Site work grouped by the employee it is assigned to (``team_id`` is the employee id)."""
+    team_id: str
     team_name: str
     team_type: str
     completed_works: int

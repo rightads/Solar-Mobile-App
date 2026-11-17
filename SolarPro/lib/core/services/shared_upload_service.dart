@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:developer' as dev;
+import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:solar_pro/core/network/api_client.dart';
@@ -232,7 +233,7 @@ class SharedUploadService extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Process queue with progress updates and retry simulation
+  /// Uploads pending files one by one; failures stay queued for retry.
   Future<void> processQueue() async {
     if (_isProcessing) return;
     _isProcessing = true;
@@ -253,40 +254,32 @@ class SharedUploadService extends ChangeNotifier {
         notifyListeners();
 
         try {
-          // Simulate progress steps (compression & chunk transmission)
-          for (int step = 2; step <= 9; step++) {
-            await Future.delayed(const Duration(milliseconds: 150));
-            if (_cancelledTaskIds.contains(item.id)) {
-              _queue[i] = item.copyWith(status: UploadStatus.cancelled);
-              break;
-            }
-            _queue[i] = _queue[i].copyWith(progress: step / 10.0);
-            notifyListeners();
-          }
-
-          if (!_cancelledTaskIds.contains(item.id)) {
-            // Attempt remote post if available, else complete locally
-            try {
-              await _apiClient.dio.post(
-                item.destinationEndpoint,
-                data: {
-                  'file_name': item.fileName,
-                  'file_path': item.filePath,
-                  ...item.extraData,
-                },
-              );
-            } catch (_) {}
-
-            _queue[i] = _queue[i].copyWith(
-              status: UploadStatus.completed,
-              progress: 1.0,
-              completedAt: DateTime.now(),
-            );
-          }
+          // Real multipart upload of the file itself, with byte-level progress.
+          final form = FormData.fromMap({
+            ...item.extraData,
+            'file': await MultipartFile.fromFile(item.filePath, filename: item.fileName),
+          });
+          await _apiClient.dio.post(
+            item.destinationEndpoint,
+            data: form,
+            onSendProgress: (sent, total) {
+              if (total <= 0) return;
+              _queue[i] = _queue[i].copyWith(progress: (sent / total).clamp(0.0, 0.99));
+              notifyListeners();
+            },
+          );
+          _queue[i] = _queue[i].copyWith(
+            status: UploadStatus.completed,
+            progress: 1.0,
+            completedAt: DateTime.now(),
+          );
         } catch (e) {
+          // Stays in the queue as failed so the user can retry; never reported as done.
           _queue[i] = _queue[i].copyWith(
             status: UploadStatus.failed,
-            errorMessage: e.toString(),
+            errorMessage: ApiClient.toFriendly(e, fallback: 'Upload failed. Check your connection and retry.')
+                .toString()
+                .replaceFirst('Exception: ', ''),
           );
         }
 

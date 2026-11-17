@@ -166,6 +166,101 @@ c.post(f"{API}/inventory/adjust", json={"item_id": CABLE, "new_qty": 0, "note": 
 check("empty item deleted", c.delete(f"{API}/inventory/items/{CABLE}", headers=ADM).status_code == 204
       and c.get(f"{API}/inventory/items/{CABLE}", headers=ADM).status_code == 404)
 
+# ── Reports (MongoDB) ───────────────────────────────────────────────────────
+s1_id = db["users"].find_one({"email": "s1@x.in"})["_id"]
+db["customers"].update_one({"_id": "custA"}, {"$set": {"sales_id": s1_id, "final_price": 30000000, "stage": "INSTALLATION_COMPLETE"}})
+db["customers"].insert_one({"_id": "ph1", "id": "ph1", "user_id": "u-x", "self_registered": True, "phone": "9000000099",
+                            "final_price": 0, "stage": "REGISTRATION_SUBMITTED", "created_at": now})
+db["leads"].insert_many([{"_id": "L1", "status": "new", "assigned_sales_id": s1_id},
+                         {"_id": "L2", "status": "converted", "assigned_sales_id": s1_id}])
+db["payments"].insert_many([
+    {"_id": "p1", "customer_id": "custA", "customer_name": "Asha Rooftop", "amount": 6000000, "mode": "UPI", "status": "verified", "created_at": now},
+    {"_id": "p2", "customer_id": "custA", "customer_name": "=HYPERLINK(\"x\")", "amount": 1000000, "mode": "CASH", "status": "sales_approved", "created_at": now},
+])
+db["kedl_files"].insert_one({"_id": "k1", "customer_id": "custA", "status": "demand_raised",
+                             "demands": [{"id": "d1", "amount": 250000, "status": "open"}, {"id": "d2", "amount": 100000, "status": "paid"}]})
+db["work_assignments"].insert_many([
+    {"_id": "w1", "customer_id": "custA", "work_type": "structure", "status": "completed", "assigned_to": "e1", "assigned_employee_name": "Sid"},
+    {"_id": "w2", "customer_id": "custA", "work_type": "electrical", "status": "in_progress", "assigned_to": "e1", "assigned_employee_name": "Sid"},
+    {"_id": "w3", "customer_id": "custA", "work_type": "civil", "status": "cancelled", "duplicate_of": "w9"},
+])
+check("reports are admin-only", c.get(f"{API}/reports/dashboard", headers=SALES).status_code == 403
+      and c.get(f"{API}/reports/export/payments", headers=CL).status_code == 403)
+dash = c.get(f"{API}/reports/dashboard", headers=ADM).json()
+check("dashboard KPIs", dash["total_leads"] == 2 and dash["pending_payment_verifications_count"] == 1
+      and dash["open_kedl_demands_count"] == 1 and dash["active_works_count"] == 1
+      and dash["customers_by_stage"].get("REGISTRATION_SUBMITTED") == 1 and dash["low_stock_items_count"] >= 1, dash)
+sales = c.get(f"{API}/reports/sales", headers=ADM).json()
+rep = next(r for r in sales["sales_reps"] if r["sales_rep_id"] == s1_id)
+check("sales report per rep (placeholder excluded)", rep["total_leads"] == 2 and rep["converted_customers"] == 1
+      and rep["total_sales_paise"] == 30000000 and sales["total_sales_paise"] == 30000000, sales)
+pay = c.get(f"{API}/reports/payments", headers=ADM).json()
+check("payments report", pay["total_billed_paise"] == 30000000 and pay["total_collected_paise"] == 6000000
+      and pay["pending_verification_paise"] == 1000000 and pay["payments_by_mode"] == {"upi": 6000000}, pay)
+work = c.get(f"{API}/reports/work", headers=ADM).json()
+check("work report skips cancelled duplicates", work["total_completed"] == 1 and work["total_active"] == 1, work)
+kr = c.get(f"{API}/reports/kedl", headers=tok("site@x.in")).status_code
+kedl = c.get(f"{API}/reports/kedl", headers=ADM).json()
+check("kedl report", kr == 403 and kedl["open_demands_total_paise"] == 250000 and kedl["paid_demands_total_paise"] == 100000, kedl)
+import io as _io  # noqa: E402
+import openpyxl  # noqa: E402
+for name in ("customers", "payments", "inventory"):
+    r = c.get(f"{API}/reports/export/{name}", headers=ADM)
+    ok = r.status_code == 200 and "spreadsheetml" in r.headers.get("content-type", "")
+    rows = list(openpyxl.load_workbook(_io.BytesIO(r.content)).active.values) if ok else []
+    check(f"excel export: {name}", ok and len(rows) >= 2, r.status_code)
+    if name == "payments":
+        cells = [v for row in rows for v in row if isinstance(v, str)]
+        check("excel formula injection neutralised", "'=HYPERLINK(\"x\")" in cells and not any(v.startswith("=") for v in cells))
+
+# ── Lead conversion keeps the full equipment scope; site sees it without prices ──
+S1 = SALES
+lead = c.post(f"{API}/leads", json={"name": "Ravi Kumar", "phone": "9812345670", "area": "Sector 9"}, headers=S1).json()
+r = c.post(f"{API}/leads/{lead['id']}/convert", json={
+    "address": "Plot 4, Sector 9", "latitude": 28.4595, "longitude": 77.0266, "final_price": 25000000, "capacity_kw": 5.4,
+    "phase": "single", "panel_brand": "Waaree", "panel_watt": 540, "panel_count": 10, "inverter_brand": "Growatt",
+    "structure_type": "GI", "bom": {"inverter_count": 1, "inverter_capacity_kw": 5, "structure_height": " 6 ft ",
+                                    "ac_wire_brand": "Polycab", "ac_wire_size": "4 sq.mm", "civil_work": "", "solar_meter_count": 1},
+}, headers=S1)
+check("lead converts with equipment details", r.status_code == 200, r.text[:300])
+cust = db["customers"].find_one({"lead_id": lead["id"]})
+check("equipment details stored (trimmed, blanks dropped)", cust["bom"] == {"inverter_count": 1, "inverter_capacity_kw": 5.0,
+      "structure_height": "6 ft", "ac_wire_brand": "Polycab", "ac_wire_size": "4 sq.mm", "solar_meter_count": 1}, cust.get("bom"))
+check("site GPS stored", cust["latitude"] == 28.4595 and cust["location_gps"] == "28.459500,77.026600", cust.get("location_gps"))
+check("unknown equipment field rejected", c.post(f"{API}/leads/{lead['id']}/convert", json={"bom": {"price": 1}},
+                                                  headers=S1).status_code == 422)
+site_id = db["users"].find_one({"email": "site@x.in"})["_id"]
+job = db["work_assignments"].find_one({"customer_id": cust["_id"], "work_type": "electrical"})
+db["work_assignments"].update_one({"_id": job["_id"]}, {"$set": {"assigned_to": site_id}})
+r = c.get(f"{API}/work-assignments/{job['_id']}/scope", headers=SITE)
+sc = r.json()
+check("site scope has real equipment", r.status_code == 200 and sc["bom"]["ac_wire_brand"] == "Polycab"
+      and sc["inverter_brand"] == "Growatt" and sc["customer_name"] == "Ravi Kumar", r.text[:300])
+check("site scope never exposes money", not any(k in sc for k in ("final_price", "paid_amount", "payment_plan", "loan_details", "documents")))
+other = db["work_assignments"].find_one({"customer_id": "custA"}) or {"_id": "w1"}
+check("site cannot read scope of unrelated job", c.get(f"{API}/work-assignments/w1/scope", headers=SITE).status_code == 404)
+r = c.patch(f"{API}/customers/{cust['_id']}", json={"bom": {"dc_wire_brand": "Finolex"}}, headers=S1)
+check("sales updates equipment details", r.status_code == 200 and db["customers"].find_one({"_id": cust["_id"]})["bom"] == {"dc_wire_brand": "Finolex"}, r.text[:200])
+
+# ── Payment plan & loan live on the server ───────────────────────────────────
+cid = cust["_id"]
+check("no plan yet", c.get(f"{API}/customers/{cid}/payment-plan", headers=S1).json() is None)
+plan = {"isLocked": True, "milestones": [{"id": "m1", "title": "Advance", "isPercentage": True, "percentage": 30, "dueCondition": "Booking"},
+                                         {"id": "m2", "title": "Balance", "isPercentage": True, "percentage": 70}]}
+r = c.put(f"{API}/customers/{cid}/payment-plan", json=plan, headers=S1)
+check("sales saves payment plan", r.status_code == 200 and r.json()["milestones"][1]["percentage"] == 70, r.text[:200])
+check("admin sees the same plan", c.get(f"{API}/customers/{cid}/payment-plan", headers=ADM).json()["isLocked"] is True)
+bad = {"milestones": [{"id": "a", "title": "A", "percentage": 80}, {"id": "b", "title": "B", "percentage": 40}]}
+check("plan over 100% rejected", c.put(f"{API}/customers/{cid}/payment-plan", json=bad, headers=S1).status_code == 400)
+loan = {"hasLoan": True, "bankName": "SBI", "loanAmountPaise": 15000000,
+        "installments": [{"id": "i1", "amountPaise": 15000000, "expectedDate": "2026-12-15T00:00:00Z"}]}
+r = c.put(f"{API}/customers/{cid}/loan", json=loan, headers=S1)
+check("sales saves loan", r.status_code == 200 and c.get(f"{API}/customers/{cid}/loan", headers=ADM).json()["bankName"] == "SBI", r.text[:200])
+mkuser("sales", "9333333339", "s9@x.in")
+S9 = tok("s9@x.in")
+check("other salesperson cannot edit plan", c.put(f"{API}/customers/{cid}/payment-plan", json=plan, headers=S9).status_code == 404)
+check("client cannot read loan", c.get(f"{API}/customers/{cid}/loan", headers=CL).status_code == 403)
+
 client.__exit__(None, None, None)
 failed = [r for r in results if not r[1]]
 print(f"\n{len(results) - len(failed)}/{len(results)} checks passed")

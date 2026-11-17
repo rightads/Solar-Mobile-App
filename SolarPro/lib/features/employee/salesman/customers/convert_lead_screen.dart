@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:solar_pro/core/services/media_picker.dart';
 import 'package:solar_pro/core/theme/app_theme.dart';
 import 'package:solar_pro/features/customers/data/customer_repository.dart';
 import 'package:solar_pro/features/customers/data/models/customer_model.dart';
@@ -74,6 +75,9 @@ class _ConvertLeadScreenState extends State<ConvertLeadScreen> {
 
   // Step 6 Documents attachment state
   final Map<String, String> _attachedDocs = {}; // docType -> fileName
+  // The picked files themselves. Drafts only keep names, so a document from a
+  // restored draft must be attached again before it can be uploaded.
+  final Map<String, PickedMedia> _docFiles = {};
   final Map<String, bool> _uploadingDocs = {};
   final Map<String, double> _uploadProgress = {};
   final Map<String, bool> _uploadErrors = {};
@@ -324,30 +328,62 @@ class _ConvertLeadScreenState extends State<ConvertLeadScreen> {
     }
   }
 
-  // Document attachment handler (simulated native camera/gallery compression)
-  void _attachDocument(String docType, String source) {
-    final timestamp = DateTime.now().millisecondsSinceEpoch % 10000;
-    final ext = source == 'camera' ? 'jpg' : 'pdf';
-    final simulatedName = '${docType}_doc_$timestamp.$ext';
-
-    setState(() {
-      _attachedDocs[docType] = simulatedName;
-      _uploadErrors[docType] = false;
-    });
-    _autosaveDraft();
-
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('Attached $simulatedName (auto-compressed 80%)'),
-        backgroundColor: AppColors.teal500,
-        duration: const Duration(seconds: 2),
-      ),
-    );
+  /// Attach a real document: camera/gallery photo, or a PDF/image file.
+  Future<void> _attachDocument(String docType, String source) async {
+    try {
+      final PickedMedia? picked = source == 'camera'
+          ? (await MediaPicker.pickPhotos(context)).firstOrNull
+          : await MediaPicker.pickDocument();
+      if (picked == null || !mounted) return;
+      setState(() {
+        _attachedDocs[docType] = picked.name;
+        _docFiles[docType] = picked;
+        _uploadErrors[docType] = false;
+        _uploadedSuccess.remove(docType);
+      });
+      _autosaveDraft();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Attached ${picked.name} (${(picked.sizeBytes / 1024).ceil()} KB)'),
+          backgroundColor: AppColors.teal500,
+          duration: const Duration(seconds: 2),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(e.toString().replaceFirst('Exception: ', '')), backgroundColor: AppColors.error),
+      );
+    }
   }
+
+  /// Equipment scope beyond panels, saved on the customer for the site team.
+  Map<String, dynamic> _bom() => {
+        'is_subsidy': _isSubsidy,
+        'inverter_count': int.tryParse(_inverterCountController.text.trim()),
+        'inverter_capacity_kw': double.tryParse(_inverterCapacityController.text.trim()),
+        'structure_count': int.tryParse(_structureCountController.text.trim()),
+        'structure_height': _structureHeight,
+        'ac_wire_brand': _acWireBrand,
+        'ac_wire_size': _acWireSize,
+        'dc_wire_brand': _dcWireBrand,
+        'dc_wire_size': _dcWireSize,
+        'earthing_wire_brand': _earthingWireBrand,
+        'earthing_wire_size': _earthingWireSize,
+        'spd_ac_brand': _spdAcBrand,
+        'spd_ac_details': _spdAcDetails,
+        'spd_dc_brand': _spdDcBrand,
+        'spd_dc_details': _spdDcDetails,
+        'solar_meter_brand': _solarMeterBrand,
+        'solar_meter_count': int.tryParse(_solarMeterCountController.text.trim()),
+        'civil_work': _civilWorkController.text.trim(),
+        'earthing_notes': _earthingNotesController.text.trim(),
+      }..removeWhere((_, v) => v == null || (v is String && v.isEmpty));
 
   void _removeDocument(String docType) {
     setState(() {
       _attachedDocs.remove(docType);
+      _docFiles.remove(docType);
       _uploadingDocs.remove(docType);
       _uploadProgress.remove(docType);
       _uploadErrors.remove(docType);
@@ -376,6 +412,7 @@ class _ConvertLeadScreenState extends State<ConvertLeadScreen> {
         panelCount: int.tryParse(_panelCountController.text.trim()) ?? 6,
         inverterBrand: _inverterBrand,
         structureType: _structureBrand,
+        bom: _bom(),
       );
 
       // Step 2: Upload all attached documents
@@ -389,10 +426,12 @@ class _ConvertLeadScreenState extends State<ConvertLeadScreen> {
         });
 
         try {
+          final file = _docFiles[docType];
           await repo.uploadCustomerDocument(
             customerId: convertedCustomer.id,
             docType: docType,
-            fileName: fileName,
+            fileName: file?.name ?? fileName,
+            fileBytes: file?.bytes,
             onProgress: (sent, total) {
               if (mounted && total > 0) {
                 setState(() {
@@ -421,6 +460,17 @@ class _ConvertLeadScreenState extends State<ConvertLeadScreen> {
 
       // Step 3: Clear local draft
       await LeadConvertDraftManager.clearDraft(widget.lead.id);
+      final failedDocs = _uploadErrors.entries.where((e) => e.value).map((e) => e.key).toList();
+      if (failedDocs.isNotEmpty && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            duration: const Duration(seconds: 8),
+            backgroundColor: AppColors.warning,
+            content: Text('Customer created, but ${failedDocs.length} document(s) did not upload '
+                '(${failedDocs.join(', ')}). Upload them from the Documents tab of this customer.'),
+          ),
+        );
+      }
 
       setState(() => _isLoading = false);
       widget.onConverted?.call();

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:intl/intl.dart';
 import 'package:solar_pro/core/network/api_client.dart';
+import 'package:solar_pro/core/services/file_downloader.dart';
 import 'package:solar_pro/core/theme/app_theme.dart';
 
 /// Vendor inventory: items, stock ledger and serial-numbered units, all backed
@@ -631,9 +632,14 @@ class _InventoryScreenState extends State<InventoryScreen> with SingleTickerProv
         actions: [
           PopupMenuButton<String>(
             icon: const Icon(Icons.more_vert_rounded),
-            onSelected: (v) => v == 'supplier' ? _showAddSupplierSheet() : _load(),
+            onSelected: (v) => switch (v) {
+              'supplier' => _showAddSupplierSheet(),
+              'export' => FileDownloader.exportReport(context, 'inventory'),
+              _ => _load(),
+            },
             itemBuilder: (_) => const [
               PopupMenuItem(value: 'supplier', child: Text('Add supplier')),
+              PopupMenuItem(value: 'export', child: Text('Export to Excel')),
               PopupMenuItem(value: 'refresh', child: Text('Refresh')),
             ],
           ),

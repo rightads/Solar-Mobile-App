@@ -163,6 +163,22 @@ async def get_calendar_schedule(
     return {"total_assignments": len(items), "by_date": by_date, "by_team": by_team, "items": items}
 
 
+# Equipment fields the site team may see; prices, payments and documents are excluded.
+_SCOPE_FIELDS = ("name", "address", "location_gps", "latitude", "longitude", "capacity_kw", "phase",
+                 "panel_brand", "panel_watt", "panel_count", "inverter_brand", "structure_type")
+
+
+@router.get("/work-assignments/{assignment_id}/scope", summary="Equipment scope of work for a job (no prices)")
+async def get_work_scope(assignment_id: str, current_user: MongoUserProxy = Depends(require_site)):
+    work = access.require_work(current_user, assignment_id)
+    cust = get_mongo_db()["customers"].find_one({"_id": str(work.get("customer_id") or "")}) or {}
+    scope = {k: cust.get(k) for k in _SCOPE_FIELDS if cust.get(k) not in (None, "")}
+    scope["customer_name"] = scope.pop("name", None) or work.get("customer_name")
+    scope["bom"] = cust.get("bom") or {}
+    scope["work_type"] = work.get("work_type")
+    return scope
+
+
 @router.get("/work-assignments/{assignment_id}", summary="Work details")
 async def get_work_assignment(assignment_id: str, current_user: MongoUserProxy = Depends(require_site)):
     return _format_mongo_doc(access.require_work(current_user, assignment_id))

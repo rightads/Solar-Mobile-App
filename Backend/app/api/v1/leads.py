@@ -9,6 +9,7 @@ from app.core.deps import MongoUserProxy, require_roles
 from app.core.exceptions import BadRequestException, NotFoundException
 from app.core.helpers import paginate_list
 from app.core.security import normalize_phone
+from app.schemas.customer import ProjectBom
 from app.db.mongo import _format_mongo_doc, get_mongo_db, mongo_create_customer, mongo_get_salespersons
 from app.models.enums import UserRole
 from app.services import workflow
@@ -74,6 +75,7 @@ class ConvertIn(BaseModel):
     panel_count: Optional[int] = Field(None, ge=0, le=10000)
     inverter_brand: Optional[str] = Field(None, max_length=100)
     structure_type: Optional[str] = Field(None, max_length=100)
+    bom: Optional[ProjectBom] = None
 
 
 def _scope(user: MongoUserProxy) -> dict:
@@ -220,6 +222,8 @@ async def convert_lead(lead_id: str, payload: Optional[ConvertIn] = None, curren
     sales_id = lead.get("assigned_sales_id") or (None if access.is_admin(current_user) else current_user.id)
     sales_name = lead.get("assigned_sales_name") or (None if access.is_admin(current_user) else current_user.name)
     spec = payload.model_dump(exclude_none=True)
+    if payload.bom is not None:
+        spec["bom"] = payload.bom.cleaned()
     cust = mongo_create_customer({
         **spec,
         "name": spec.get("name") or lead.get("name"),

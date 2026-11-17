@@ -18,7 +18,7 @@ from app.db.mongo import (
     mongo_update_customer_milestone,
 )
 from app.models.enums import CustomerStage, UserRole
-from app.schemas.customer import CustomerCreate, CustomerStageUpdate
+from app.schemas.customer import CustomerCreate, CustomerStageUpdate, LoanDetailsIn, PaymentPlanIn, ProjectBom
 
 router = APIRouter(prefix="/customers", tags=["Customers"])
 
@@ -54,6 +54,8 @@ class CustomerPatch(BaseModel):
     service_employee_id: Optional[str] = Field(None, max_length=64)
     kedl_employee_id: Optional[str] = Field(None, max_length=64)
     site_employee_id: Optional[str] = Field(None, max_length=64)
+    # Equipment scope (inverter, structure, wiring, protection, civil) shown to the site team.
+    bom: Optional[ProjectBom] = None
 
 
 ADMIN_ONLY_FIELDS = {"sales_id", "service_employee_id"}
@@ -173,6 +175,8 @@ async def update_customer(
                 updates[no_key] = emp.get("employee_no")
         if str(cust.get(key) or "") != str(updates[key] or ""):
             changed_assignments.append(key)
+    if "bom" in updates:
+        updates["bom"] = payload.bom.cleaned() if payload.bom else {}
     if "capacity_kw" in updates and "kw" not in updates:
         updates["kw"] = updates["capacity_kw"]
     if "final_price" in updates:
@@ -308,3 +312,41 @@ async def toggle_stage(customer_id: str, payload: StageToggle, current_user: Mon
         raise NotFoundException("Customer not found.")
     mark_stage(str(cust["_id"]), payload.stage.value, payload.done, current_user)
     return build_timeline(get_mongo_db()["customers"].find_one({"_id": cust["_id"]}))
+
+
+# ── Payment plan & bank loan ────────────────────────────────────────────────
+# Kept on the customer so admins, other devices and the client portal see the
+# same plan (previously stored only on the salesperson's phone).
+
+@router.get("/{customer_id}/payment-plan", summary="The customer's agreed payment milestones (null if none yet)")
+async def get_payment_plan(customer_id: str, current_user: MongoUserProxy = Depends(require_staff)):
+    return access.require_customer(current_user, customer_id).get("payment_plan")
+
+
+@router.put("/{customer_id}/payment-plan", summary="Save the payment milestone plan (Admin or owning Sales)")
+async def save_payment_plan(customer_id: str, payload: PaymentPlanIn,
+                            current_user: MongoUserProxy = Depends(require_roles(UserRole.ADMIN, UserRole.SALES))):
+    cust = access.require_customer_write(current_user, customer_id)
+    if payload.milestones and any(m.isPercentage for m in payload.milestones):
+        total = sum(m.percentage for m in payload.milestones if m.isPercentage)
+        if total > 100.0001:
+            raise BadRequestException("Milestone percentages add up to more than 100%.")
+    plan = {**payload.model_dump(mode="json"), "customerId": str(cust["_id"]),
+            "updated_by": current_user.name, "updated_at": datetime.now(timezone.utc).isoformat()}
+    mongo_update_customer(str(cust["_id"]), {"payment_plan": plan})
+    return plan
+
+
+@router.get("/{customer_id}/loan", summary="Bank loan details and expected disbursements (null if none)")
+async def get_loan_details(customer_id: str, current_user: MongoUserProxy = Depends(require_staff)):
+    return access.require_customer(current_user, customer_id).get("loan_details")
+
+
+@router.put("/{customer_id}/loan", summary="Save bank loan details (Admin or owning Sales)")
+async def save_loan_details(customer_id: str, payload: LoanDetailsIn,
+                            current_user: MongoUserProxy = Depends(require_roles(UserRole.ADMIN, UserRole.SALES))):
+    cust = access.require_customer_write(current_user, customer_id)
+    loan = {**payload.model_dump(mode="json"), "customerId": str(cust["_id"]),
+            "updated_by": current_user.name, "updated_at": datetime.now(timezone.utc).isoformat()}
+    mongo_update_customer(str(cust["_id"]), {"loan_details": loan})
+    return loan
