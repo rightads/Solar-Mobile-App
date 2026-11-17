@@ -8,6 +8,10 @@
 # The following line activates a set of recommended lints for Flutter apps,
 # packages, and plugins designed to encourage good coding practices.
 analyzer:
+  errors:
+    # Using a BuildContext after an await, once its widget may be gone, crashes
+    # the app ("'_dependents.isEmpty': is not true"). Never allow it.
+    use_build_context_synchronously: error
   exclude:
     - build/**
     - android/**

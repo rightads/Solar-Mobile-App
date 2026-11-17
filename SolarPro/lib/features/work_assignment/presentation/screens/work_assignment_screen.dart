@@ -636,7 +636,7 @@ class _WorkAssignmentScreenState extends State<WorkAssignmentScreen>
                                 _ => 2,
                               };
 
-                              if (mounted) {
+                              if (context.mounted) {
                                 Navigator.pop(ctx);
                                 ScaffoldMessenger.of(context).showSnackBar(
                                   SnackBar(
@@ -648,7 +648,7 @@ class _WorkAssignmentScreenState extends State<WorkAssignmentScreen>
                               }
                             } catch (e) {
                               setModalState(() => isSaving = false);
-                              if (mounted) {
+                              if (context.mounted) {
                                 ScaffoldMessenger.of(context).showSnackBar(
                                   SnackBar(
                                     content: Text('Failed to assign work: $e'),

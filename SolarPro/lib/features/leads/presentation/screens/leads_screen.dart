@@ -804,7 +804,7 @@ class _LeadsScreenState extends State<LeadsScreen>
                     );
                     await _fetchLeads();
                     final customerId = (created?['id'] ?? created?['_id'])?.toString();
-                    if (mounted) {
+                    if (context.mounted) {
                       ScaffoldMessenger.of(context).showSnackBar(
                         SnackBar(
                           content: Text(
@@ -817,7 +817,7 @@ class _LeadsScreenState extends State<LeadsScreen>
                       }
                     }
                   } catch (e) {
-                    if (mounted) {
+                    if (context.mounted) {
                       ScaffoldMessenger.of(context).showSnackBar(
                         SnackBar(
                             content: Text('Error closing sale: $e'),
@@ -936,27 +936,19 @@ class _LeadsScreenState extends State<LeadsScreen>
                         salesId: spId,
                         salesName: name,
                       );
-                      setState(() {
-                        final idx =
-                            _openLeads.indexWhere((it) => it.id == lead.id);
-                        if (idx != -1) {
-                          _openLeads[idx] = _openLeads[idx].copyWith(
-                            assignedSalesId: spId,
-                            assignedSalesName: name,
-                            status: 'contacted',
-                          );
-                        }
-                      });
-                      ScaffoldMessenger.of(context).showSnackBar(
+                      await _fetchLeads(); // the server's view of the lead, not a local guess
+                      if (!mounted) return;
+                      ScaffoldMessenger.of(this.context).showSnackBar(
                         SnackBar(
                           content: Text('Lead assigned to $name!'),
                           backgroundColor: AppColors.success,
                         ),
                       );
                     } catch (e) {
-                      ScaffoldMessenger.of(context).showSnackBar(
+                      if (!mounted) return;
+                      ScaffoldMessenger.of(this.context).showSnackBar(
                         SnackBar(
-                          content: Text('Failed to assign lead: $e'),
+                          content: Text('Failed to assign lead: ${e.toString().replaceFirst('Exception: ', '')}'),
                           backgroundColor: AppColors.error,
                         ),
                       );

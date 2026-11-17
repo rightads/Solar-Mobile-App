@@ -1589,6 +1589,9 @@ class _WorkTab extends StatelessWidget {
                 const SizedBox(height: 24),
                 GestureDetector(
                   onTap: () async {
+                    // Captured before any await: onRefresh() rebuilds the screen and
+                    // removes this tab, so its context must not be used afterwards.
+                    final messenger = ScaffoldMessenger.of(context);
                     Navigator.pop(ctx);
                     final tradeKey = selectedTrade.contains('Electrical')
                         ? 'electrical'
@@ -1604,17 +1607,17 @@ class _WorkTab extends StatelessWidget {
                         endDate: '${endDate.year}-${endDate.month.toString().padLeft(2, '0')}-${endDate.day.toString().padLeft(2, '0')}',
                         notes: notesCtrl.text.trim(),
                       );
-                      onRefresh();
-                      ScaffoldMessenger.of(context).showSnackBar(
+                      messenger.showSnackBar(
                         SnackBar(
                           content: Text('Work assigned to $selectedTeam ($selectedTrade)!'),
                           backgroundColor: AppColors.success,
                         ),
                       );
+                      onRefresh();
                     } catch (e) {
-                      ScaffoldMessenger.of(context).showSnackBar(
+                      messenger.showSnackBar(
                         SnackBar(
-                          content: Text('Failed to assign work: $e'),
+                          content: Text('Failed to assign work: ${e.toString().replaceFirst('Exception: ', '')}'),
                           backgroundColor: AppColors.error,
                         ),
                       );
@@ -1822,17 +1825,18 @@ class _KedlTab extends StatelessWidget {
               if (files.isEmpty)
                 GestureDetector(
                   onTap: () async {
+                    final messenger = ScaffoldMessenger.of(context); // see Work tab note
                     try {
                       await ApiClient().initKedlFiles(customerId);
-                      onRefresh();
-                      ScaffoldMessenger.of(context).showSnackBar(
+                      messenger.showSnackBar(
                         const SnackBar(
                           content: Text('Initialized Name Change, Load & Net Files!'),
                           backgroundColor: AppColors.success,
                         ),
                       );
+                      onRefresh();
                     } catch (e) {
-                      ScaffoldMessenger.of(context).showSnackBar(
+                      messenger.showSnackBar(
                         SnackBar(
                           content: Text('Error initializing KEDL files: $e'),
                           backgroundColor: AppColors.error,

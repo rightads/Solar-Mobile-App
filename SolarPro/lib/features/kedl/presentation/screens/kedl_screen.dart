@@ -348,7 +348,7 @@ class _KedlScreenState extends State<KedlScreen> {
                       }
 
                       await _fetchData();
-                      if (mounted) {
+                      if (context.mounted) {
                         ScaffoldMessenger.of(context).showSnackBar(
                           SnackBar(
                             content: Text(initAllThree
@@ -359,7 +359,7 @@ class _KedlScreenState extends State<KedlScreen> {
                         );
                       }
                     } catch (e) {
-                      if (mounted) {
+                      if (context.mounted) {
                         setState(() => _isLoading = false);
                         ScaffoldMessenger.of(context).showSnackBar(
                           SnackBar(
@@ -478,7 +478,7 @@ class _KedlScreenState extends State<KedlScreen> {
                     );
                   }
                   await _fetchData();
-                  if (mounted) {
+                  if (context.mounted) {
                     ScaffoldMessenger.of(context).showSnackBar(
                       SnackBar(
                         content: Text(editing
@@ -489,7 +489,7 @@ class _KedlScreenState extends State<KedlScreen> {
                     );
                   }
                 } catch (e) {
-                  if (mounted) {
+                  if (context.mounted) {
                     setState(() => _isLoading = false);
                     ScaffoldMessenger.of(context).showSnackBar(
                       SnackBar(
@@ -770,7 +770,7 @@ class _KedlScreenState extends State<KedlScreen> {
                         try {
                           await ApiClient().markKedlDemandsPaid(f.id);
                           await _fetchData();
-                          if (mounted) {
+                          if (context.mounted) {
                             ScaffoldMessenger.of(context).showSnackBar(
                               const SnackBar(
                                 content: Text('Demand marked as PAID ✓!'),
@@ -779,7 +779,7 @@ class _KedlScreenState extends State<KedlScreen> {
                             );
                           }
                         } catch (e) {
-                          if (mounted) {
+                          if (context.mounted) {
                             setState(() => _isLoading = false);
                             ScaffoldMessenger.of(context).showSnackBar(
                               SnackBar(
@@ -827,7 +827,7 @@ class _KedlScreenState extends State<KedlScreen> {
                           await ApiClient().setKedlFileStatus(f.id, next);
                         }
                         await _fetchData();
-                        if (mounted) {
+                        if (context.mounted) {
                           ScaffoldMessenger.of(context).showSnackBar(
                             SnackBar(
                               content: Text('Stage advanced to ${_statusLabel(next)}!'),
@@ -836,7 +836,7 @@ class _KedlScreenState extends State<KedlScreen> {
                           );
                         }
                       } catch (e) {
-                        if (mounted) {
+                        if (context.mounted) {
                           setState(() => _isLoading = false);
                           ScaffoldMessenger.of(context).showSnackBar(
                             SnackBar(

@@ -600,7 +600,7 @@ class _CustomersScreenState extends State<CustomersScreen> {
                               documents: builtDocs,
                             );
 
-                            if (mounted) {
+                            if (context.mounted) {
                               Navigator.pop(ctx);
                               ScaffoldMessenger.of(context).showSnackBar(
                                 SnackBar(
@@ -612,7 +612,7 @@ class _CustomersScreenState extends State<CustomersScreen> {
                             }
                           } catch (e) {
                             setSheetState(() => isSubmitting = false);
-                            if (mounted) {
+                            if (context.mounted) {
                               ScaffoldMessenger.of(context).showSnackBar(
                                 SnackBar(
                                   content: Text('Failed to save customer: $e'),

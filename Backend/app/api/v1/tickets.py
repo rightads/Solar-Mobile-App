@@ -30,6 +30,8 @@ class TicketStatusIn(BaseModel):
     status: TicketStatus
     note: Optional[str] = Field(None, max_length=2000)
     resolution_notes: Optional[str] = Field(None, max_length=2000)
+    # Older app builds send the singular key; accept it so their notes are not lost.
+    resolution_note: Optional[str] = Field(None, max_length=2000)
 
 
 @router.get("", summary="List tickets visible to the caller")
@@ -103,7 +105,7 @@ async def update_ticket_status(
             )
         elif data.status == TicketStatus.CLOSED:
             raise ForbiddenException("Only an admin can close tickets.")
-    note = (data.resolution_notes or data.note or "").strip() or None
+    note = (data.resolution_notes or data.resolution_note or data.note or "").strip() or None
     if data.status == TicketStatus.RESOLVED and not note:
         raise BadRequestException("A resolution note is required to resolve a ticket.")
     res = mongo_update_ticket_status(str(ticket["_id"]), data.status.value, note=note)

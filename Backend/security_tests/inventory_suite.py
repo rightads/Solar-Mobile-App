@@ -261,6 +261,27 @@ S9 = tok("s9@x.in")
 check("other salesperson cannot edit plan", c.put(f"{API}/customers/{cid}/payment-plan", json=plan, headers=S9).status_code == 404)
 check("client cannot read loan", c.get(f"{API}/customers/{cid}/loan", headers=CL).status_code == 403)
 
+# ── Requests exactly as the app sends them ──────────────────────────────────
+svc_id = db["users"].find_one({"email": "svc@x.in"})["_id"]
+db["tickets"].insert_one({"_id": "tk1", "id": "tk1", "ticket_no": "TCK-1", "customer_id": "custA", "title": "Wiring",
+                          "status": "in_progress", "assigned_to": svc_id, "created_at": now})
+r = c.post(f"{API}/tickets/tk1/status", json={"status": "resolved", "resolution_note": "Replaced MC4 connector"}, headers=SVC)
+check("ticket resolves with the note the app sends", r.status_code == 200
+      and db["tickets"].find_one({"_id": "tk1"})["status"] == "resolved", r.text[:200])
+db["tickets"].update_one({"_id": "tk1"}, {"$set": {"status": "in_progress"}})
+check("resolving without a note is still refused", c.post(f"{API}/tickets/tk1/status", json={"status": "resolved"},
+                                                          headers=SVC).status_code == 400)
+vendor_body = {"name": "Meena Devi", "phone": "9811122233", "mobile": "9811122233", "email": "Meena@X.in",
+               "address": "12 MG Road, Jaipur", "location_gps": "26.912400,75.787300", "kw": 5.0, "final_price": 25000000,
+               "total_amount": 25000000, "milestones": [], "documents": {}, "sales_id": None, "sales_name": None}
+r = c.post(f"{API}/customers", json=vendor_body, headers=ADM)
+meena = db["customers"].find_one({"phone": "9811122233"}) or {}
+check("vendor Add Customer form succeeds", r.status_code == 201, r.text[:300])
+check("vendor customer keeps size, GPS and email", meena.get("capacity_kw") == 5.0 and meena.get("latitude") == 26.9124
+      and meena.get("location_gps") == "26.912400,75.787300" and meena.get("email") == "meena@x.in", meena)
+check("customer form still validates phone", c.post(f"{API}/customers", json={**vendor_body, "mobile": "12345"},
+                                                    headers=ADM).status_code == 422)
+
 client.__exit__(None, None, None)
 failed = [r for r in results if not r[1]]
 print(f"\n{len(results) - len(failed)}/{len(results)} checks passed")

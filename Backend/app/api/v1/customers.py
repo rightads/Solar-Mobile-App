@@ -83,8 +83,18 @@ async def create_customer(
     payload: CustomerCreate,
     current_user: MongoUserProxy = Depends(require_roles(UserRole.ADMIN, UserRole.SALES)),
 ):
-    data = payload.model_dump()
+    data = payload.model_dump(mode="json")
     data["phone"] = data.get("mobile")
+    data["capacity_kw"] = data.get("capacity_kw") or data.pop("kw", None) or 0
+    data.pop("kw", None)
+    if data.get("location_gps") and data.get("latitude") is None:
+        # "lat,lng" from the app's GPS / pasted Google Maps pin.
+        try:
+            lat, lng = (float(x) for x in str(data["location_gps"]).split(",")[:2])
+            if -90 <= lat <= 90 and -180 <= lng <= 180:
+                data["latitude"], data["longitude"] = lat, lng
+        except ValueError:
+            pass
     if access.is_admin(current_user) and payload.sales_id:
         sales = get_mongo_db()["users"].find_one({"_id": str(payload.sales_id)})
         if not sales or str(sales.get("role", "")).lower() not in access.SALES_ROLES or not sales.get("is_active"):

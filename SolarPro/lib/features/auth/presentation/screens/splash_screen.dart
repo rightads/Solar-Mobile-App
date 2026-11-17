@@ -40,6 +40,7 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
       return;
     }
     final seen = prefs.getBool(kOnboardingSeen) ?? false;
+    if (!mounted) return;
     context.go(seen ? AppRoutes.login : AppRoutes.onboarding);
   }
 

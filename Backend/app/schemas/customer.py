@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 from typing import Any, Dict, List, Optional
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from app.core.security import normalize_phone
 from app.models.enums import CustomerStage, SystemPhase
 from app.schemas.document import CustomerDocumentRead
@@ -43,8 +43,48 @@ class CustomerBase(BaseModel):
         return normalize_phone(v)
 
 
-class CustomerCreate(CustomerBase):
-    sales_id: Optional[uuid.UUID] = Field(None, description="Assigned sales user (admin can assign; sales defaults to self)")
+class CustomerCreate(BaseModel):
+    """New customer from the vendor/sales "Add Customer" form.
+
+    Only who and where are required; the system size, price and equipment can
+    be filled in after the site survey (``PATCH /customers/{id}``). Whatever
+    is provided is validated. Unknown keys from older app builds are ignored.
+    """
+    model_config = ConfigDict(extra="ignore")
+
+    name: str = Field(..., min_length=2, max_length=100)
+    mobile: str = Field(..., description="10-digit Indian mobile number")
+    address: str = Field(..., min_length=5, max_length=300)
+    email: Optional[str] = Field(None, max_length=120)
+    latitude: Optional[float] = Field(None, ge=-90.0, le=90.0)
+    longitude: Optional[float] = Field(None, ge=-180.0, le=180.0)
+    location_gps: Optional[str] = Field(None, max_length=60)
+    final_price: int = Field(0, ge=0, le=10_000_000_00, description="Final price in paise")
+    capacity_kw: Optional[float] = Field(None, ge=0, le=1000, description="Solar capacity in kW")
+    kw: Optional[float] = Field(None, ge=0, le=1000, description="Alias of capacity_kw sent by older app builds")
+    phase: SystemPhase = SystemPhase.SINGLE
+    panel_brand: str = Field("", max_length=100)
+    panel_watt: int = Field(0, ge=0, le=2000)
+    panel_count: int = Field(0, ge=0, le=10000)
+    inverter_brand: str = Field("", max_length=100)
+    structure_type: str = Field("", max_length=100)
+    sales_id: Optional[str] = Field(None, max_length=64, description="Assigned sales user (admin can assign; sales defaults to self)")
+
+    @field_validator("mobile")
+    @classmethod
+    def validate_mobile(cls, v: str) -> str:
+        return normalize_phone(v)
+
+    @field_validator("email")
+    @classmethod
+    def clean_email(cls, v: Optional[str]) -> Optional[str]:
+        v = (v or "").strip().lower()
+        return v or None
+
+    @field_validator("location_gps")
+    @classmethod
+    def clean_gps(cls, v: Optional[str]) -> Optional[str]:
+        return (v or "").strip() or None
 
 
 class CustomerUpdate(BaseModel):
