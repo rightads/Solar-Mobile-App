@@ -44,6 +44,9 @@ def _ensure_project(user: MongoUserProxy) -> Optional[dict]:
         "address": "", "capacity_kw": 0.0, "kw": 0.0, "final_price": 0, "total_amount": 0, "paid_amount": 0,
         "phase": "single", "panel_brand": "", "panel_watt": 0, "panel_count": 0, "inverter_brand": "",
         "structure_type": "", "stage": "REGISTRATION_SUBMITTED", "status": "active",
+        # Awaiting survey: no workflow until a sales owner takes it on, and it is
+        # merged into the staff-created project for this phone if one is made.
+        "self_registered": True, "workflow_version": 2,
         "sales_id": None, "assigned_to": None, "milestones": [],
         "documents": {"e_bill": None, "aadhaar": None, "pan": None, "cancelled_cheque": None, "registry": None},
         "documents_count": 0, "created_at": now, "updated_at": now,

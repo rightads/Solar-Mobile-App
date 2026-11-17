@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:solar_pro/core/network/api_client.dart';
 import 'package:solar_pro/shared/widgets/sp_greeting_header.dart';
@@ -20,7 +21,13 @@ class ClientDashboardScreen extends StatefulWidget {
   State<ClientDashboardScreen> createState() => _ClientDashboardScreenState();
 }
 
-class _ClientDashboardScreenState extends State<ClientDashboardScreen> {
+class _ClientDashboardScreenState extends State<ClientDashboardScreen>
+    with WidgetsBindingObserver {
+  /// How often the open dashboard re-syncs with changes made by employees.
+  static const _autoRefreshEvery = Duration(seconds: 60);
+  Timer? _autoRefresh;
+  bool _refreshing = false;
+
   int _selectedIndex = 0;
   String _userName = 'Solar Client';
 
@@ -35,8 +42,23 @@ class _ClientDashboardScreenState extends State<ClientDashboardScreen> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _loadUser();
     _loadDashboardData();
+    _autoRefresh = Timer.periodic(_autoRefreshEvery, (_) => _loadDashboardData(silent: true));
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _autoRefresh?.cancel();
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // Pick up approvals made while the app was in the background.
+    if (state == AppLifecycleState.resumed) _loadDashboardData(silent: true);
   }
 
   Future<void> _loadUser() async {
@@ -48,8 +70,10 @@ class _ClientDashboardScreenState extends State<ClientDashboardScreen> {
     }
   }
 
-  Future<void> _loadDashboardData() async {
-    setState(() => _isLoading = true);
+  Future<void> _loadDashboardData({bool silent = false}) async {
+    if (_refreshing) return;
+    _refreshing = true;
+    if (!silent) setState(() => _isLoading = true);
 
     try {
       final home = await _clientRepo.getClientHomeData();
@@ -78,6 +102,8 @@ class _ClientDashboardScreenState extends State<ClientDashboardScreen> {
       if (mounted) {
         setState(() => _isLoading = false);
       }
+    } finally {
+      _refreshing = false;
     }
   }
 

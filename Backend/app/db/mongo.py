@@ -409,7 +409,117 @@ def mongo_create_customer(customer_data: Dict[str, Any]) -> Dict[str, Any]:
         "updated_at": customer_data.get("updated_at") or now,
     }
     customers_col.insert_one(doc)
+    merge_self_registered_projects(doc)
     return _format_mongo_doc(doc)
+
+
+# Auto-created site tasks nobody has worked on (safe to discard with a placeholder).
+_UNTOUCHED_WORK = {
+    "status": {"$in": ["assigned", "pending"]},
+    "started_at": None,
+    "$or": [{"photos": {"$exists": False}}, {"photos": None}, {"photos": {"$size": 0}}],
+}
+
+
+def is_self_registered_project(cust: Dict[str, Any]) -> bool:
+    """A placeholder a client created by signing up (``client._ensure_project``)
+    that no sales owner has taken on yet. Staff-created projects always carry a
+    ``sales_id`` (direct create) or a ``lead_id`` (lead conversion)."""
+    if not cust or cust.get("sales_id") or cust.get("lead_id"):
+        return False
+    if cust.get("self_registered"):
+        return True
+    # Older placeholders carry no flag: recognise the sign-up shape (linked to
+    # a client, never quoted or sized, no stage ever completed).
+    stage_done = any((v or {}).get("done") for v in (cust.get("stage_status") or {}).values())
+    return bool(
+        cust.get("user_id")
+        and float(cust.get("capacity_kw") or 0) == 0
+        and int(cust.get("final_price") or 0) == 0
+        and not stage_done
+    )
+
+
+def merge_self_registered_projects(project: Dict[str, Any]) -> int:
+    """Fold a client's sign-up placeholder into the staff-created ``project``
+    with the same phone, so the client follows the real project.
+
+    Without this the client stays linked to the empty placeholder and never
+    sees anything staff do. The client account is linked to the real project
+    only if it has proven the phone number by OTP (same rule as
+    ``access.client_customer``); otherwise it is unlinked and the client is
+    asked to verify, after which the phone match links it. The placeholder is
+    archived to ``customers_merged`` and removed. Idempotent.
+    """
+    db = get_mongo_db()
+    if db is None or is_self_registered_project(project):
+        return 0
+    phone = str(project.get("phone") or project.get("mobile") or "")
+    pid = str(project["_id"])
+    if not phone:
+        return 0
+    merged = 0
+    for ph in db["customers"].find({"_id": {"$ne": project["_id"]}, "$or": [{"phone": phone}, {"mobile": phone}]}):
+        if not is_self_registered_project(ph):
+            continue
+        old_id = str(ph["_id"])
+        uid = ph.get("user_id")
+        user = db["users"].find_one({"$or": [{"_id": str(uid)}, {"id": str(uid)}]}) if uid else None
+        verified = bool(user and user.get("is_phone_verified"))
+        now = datetime.now(timezone.utc)
+        if verified and not project.get("user_id"):
+            db["customers"].update_one({"_id": project["_id"]}, {"$set": {"user_id": str(uid), "updated_at": now}})
+            project["user_id"] = str(uid)
+            # The client's own submissions follow them to the real project.
+            for col in ("payments", "tickets"):
+                db[col].update_many({"customer_id": old_id}, {"$set": {
+                    "customer_id": pid, "customer_name": project.get("name"), "updated_at": now}})
+        # Site tasks auto-created for the placeholder were never worked on.
+        db["work_assignments"].delete_many({"customer_id": old_id, **_UNTOUCHED_WORK})
+        db["customers_merged"].insert_one({**ph, "merged_into": pid, "merged_at": now,
+                                           "client_linked": verified})
+        db["customers"].delete_one({"_id": ph["_id"]})
+        merged += 1
+        logger.info("self_registered_project_merged", placeholder=old_id, project=pid, client_linked=verified)
+    if merged:
+        recalc = sum(int(p.get("amount", 0)) for p in db["payments"].find({"customer_id": pid, "status": "verified"}))
+        db["customers"].update_one({"_id": project["_id"]}, {"$set": {"paid_amount": recalc}})
+    return merged
+
+
+def repair_self_registered_projects() -> Dict[str, int]:
+    """Startup repair for sign-up placeholders created before the merge existed.
+
+    * A placeholder whose phone now has a staff-created project is merged into it.
+    * A lone placeholder is reset to "awaiting survey": the legacy workflow
+      migration had handed it to Site-ops and created unassigned site tasks
+      that showed up in every site employee's queue.
+    """
+    db = get_mongo_db()
+    if db is None:
+        return {"merged": 0, "reset": 0}
+    merged = reset = 0
+    placeholders = [c for c in db["customers"].find({"$or": [{"sales_id": None}, {"sales_id": ""}, {"sales_id": {"$exists": False}}]})
+                    if is_self_registered_project(c)]
+    for ph in placeholders:
+        phone = str(ph.get("phone") or ph.get("mobile") or "")
+        real = None
+        if phone:
+            real = next((c for c in db["customers"].find({"_id": {"$ne": ph["_id"]}, "$or": [{"phone": phone}, {"mobile": phone}]})
+                         if not is_self_registered_project(c)), None)
+        if real:
+            merged += merge_self_registered_projects(real)
+            continue
+        if ph.get("self_registered") and not ph.get("assigned_role"):
+            continue  # already clean
+        cid = str(ph["_id"])
+        db["work_assignments"].delete_many({"customer_id": cid, **_UNTOUCHED_WORK})
+        db["customers"].update_one({"_id": ph["_id"]}, {
+            "$set": {"self_registered": True, "workflow_version": 2, "stage": "REGISTRATION_SUBMITTED"},
+            "$unset": {"assigned_role": "", "assigned_to": ""},
+        })
+        reset += 1
+    return {"merged": merged, "reset": reset}
 
 
 
@@ -1213,162 +1323,96 @@ def mongo_get_client_home(user: Dict[str, Any], customer: Optional[Dict[str, Any
     elif customer.get("sales_name"):
         sales_rep = db["users"].find_one({"name": customer["sales_name"]})
 
-    # Assigned Site / Technical officer only if explicitly assigned
-    site_emp = None
-    officer_id = customer.get("assigned_to") or customer.get("assigned_officer_id")
-    if officer_id:
-        site_emp = db["users"].find_one({"$or": [{"id": str(officer_id)}, {"_id": str(officer_id)}]})
-    else:
-        # Check active work assignments for this customer
-        cid = str(customer.get("_id", customer.get("id", "")))
-        work_assign = db["work_assignments"].find_one({
-            "$or": [{"customer_id": cid}, {"customer_id": customer.get("id")}],
-            "status": {"$in": ["assigned", "in_progress", "active"]}
+    from app.services import workflow
+
+    def _user(uid: Any) -> Optional[Dict[str, Any]]:
+        return db["users"].find_one({"$or": [{"_id": str(uid)}, {"id": str(uid)}]}) if uid else None
+
+    cid = str(customer.get("_id") or customer.get("id") or "")
+    # A project the client created themselves stays "awaiting survey" until a
+    # sales owner takes it on; it must not look like installation has started.
+    awaiting_survey = not cid or is_self_registered_project(customer)
+    cust_stage = "REGISTRATION_SUBMITTED" if awaiting_survey else customer.get("stage", "REGISTRATION_SUBMITTED")
+
+    # Site work: one live row per trade (structure → electrical → civil).
+    site_rows = list(db["work_assignments"].find({"customer_id": cid, **workflow.LIVE_WORK})) if cid else []
+    work_by_type = workflow.site_work_by_type(sorted(site_rows, key=lambda w: str(w.get("created_at") or "")))
+
+    # Timeline: the same stage_status source of truth the employee portal uses.
+    timeline = workflow.build_timeline(customer)["stages"]
+    if awaiting_survey:
+        for item in timeline:
+            item.update({"status": "upcoming", "done": False, "date": None, "by": None})
+
+    # Installation breakdown so the client sees each trade finish, not only
+    # the whole installation.
+    task_label = {"completed": "done", "in_progress": "in_progress", "active": "in_progress"}
+    tasks = []
+    for wt in workflow.SITE_SEQUENCE:
+        w = work_by_type.get(wt) or {}
+        status = task_label.get(str(w.get("status") or ""), "pending")
+        done_at = w.get("completed_at")
+        tasks.append({
+            "work_type": wt,
+            "title": f"{wt.capitalize()} work",
+            "status": status,
+            "assigned_to": w.get("assigned_employee_name") or w.get("assigned_staff") or None,
+            "completed_at": done_at.isoformat() if isinstance(done_at, datetime) else done_at,
         })
-        if work_assign and work_assign.get("assigned_to"):
-            wid = str(work_assign["assigned_to"])
-            site_emp = db["users"].find_one({"$or": [{"id": wid}, {"_id": wid}]}) or {
-                "name": work_assign.get("assigned_employee_name") or work_assign.get("assigned_staff") or "Assigned Lead",
-                "phone": work_assign.get("assigned_phone", ""),
-                "employee_no": work_assign.get("assigned_employee_no") or work_assign.get("assigned_staff_emp_no") or "",
-                "role_title": f"{work_assign.get('work_type', 'Installation').capitalize()} Lead",
-                "email": work_assign.get("assigned_email", ""),
-            }
+    tasks_done = sum(1 for t in tasks if t["status"] == "done")
+    for item in timeline:
+        if item["stage"] != "INSTALLATION_COMPLETE":
+            continue
+        item["tasks"] = tasks
+        if item["status"] == "current" and not awaiting_survey:
+            words = {"done": "done", "in_progress": "in progress", "pending": "pending"}
+            item["note"] = " · ".join(f"{t['work_type'].capitalize()} {words[t['status']]}" for t in tasks)
 
-    # Project timeline (see core.constants.STAGE_ORDER) - driven by employee/admin completed work
-    from app.core.constants import STAGE_ORDER
-    stage_keys = [s[0].value if hasattr(s[0], "value") else str(s[0]) for s in STAGE_ORDER]
-    cust_stage = customer.get("stage", "REGISTRATION_SUBMITTED")
+    completed_count = sum(1 for item in timeline if item["status"] == "done")
+    total_stages = len(timeline)
+    install_done = any(i["stage"] == "INSTALLATION_COMPLETE" and i["status"] == "done" for i in timeline)
+    partial = 0.0 if install_done or awaiting_survey else tasks_done / len(workflow.SITE_SEQUENCE)
+    progress_pct = int(((completed_count + partial) / total_stages) * 100) if total_stages > 0 else 0
 
-    timeline = []
-    stage_notes = {
-        "INSTALLATION_COMPLETE": "Structure, electrical and civil work by the Site-ops team.",
-        "KEDL_PROCESS": "Discom paperwork and inspection liaison.",
-        "SYSTEM_LIVE": "Bi-directional net meter sync with grid.",
-        "HANDED_OVER": "Project handed over with 25-year solar warranty kit.",
+    # Responsible contact: whoever owns the project right now (see workflow.advance).
+    role_contact = {
+        "site": ("site_employee_id", "Site Installation Lead"),
+        "kedl": ("kedl_employee_id", "KEDL Paperwork Officer"),
+        "service": ("service_employee_id", "Service Engineer"),
     }
-
-    # Fetch explicit customer milestones map
-    cust_milestones_map = {}
-    for m in customer.get("milestones", []):
-        if isinstance(m, dict):
-            key = m.get("stage") or m.get("title") or m.get("id")
-            if key:
-                cust_milestones_map[str(key).upper()] = m
-
-    # Fetch work assignments for this customer to reflect actual assigned employee work
-    cid = str(customer.get("_id", customer.get("id", "")))
-    cust_work_assignments = list(db["work_assignments"].find({
-        "$or": [{"customer_id": cid}, {"customer_id": customer.get("id")}]
-    })) if cid else []
-
-    # One row per trade, so a stale duplicate can't hide completed work.
-    from app.services.workflow import site_work_by_type
-    work_by_type = site_work_by_type(sorted(cust_work_assignments, key=lambda w: str(w.get("created_at") or "")))
-
-    # Check KEDL file status
-    kedl_file = db["kedl_files"].find_one({
-        "$or": [{"customer_id": cid}, {"customer_id": customer.get("id")}]
-    }) if cid else None
+    officer, officer_title = None, None
+    role = str(customer.get("assigned_role") or "")
+    if role in role_contact and not awaiting_survey:
+        field, officer_title = role_contact[role]
+        officer = _user(customer.get(field) or customer.get("assigned_to"))
+        if not officer and role == "site":
+            # No site lead on the project: the engineer on the current trade.
+            active = next((w for t in workflow.SITE_SEQUENCE
+                           if (w := work_by_type.get(t)) and w.get("status") != "completed"), None)
+            if active and active.get("assigned_to"):
+                officer = _user(active["assigned_to"]) or {
+                    "name": active.get("assigned_employee_name") or active.get("assigned_staff") or "Site Lead",
+                    "phone": "", "employee_no": active.get("assigned_employee_no") or "", "email": "",
+                }
+                officer_title = f"{str(active.get('work_type', 'site')).capitalize()} Work Lead"
+    if not officer and customer.get("assigned_officer_id"):
+        officer, officer_title = _user(customer["assigned_officer_id"]), "Project Officer"
 
     # Financials
     final_price_paise = int(customer.get("final_price", 0))
-    payments_info = mongo_get_customer_payments(str(customer["_id"]))
+    payments_info = mongo_get_customer_payments(cid) if cid else {"summary": {"verified": 0, "total_paid": 0}}
     verified_paise = payments_info["summary"]["verified"]
     total_paid_paise = payments_info["summary"]["total_paid"]
     remaining_paise = max(0, final_price_paise - verified_paise)
 
-
-    for idx, (s_obj, s_title) in enumerate(STAGE_ORDER):
-        s_key = s_obj.value if hasattr(s_obj, "value") else str(s_obj)
-        custom_m = cust_milestones_map.get(s_key)
-
-        status_str = "upcoming"
-        dt = None
-        assigned_worker = None
-
-        # 1. Explicit milestone status recorded in customer document
-        if custom_m and custom_m.get("status"):
-            m_status = str(custom_m["status"]).lower()
-            if m_status in ["done", "completed", "verified"]:
-                status_str = "done"
-                dt = custom_m.get("completed_at") or custom_m.get("updated_at") or custom_m.get("date")
-            elif m_status in ["current", "in_progress", "active"]:
-                status_str = "current"
-                dt = custom_m.get("updated_at") or custom_m.get("date")
-
-        # 2. Check real employee activity if not explicitly marked done
-        if status_str != "done":
-            if s_key == "SALE_CONFIRMED":
-                if customer.get("sale_confirmed_by") or customer.get("is_sale_confirmed"):
-                    status_str = "done"
-                    dt = customer.get("sale_confirmed_at")
-            elif s_key == "DOCUMENTS_RECEIVED":
-                if customer.get("documents_verified") or customer.get("is_docs_verified"):
-                    status_str = "done"
-                    dt = customer.get("documents_verified_at")
-            elif s_key == "ADVANCE_VERIFIED":
-                if verified_paise > 0:
-                    status_str = "done"
-            elif s_key == "INSTALLATION_COMPLETE":
-                site_works = [work_by_type.get(t) for t in ("structure", "electrical", "civil")]
-                if all(w and w.get("status") == "completed" for w in site_works):
-                    status_str = "done"
-                    dt = site_works[-1].get("completed_at") or site_works[-1].get("updated_at")
-                else:
-                    active = next((w for w in site_works if w and w.get("status") in ["in_progress", "active", "assigned"]), None)
-                    if active:
-                        assigned_worker = active.get("assigned_employee_name") or active.get("assigned_staff")
-                        status_str = "current"
-                        dt = active.get("started_at") or active.get("updated_at")
-            elif s_key == "KEDL_PROCESS":
-                if kedl_file:
-                    if kedl_file.get("status") == "approved":
-                        status_str = "done"
-                        dt = kedl_file.get("approved_at")
-                    elif kedl_file.get("status") in ["submitted", "demand_raised", "demand_paid"]:
-                        status_str = "current"
-            elif s_key == "SYSTEM_LIVE":
-                if customer.get("system_live_certified_by") or customer.get("is_system_live"):
-                    status_str = "done"
-                    dt = customer.get("system_live_at")
-            elif s_key == "HANDED_OVER":
-                if customer.get("handed_over_by") or customer.get("is_handed_over"):
-                    status_str = "done"
-                    dt = customer.get("handed_over_at")
-
-        stage_note = stage_notes.get(s_key, "")
-        if assigned_worker and status_str == "current":
-            stage_note = f"Assigned to {assigned_worker}. Work in progress."
-
-        timeline.append({
-            "stage": s_key,
-            "title": s_title,
-            "status": status_str,
-            "date": dt,
-            "note": stage_note,
-        })
-
-    if customer.get("stage_status"):
-        from app.services.workflow import build_timeline
-        timeline = build_timeline(customer)["stages"]
-
-    completed_count = sum(1 for item in timeline if item["status"] == "done")
-    total_stages = len(timeline)
-    progress_pct = int((completed_count / total_stages) * 100) if total_stages > 0 else 0
-
-# Financials already computed above
-
-    # Responsible Contact (null if no officer assigned)
     resp_contact = None
-    if site_emp:
-        trade_name = site_emp.get("trade", "Structure").capitalize()
+    if officer:
         resp_contact = {
-            "name": site_emp.get("name", "Project Lead"),
-            "phone": site_emp.get("phone", ""),
-            "role_title": site_emp.get("role_title") or f"{trade_name} Installation Lead",
-            "employee_no": site_emp.get("employee_no", ""),
-            "email": site_emp.get("email", ""),
+            "name": officer.get("name", "Project Lead"),
+            "phone": officer.get("phone", ""),
+            "role_title": officer_title,
+            "employee_no": officer.get("employee_no", ""),
+            "email": officer.get("email", ""),
         }
     elif sales_rep:
         resp_contact = {

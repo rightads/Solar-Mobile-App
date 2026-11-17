@@ -5,7 +5,7 @@ their own customers; only admins verify money into the company account.
 """
 from datetime import datetime, timezone
 from typing import Optional
-from fastapi import APIRouter, Depends, File, Form, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, Query, UploadFile, status
 from pydantic import BaseModel, ConfigDict, Field
 import structlog
 from app.core import access
@@ -122,6 +122,17 @@ async def list_pending_payments(current_user: MongoUserProxy = Depends(require_p
         if cust and (access.is_admin(current_user) or access.staff_can_view_customer(current_user, cust)):
             out.append(_format_mongo_doc(p))
     return out
+
+
+@router.get("/payments", summary="All payments, optionally filtered by status (Admin)")
+async def list_payments(
+    status_filter: Optional[str] = Query(default=None, alias="status", max_length=20),
+    limit: int = Query(default=200, ge=1, le=500),
+    current_user: MongoUserProxy = Depends(require_roles(UserRole.ADMIN)),
+):
+    query = {"status": status_filter.lower()} if status_filter and status_filter.lower() != "all" else {}
+    cursor = get_mongo_db()["payments"].find(query).sort("updated_at", -1).limit(limit)
+    return [_format_mongo_doc(p) for p in cursor]
 
 
 @router.post("/payments/{payment_id}/sales-approve", summary="Sales confirms a customer payment")

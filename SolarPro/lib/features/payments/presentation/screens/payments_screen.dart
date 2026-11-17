@@ -1,5 +1,8 @@
+import 'package:dio/dio.dart' show FormData;
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
+import 'package:intl/intl.dart';
+import 'package:solar_pro/core/network/api_client.dart';
 import 'package:solar_pro/core/theme/app_theme.dart';
 
 class PaymentsScreen extends StatefulWidget {
@@ -13,14 +16,59 @@ class _PaymentsScreenState extends State<PaymentsScreen>
     with SingleTickerProviderStateMixin {
   late TabController _tabController;
 
-  final List<_Payment> _pending = [];
-  final List<_Payment> _verified = [];
+  final ApiClient _api = ApiClient();
+  List<_Payment> _pending = [];
+  List<_Payment> _verified = [];
+  bool _loading = true;
+  String? _error;
+  final Set<String> _busyIds = {};
 
   @override
   void initState() {
     super.initState();
     _tabController = TabController(length: 2, vsync: this);
+    _load();
   }
+
+  static List<_Payment> _parseList(dynamic data) {
+    final raw = data is List ? data : (data is Map && data['items'] is List ? data['items'] as List : const []);
+    return raw.whereType<Map>().map((e) => _Payment.fromJson(Map<String, dynamic>.from(e))).toList();
+  }
+
+  Future<void> _load() async {
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    try {
+      final results = await Future.wait([
+        _api.dio.get('/payments/pending'),
+        _api.dio.get('/payments', queryParameters: {'status': 'verified'}),
+      ]);
+      if (!mounted) return;
+      setState(() {
+        _pending = _parseList(results[0].data);
+        _verified = _parseList(results[1].data);
+        _loading = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _loading = false;
+        _error = ApiClient.toFriendly(e, fallback: 'Could not load payments.').toString().replaceFirst('Exception: ', '');
+      });
+    }
+  }
+
+  void _snack(String msg, {bool error = false}) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(msg), backgroundColor: error ? AppColors.error : AppColors.success),
+    );
+  }
+
+  String _errText(Object e, String fallback) =>
+      ApiClient.toFriendly(e, fallback: fallback).toString().replaceFirst('Exception: ', '');
 
   @override
   void dispose() {
@@ -34,37 +82,80 @@ class _PaymentsScreenState extends State<PaymentsScreen>
   int get _totalVerifiedAmount =>
       _verified.fold(0, (sum, p) => sum + p.amount);
 
-  void _verifyPayment(_Payment p) {
-    setState(() {
-      _pending.removeWhere((item) => item.id == p.id);
-      _verified.insert(0, p.copyWith(status: 'verified'));
-    });
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('Payment of ₹${p.amount} from ${p.name} verified successfully!'),
-        backgroundColor: AppColors.success,
-      ),
-    );
+  Future<void> _verifyPayment(_Payment p) async {
+    if (_busyIds.contains(p.id)) return;
+    setState(() => _busyIds.add(p.id));
+    try {
+      await _api.dio.post('/payments/${p.id}/verify');
+      _snack('Payment of ₹${p.amount} from ${p.name} verified.');
+      await _load();
+    } catch (e) {
+      _snack(_errText(e, 'Payment could not be verified.'), error: true);
+    } finally {
+      if (mounted) setState(() => _busyIds.remove(p.id));
+    }
   }
 
-  void _rejectPayment(_Payment p) {
-    setState(() {
-      _pending.removeWhere((item) => item.id == p.id);
-    });
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('Payment of ₹${p.amount} rejected and returned for review.'),
-        backgroundColor: AppColors.error,
+  Future<void> _rejectPayment(_Payment p) async {
+    if (_busyIds.contains(p.id)) return;
+    final reasonCtrl = TextEditingController();
+    final reason = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: AppColors.navy800,
+        title: Text('Reject ₹${p.amount} from ${p.name}?'),
+        content: TextField(
+          controller: reasonCtrl,
+          autofocus: true,
+          maxLength: 500,
+          decoration: const InputDecoration(hintText: 'Reason (shown to the customer)'),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+          TextButton(
+            onPressed: () {
+              final r = reasonCtrl.text.trim();
+              if (r.length >= 3) Navigator.pop(ctx, r);
+            },
+            child: const Text('Reject', style: TextStyle(color: AppColors.error)),
+          ),
+        ],
       ),
     );
+    if (reason == null) return;
+    setState(() => _busyIds.add(p.id));
+    try {
+      await _api.dio.post('/payments/${p.id}/reject', data: {'reason': reason});
+      _snack('Payment of ₹${p.amount} rejected.');
+      await _load();
+    } catch (e) {
+      _snack(_errText(e, 'Payment could not be rejected.'), error: true);
+    } finally {
+      if (mounted) setState(() => _busyIds.remove(p.id));
+    }
   }
 
-  void _showRecordPaymentSheet(BuildContext context) {
-    final nameCtrl = TextEditingController();
+  static String _backendMode(String label) => switch (label) {
+        'UPI' => 'upi',
+        'Bank Transfer' => 'bank_transfer',
+        'Cheque' => 'cheque',
+        'Cash' => 'cash',
+        _ => 'other',
+      };
+
+  Future<void> _showRecordPaymentSheet(BuildContext context) async {
+    final customers = await _api.getCustomers();
+    if (!context.mounted) return;
+    if (customers.isEmpty) {
+      _snack('No customers found to record a payment for.', error: true);
+      return;
+    }
+    String custId = (customers.first['id'] ?? customers.first['_id']).toString();
     final amountCtrl = TextEditingController();
     final refCtrl = TextEditingController();
     String milestone = 'Advance';
     String mode = 'UPI';
+    bool saving = false;
 
     showModalBottomSheet(
       context: context,
@@ -95,14 +186,26 @@ class _PaymentsScreenState extends State<PaymentsScreen>
                 Text('Record Payment / Invoice',
                     style: AppTextStyles.headlineMedium),
                 const SizedBox(height: 16),
-                TextField(
-                  controller: nameCtrl,
+                DropdownButtonFormField<String>(
+                  initialValue: custId,
+                  isExpanded: true,
+                  dropdownColor: AppColors.navy700,
                   decoration: const InputDecoration(
-                    hintText: 'Customer Name',
+                    hintText: 'Customer',
                     prefixIcon: Icon(Icons.person_outline_rounded),
                   ),
-                  style:
-                      AppTextStyles.bodyMedium.copyWith(color: AppColors.fg),
+                  items: [
+                    for (final c in customers)
+                      DropdownMenuItem(
+                        value: (c['id'] ?? c['_id']).toString(),
+                        child: Text(
+                          '${c['name'] ?? 'Customer'} · ${c['phone'] ?? c['mobile'] ?? ''}',
+                          overflow: TextOverflow.ellipsis,
+                          style: AppTextStyles.bodyMedium.copyWith(color: AppColors.fg),
+                        ),
+                      ),
+                  ],
+                  onChanged: (v) => setSheetState(() => custId = v ?? custId),
                 ),
                 const SizedBox(height: 12),
                 TextField(
@@ -188,33 +291,28 @@ class _PaymentsScreenState extends State<PaymentsScreen>
                 ),
                 const SizedBox(height: 24),
                 GestureDetector(
-                  onTap: () {
-                    final name = nameCtrl.text.trim();
+                  onTap: () async {
                     final amt = int.tryParse(amountCtrl.text.trim()) ?? 0;
-                    if (name.isEmpty || amt <= 0) return;
-
-                    final newPay = _Payment(
-                      DateTime.now().millisecondsSinceEpoch.toString(),
-                      name,
-                      amt,
-                      milestone,
-                      'sales_approved',
-                      'Today',
-                      mode,
-                      refCtrl.text.trim().isEmpty ? 'Pending UTR' : refCtrl.text.trim(),
-                    );
-
-                    setState(() {
-                      _pending.insert(0, newPay);
-                    });
-
-                    Navigator.pop(ctx);
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: Text('Payment of ₹$amt for $name recorded for verification!'),
-                        backgroundColor: AppColors.success,
-                      ),
-                    );
+                    if (amt <= 0 || saving) return;
+                    setSheetState(() => saving = true);
+                    try {
+                      final ref = refCtrl.text.trim();
+                      await _api.dio.post(
+                        '/customers/$custId/payments',
+                        data: FormData.fromMap({
+                          'amount': amt * 100,
+                          'mode': _backendMode(mode),
+                          if (ref.isNotEmpty) 'reference_no': ref,
+                          'remarks': milestone,
+                        }),
+                      );
+                      if (ctx.mounted) Navigator.pop(ctx);
+                      _snack('Payment of ₹$amt recorded. Verify it to update the customer.');
+                      await _load();
+                    } catch (e) {
+                      setSheetState(() => saving = false);
+                      _snack(_errText(e, 'Payment could not be recorded.'), error: true);
+                    }
                   },
                   child: Container(
                     height: 52,
@@ -402,25 +500,46 @@ class _PaymentsScreenState extends State<PaymentsScreen>
           ).animate().fadeIn(duration: 400.ms).slideY(begin: -0.1, end: 0),
 
           Expanded(
-            child: TabBarView(
-              controller: _tabController,
-              children: [
-                _PaymentList(
-                  payments: _pending,
-                  isVerifyMode: true,
-                  onVerify: _verifyPayment,
-                  onReject: _rejectPayment,
-                  onTapItem: (p) => _showPaymentSlip(context, p),
-                ),
-                _PaymentList(
-                  payments: _verified,
-                  isVerifyMode: false,
-                  onVerify: _verifyPayment,
-                  onReject: _rejectPayment,
-                  onTapItem: (p) => _showPaymentSlip(context, p),
-                ),
-              ],
-            ),
+            child: _loading && _pending.isEmpty && _verified.isEmpty
+                ? const Center(child: CircularProgressIndicator())
+                : _error != null
+                    ? Center(
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(_error!, textAlign: TextAlign.center, style: AppTextStyles.bodyMedium),
+                            const SizedBox(height: 12),
+                            TextButton(onPressed: _load, child: const Text('Retry')),
+                          ],
+                        ),
+                      )
+                    : TabBarView(
+                        controller: _tabController,
+                        children: [
+                          RefreshIndicator(
+                            onRefresh: _load,
+                            child: _PaymentList(
+                              payments: _pending,
+                              isVerifyMode: true,
+                              busyIds: _busyIds,
+                              onVerify: _verifyPayment,
+                              onReject: _rejectPayment,
+                              onTapItem: (p) => _showPaymentSlip(context, p),
+                            ),
+                          ),
+                          RefreshIndicator(
+                            onRefresh: _load,
+                            child: _PaymentList(
+                              payments: _verified,
+                              isVerifyMode: false,
+                              busyIds: _busyIds,
+                              onVerify: _verifyPayment,
+                              onReject: _rejectPayment,
+                              onTapItem: (p) => _showPaymentSlip(context, p),
+                            ),
+                          ),
+                        ],
+                      ),
           ),
         ],
       ),
@@ -431,6 +550,7 @@ class _PaymentsScreenState extends State<PaymentsScreen>
 class _PaymentList extends StatelessWidget {
   final List<_Payment> payments;
   final bool isVerifyMode;
+  final Set<String> busyIds;
   final ValueChanged<_Payment> onVerify;
   final ValueChanged<_Payment> onReject;
   final ValueChanged<_Payment> onTapItem;
@@ -438,6 +558,7 @@ class _PaymentList extends StatelessWidget {
   const _PaymentList({
     required this.payments,
     required this.isVerifyMode,
+    required this.busyIds,
     required this.onVerify,
     required this.onReject,
     required this.onTapItem,
@@ -446,24 +567,23 @@ class _PaymentList extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (payments.isEmpty) {
-      return Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Icon(Icons.payments_outlined,
-                size: 48, color: AppColors.grey600),
-            const SizedBox(height: 12),
-            Text('No payments in this tab',
-                style: AppTextStyles.bodyMedium
-                    .copyWith(color: AppColors.grey500)),
-          ],
-        ),
+      // Scrollable so pull-to-refresh still works on an empty tab.
+      return ListView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        children: [
+          const SizedBox(height: 120),
+          const Icon(Icons.payments_outlined, size: 48, color: AppColors.grey600),
+          const SizedBox(height: 12),
+          Text('No payments in this tab',
+              textAlign: TextAlign.center,
+              style: AppTextStyles.bodyMedium.copyWith(color: AppColors.grey500)),
+        ],
       );
     }
 
     return ListView.separated(
       padding: const EdgeInsets.fromLTRB(16, 0, 16, 40),
-      physics: const BouncingScrollPhysics(),
+      physics: const AlwaysScrollableScrollPhysics(parent: BouncingScrollPhysics()),
       itemCount: payments.length,
       separatorBuilder: (_, __) => const SizedBox(height: 10),
       itemBuilder: (context, i) {
@@ -496,7 +616,7 @@ class _PaymentList extends StatelessWidget {
                         shape: BoxShape.circle,
                       ),
                       child: Center(
-                        child: Text(p.name[0],
+                        child: Text(p.name.isEmpty ? '?' : p.name[0].toUpperCase(),
                             style: AppTextStyles.headlineSmall
                                 .copyWith(color: statusColor)),
                       ),
@@ -546,7 +666,10 @@ class _PaymentList extends StatelessWidget {
                     const SizedBox(width: 4),
                     Text(p.date, style: AppTextStyles.caption),
                     const Spacer(),
-                    if (isVerifyMode)
+                    if (isVerifyMode && busyIds.contains(p.id))
+                      const SizedBox(
+                          width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
+                    else if (isVerifyMode)
                       Row(
                         children: [
                           _ActionBtn(
@@ -660,6 +783,24 @@ class _Payment {
   final String id, name, label, status, date, mode, ref;
   final int amount;
   const _Payment(this.id, this.name, this.amount, this.label, this.status, this.date, this.mode, this.ref);
+
+  /// Backend payment document → row. `amount` is stored in paise; shown in rupees.
+  factory _Payment.fromJson(Map<String, dynamic> j) {
+    final paise = (j['amount_paise'] ?? j['amount'] ?? 0) as num;
+    final when = DateTime.tryParse((j['paid_on'] ?? j['created_at'] ?? '').toString());
+    final mode = (j['mode'] ?? '').toString().replaceAll('_', ' ').toUpperCase();
+    final ref = (j['reference_no'] ?? '').toString();
+    return _Payment(
+      (j['id'] ?? j['_id']).toString(),
+      (j['customer_name'] ?? 'Customer').toString(),
+      paise ~/ 100,
+      (j['remarks'] ?? j['stage_name'] ?? 'Payment').toString(),
+      (j['status'] ?? 'pending').toString().toLowerCase(),
+      when == null ? '—' : DateFormat('dd MMM yyyy').format(when.toLocal()),
+      mode.isEmpty ? 'OTHER' : mode,
+      ref.isEmpty ? 'No reference' : ref,
+    );
+  }
 
   _Payment copyWith({String? status}) {
     return _Payment(

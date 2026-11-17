@@ -211,6 +211,41 @@ async def raise_demand(file_id: str, payload: DemandIn, current_user: MongoUserP
     return demand
 
 
+class DemandEdit(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    amount: Optional[int] = Field(None, ge=0, le=10_000_000_00, description="Amount in paise")
+    description: Optional[str] = Field(None, min_length=1, max_length=300)
+    due_date: Optional[date] = None
+    notice_no: Optional[str] = Field(None, max_length=60)
+
+
+@router.patch("/kedl-demands/{demand_id}/details", summary="Correct an open demand notice (amount, notice no., due date)")
+async def edit_demand(demand_id: str, payload: DemandEdit, current_user: MongoUserProxy = Depends(require_kedl)):
+    doc = _files().find_one({"demands.id": demand_id})
+    if not doc:
+        raise NotFoundException("Demand not found.")
+    doc = _require_file(current_user, str(doc["_id"]))
+    changes = payload.model_dump(exclude_unset=True)
+    demands = list(doc.get("demands") or [])
+    target = next((d for d in demands if d.get("id") == demand_id), None)
+    if target is None:
+        raise NotFoundException("Demand not found.")
+    if target.get("status") != "open":
+        raise BadRequestException("Only an unpaid demand can be edited.")
+    if "amount" in changes:
+        target["amount"] = target["amount_paise"] = changes["amount"]
+    if changes.get("description"):
+        target["description"] = changes["description"].strip()
+    if "due_date" in changes:
+        target["due_date"] = changes["due_date"].isoformat() if changes["due_date"] else None
+    if "notice_no" in changes:
+        target["notice_no"] = (changes["notice_no"] or "").strip() or None
+    target["edited_by"], target["edited_on"] = current_user.name, datetime.now(timezone.utc).isoformat()
+    total = sum(int(d.get("amount", 0)) for d in demands)
+    _save(doc, {"demands": demands, "demand_amount": total}, current_user)
+    return target
+
+
 @router.patch("/kedl-demands/{demand_id}", summary="Mark a demand paid or waived (optional receipt)")
 async def update_demand(
     demand_id: str,

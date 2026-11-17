@@ -454,6 +454,7 @@ class ApiClient {
     double kw = 3.0,
     String status = 'new',
     String source = 'Direct',
+    String? notes,
   }) async {
     try {
       final res = await _dio.post('/leads', data: {
@@ -463,6 +464,7 @@ class ApiClient {
         'kw': kw,
         'status': status,
         'source': source,
+        if (notes != null && notes.trim().isNotEmpty) 'notes': notes.trim(),
       });
       return res.data as Map<String, dynamic>?;
     } catch (e) {
@@ -863,24 +865,41 @@ class ApiClient {
     }
   }
 
-  /// Update demand notice for a KEDL file
-  Future<Map<String, dynamic>?> updateKedlDemand({
-    required String fileId,
-    required int demandAmount,
-    required String status,
-    String? demandRef,
-  }) async {
-    try {
-      final res = await _dio.post('/kedl-files/$fileId/demands', data: {
-        'demand_amount': demandAmount,
-        'status': status,
-        if (demandRef != null) 'demand_notice_ref': demandRef,
-      });
-      return res.data as Map<String, dynamic>?;
-    } catch (e) {
-      dev.log('updateKedlDemand error: $e');
-      rethrow;
+  /// Record a new discom demand notice on a KEDL file (amount in rupees).
+  Future<void> raiseKedlDemand({required String fileId, required int amountRupees, String? noticeNo}) async {
+    await _dio.post('/kedl-files/$fileId/demands', data: {
+      'amount': amountRupees * 100,
+      if (noticeNo != null && noticeNo.isNotEmpty) 'notice_no': noticeNo,
+    });
+  }
+
+  /// Correct an unpaid demand notice in place (amount in rupees).
+  Future<void> editKedlDemand({required String demandId, required int amountRupees, String? noticeNo}) async {
+    await _dio.patch('/kedl-demands/$demandId/details', data: {
+      'amount': amountRupees * 100,
+      'notice_no': noticeNo ?? '',
+    });
+  }
+
+  /// Mark every open demand on a file as paid; the backend then moves the file
+  /// to `demand_paid`. A file without demand records is moved directly.
+  Future<void> markKedlDemandsPaid(String fileId) async {
+    final res = await _dio.get('/kedl-files/$fileId');
+    final demands = (res.data is Map && res.data['demands'] is List) ? res.data['demands'] as List : const [];
+    final open = demands.whereType<Map>().where((d) => d['status'] == 'open').toList();
+    if (open.isEmpty) {
+      await setKedlFileStatus(fileId, 'demand_paid');
+      return;
     }
+    for (final d in open) {
+      await _dio.patch('/kedl-demands/${d['id']}', data: FormData.fromMap({'status': 'paid'}));
+    }
+  }
+
+  /// Move a KEDL file to a lifecycle status. This drives the project timeline:
+  /// approving the net-metering file makes the system live on the client portal.
+  Future<void> setKedlFileStatus(String fileId, String status) async {
+    await _dio.post('/kedl-files/$fileId/status', data: {'status': status});
   }
 
 

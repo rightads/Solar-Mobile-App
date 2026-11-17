@@ -12,6 +12,7 @@ from app.core.uploads import save_upload
 from app.db.mongo import (
     _format_mongo_doc,
     get_mongo_db,
+    is_self_registered_project,
     mongo_create_customer,
     mongo_update_customer,
     mongo_update_customer_milestone,
@@ -178,7 +179,14 @@ async def update_customer(
         updates["total_amount"] = updates["final_price"]
     if not updates:
         return _format_mongo_doc(cust)
+    was_placeholder = is_self_registered_project(cust)
     res = mongo_update_customer(str(cust["_id"]), updates)
+    if was_placeholder and updates.get("sales_id"):
+        # A client sign-up taken on by sales becomes a real project: start the
+        # workflow (site tasks, hand-offs) like any staff-created customer.
+        db["customers"].update_one({"_id": cust["_id"]}, {"$set": {"self_registered": False}})
+        workflow.on_customer_created(str(cust["_id"]))
+        res = _format_mongo_doc(db["customers"].find_one({"_id": cust["_id"]}))
     if changed_assignments:
         workflow.on_assignment_changed(str(cust["_id"]), changed_assignments, current_user)
         res = _format_mongo_doc(db["customers"].find_one({"_id": cust["_id"]}))

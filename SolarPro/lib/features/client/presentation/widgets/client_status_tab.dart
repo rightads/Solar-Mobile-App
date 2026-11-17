@@ -499,7 +499,7 @@ class ClientStatusTab extends StatelessWidget {
                                       color: AppColors.success.withValues(alpha: 0.2),
                                       borderRadius: BorderRadius.circular(4),
                                     ),
-                                    child: Text((item['completed_by'] != null && item['completed_by'].toString().isNotEmpty) ? 'DONE by ${item["completed_by"]} ✓' : 'DONE ✓',
+                                    child: Text(_doneBy(item) != null ? 'DONE by ${_doneBy(item)} ✓' : 'DONE ✓',
                                         style: TextStyle(fontSize: 10, color: AppColors.success, fontWeight: FontWeight.bold)),
                                   )
                                 else if (isCurrent)
@@ -520,6 +520,11 @@ class ClientStatusTab extends StatelessWidget {
                                 note.toString(),
                                 style: AppTextStyles.caption.copyWith(color: AppColors.grey300),
                               ),
+                            ],
+                            if (item['tasks'] is List && (item['tasks'] as List).isNotEmpty) ...[
+                              const SizedBox(height: 8),
+                              for (final t in (item['tasks'] as List).whereType<Map>())
+                                _SiteTaskRow(task: Map<String, dynamic>.from(t)),
                             ],
                           ],
                         ),
@@ -612,11 +617,50 @@ class ClientStatusTab extends StatelessWidget {
     );
   }
 
+  static String? _doneBy(Map<String, dynamic> item) {
+    final by = (item['by'] ?? item['completed_by'])?.toString() ?? '';
+    return by.isEmpty || by == 'System' ? null : by;
+  }
+
   String _formatStageName(String stage) {
     return stage
         .replaceAll('_', ' ')
         .split(' ')
         .map((w) => w.isNotEmpty ? '${w[0].toUpperCase()}${w.substring(1).toLowerCase()}' : '')
         .join(' ');
+  }
+}
+
+/// One site trade (structure / electrical / civil) inside the installation stage.
+class _SiteTaskRow extends StatelessWidget {
+  final Map<String, dynamic> task;
+  const _SiteTaskRow({required this.task});
+
+  @override
+  Widget build(BuildContext context) {
+    final status = task['status']?.toString() ?? 'pending';
+    final (icon, color, label) = switch (status) {
+      'done' => (Icons.check_circle_rounded, AppColors.success, 'Done'),
+      'in_progress' => (Icons.autorenew_rounded, AppColors.gold500, 'In progress'),
+      _ => (Icons.radio_button_unchecked_rounded, AppColors.grey500, 'Pending'),
+    };
+    final who = task['assigned_to']?.toString() ?? '';
+    return Padding(
+      padding: const EdgeInsets.only(top: 4),
+      child: Row(
+        children: [
+          Icon(icon, size: 14, color: color),
+          const SizedBox(width: 6),
+          Expanded(
+            child: Text(
+              '${task['title'] ?? 'Site work'}${who.isNotEmpty ? ' · $who' : ''}',
+              style: AppTextStyles.caption.copyWith(color: AppColors.grey300),
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+          Text(label, style: AppTextStyles.caption.copyWith(color: color, fontWeight: FontWeight.w600)),
+        ],
+      ),
+    );
   }
 }

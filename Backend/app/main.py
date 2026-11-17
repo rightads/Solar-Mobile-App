@@ -25,6 +25,13 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning("Could not auto-initialize MongoDB on startup", error=str(e))
     try:
+        from app.db.mongo import repair_self_registered_projects
+        result = repair_self_registered_projects()
+        if any(result.values()):
+            logger.info("Repaired client sign-up projects", **result)
+    except Exception as e:
+        logger.warning("Client project repair skipped", error=str(e))
+    try:
         from app.services.workflow import migrate_legacy_customers
         migrated = migrate_legacy_customers()
         if migrated:

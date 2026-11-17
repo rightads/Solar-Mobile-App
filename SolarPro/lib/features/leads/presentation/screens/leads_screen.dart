@@ -108,24 +108,61 @@ class _LeadsScreenState extends State<LeadsScreen>
     }).toList();
   }
 
-  void _onStatusChanged(_Lead lead, String newStatus) {
-    setState(() {
-      _openLeads.removeWhere((l) => l.id == lead.id);
-      _closedLeads.removeWhere((l) => l.id == lead.id);
-      final updated = lead.copyWith(status: newStatus);
-      if (newStatus == 'converted' || newStatus == 'lost') {
-        _closedLeads.insert(0, updated);
-      } else {
-        _openLeads.insert(0, updated);
-      }
-    });
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('Lead status updated to ${_statusLabel(newStatus)}'),
-        backgroundColor: _statusColor(newStatus),
-        duration: const Duration(seconds: 2),
-      ),
-    );
+  /// Persist a lead status change, then reload from the server.
+  /// Conversion has its own "Sales Closed" action (it creates the customer).
+  Future<void> _onStatusChanged(_Lead lead, String newStatus) async {
+    if (newStatus == lead.status) return;
+    String? reason;
+    if (newStatus == 'lost') {
+      final ctrl = TextEditingController();
+      reason = await showDialog<String>(
+        context: context,
+        builder: (dctx) => AlertDialog(
+          backgroundColor: AppColors.navy800,
+          title: Text('Mark ${lead.name} as lost?'),
+          content: TextField(
+            controller: ctrl,
+            autofocus: true,
+            decoration: const InputDecoration(hintText: 'Reason'),
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(dctx), child: const Text('Cancel')),
+            TextButton(
+              onPressed: () {
+                if (ctrl.text.trim().length >= 3) Navigator.pop(dctx, ctrl.text.trim());
+              },
+              child: const Text('Mark lost'),
+            ),
+          ],
+        ),
+      );
+      if (reason == null) return;
+    }
+    try {
+      await ApiClient().dio.patch('/leads/${lead.id}', data: {
+        'status': newStatus,
+        if (reason != null) 'reason': reason,
+      });
+      await _fetchLeads();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Lead status updated to ${_statusLabel(newStatus)}'),
+          backgroundColor: _statusColor(newStatus),
+          duration: const Duration(seconds: 2),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(ApiClient.toFriendly(e, fallback: 'Could not update the lead.')
+              .toString()
+              .replaceFirst('Exception: ', '')),
+          backgroundColor: AppColors.error,
+        ),
+      );
+    }
   }
 
   @override
@@ -361,7 +398,7 @@ class _LeadsScreenState extends State<LeadsScreen>
                 ],
                 const SizedBox(height: 24),
                 GestureDetector(
-                  onTap: () {
+                  onTap: () async {
                     final name = nameCtrl.text.trim();
                     final phone = phoneCtrl.text.trim();
                     final area = areaCtrl.text.trim();
@@ -380,35 +417,34 @@ class _LeadsScreenState extends State<LeadsScreen>
                       return;
                     }
 
-                    final newLead = _Lead(
-                      id: DateTime.now().millisecondsSinceEpoch.toString(),
-                      name: name,
-                      phone: phone,
-                      area: area.isEmpty ? 'Delhi NCR' : area,
-                      kw: kw,
-                      status: 'new',
-                      source: source,
-                      referrerName: referrer?.isNotEmpty == true ? referrer : null,
-                    );
-
-                    setState(() {
-                      _openLeads.insert(0, newLead);
-                    });
-
-                    // Save to backend asynchronously
-                    ApiClient().createLead(
-                      name: name,
-                      phone: phone,
-                      area: area.isEmpty ? 'Delhi NCR' : area,
-                      kw: kw.toDouble(),
-                      status: 'new',
-                      source: source,
-                    ).catchError((_) => null);
-
-                    Navigator.pop(ctx);
+                    try {
+                      await ApiClient().createLead(
+                        name: name,
+                        phone: phone,
+                        area: area.isEmpty ? 'Delhi NCR' : area,
+                        kw: kw.toDouble(),
+                        status: 'new',
+                        source: source,
+                        notes: (referrer?.isNotEmpty ?? false) ? 'Referred by $referrer' : null,
+                      );
+                    } catch (e) {
+                      if (!context.mounted) return;
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text(ApiClient.toFriendly(e, fallback: 'Lead could not be saved.')
+                              .toString()
+                              .replaceFirst('Exception: ', '')),
+                          backgroundColor: AppColors.error,
+                        ),
+                      );
+                      return;
+                    }
+                    if (ctx.mounted) Navigator.pop(ctx);
+                    await _fetchLeads();
+                    if (!context.mounted) return;
                     ScaffoldMessenger.of(context).showSnackBar(
                       SnackBar(
-                        content: Text('Lead "${newLead.name}" added successfully!'),
+                        content: Text('Lead "$name" added successfully!'),
                         backgroundColor: AppColors.success,
                       ),
                     );
@@ -720,7 +756,7 @@ class _LeadsScreenState extends State<LeadsScreen>
             Wrap(
               spacing: 8,
               runSpacing: 8,
-              children: ['new', 'contacted', 'follow_up', 'converted', 'lost'].map((st) {
+              children: ['new', 'contacted', 'follow_up', 'lost'].map((st) {
                 final isCurrent = lead.status == st;
                 final col = _statusColor(st);
                 return GestureDetector(
@@ -758,16 +794,16 @@ class _LeadsScreenState extends State<LeadsScreen>
                 onTap: () async {
                   Navigator.pop(ctx);
                   try {
-                    await ApiClient().closeSaleLead(
+                    final created = await ApiClient().closeSaleLead(
                       leadId: lead.id,
                       customerData: {
                         'name': lead.name,
-                        'phone': lead.phone,
                         'address': lead.area,
-                        'kw': lead.kw.toDouble(),
+                        'capacity_kw': lead.kw.toDouble(),
                       },
                     );
-                    _onStatusChanged(lead, 'converted');
+                    await _fetchLeads();
+                    final customerId = (created?['id'] ?? created?['_id'])?.toString();
                     if (mounted) {
                       ScaffoldMessenger.of(context).showSnackBar(
                         SnackBar(
@@ -776,8 +812,9 @@ class _LeadsScreenState extends State<LeadsScreen>
                           backgroundColor: AppColors.success,
                         ),
                       );
-                      context.push(
-                          '/vendor/customers/${lead.name.replaceAll(' ', '-').toLowerCase()}');
+                      if (customerId != null && customerId.isNotEmpty) {
+                        context.push('/vendor/customers/$customerId');
+                      }
                     }
                   } catch (e) {
                     if (mounted) {

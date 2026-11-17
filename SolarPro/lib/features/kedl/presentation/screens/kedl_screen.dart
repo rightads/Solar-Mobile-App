@@ -394,8 +394,9 @@ class _KedlScreenState extends State<KedlScreen> {
   }
 
   void _showRaiseDemandSheet(BuildContext context, _KedlFile f) {
-    final amtCtrl = TextEditingController(text: f.demand > 0 ? '${f.demand}' : '');
-    final refCtrl = TextEditingController(text: f.demandRef);
+    final editing = f.openDemandId != null;
+    final amtCtrl = TextEditingController(text: editing ? '${f.openDemandAmount}' : '');
+    final refCtrl = TextEditingController(text: editing ? f.openDemandRef : '');
 
     showModalBottomSheet(
       context: context,
@@ -421,7 +422,7 @@ class _KedlScreenState extends State<KedlScreen> {
               ),
             ),
             const SizedBox(height: 20),
-            Text('Raise / Update Demand Notice',
+            Text(editing ? 'Edit Demand Notice' : 'Raise Demand Notice',
                 style: AppTextStyles.headlineMedium),
             const SizedBox(height: 4),
             Text('${f.customer} • ${_typeLabel(f.type)}',
@@ -461,17 +462,26 @@ class _KedlScreenState extends State<KedlScreen> {
                 Navigator.pop(ctx);
                 setState(() => _isLoading = true);
                 try {
-                  await ApiClient().updateKedlDemand(
-                    fileId: f.id,
-                    demandAmount: amt,
-                    status: 'demand_raised',
-                    demandRef: refCtrl.text.trim(),
-                  );
+                  if (editing) {
+                    await ApiClient().editKedlDemand(
+                      demandId: f.openDemandId!,
+                      amountRupees: amt,
+                      noticeNo: refCtrl.text.trim(),
+                    );
+                  } else {
+                    await ApiClient().raiseKedlDemand(
+                      fileId: f.id,
+                      amountRupees: amt,
+                      noticeNo: refCtrl.text.trim(),
+                    );
+                  }
                   await _fetchData();
                   if (mounted) {
                     ScaffoldMessenger.of(context).showSnackBar(
                       SnackBar(
-                        content: Text('Demand of ₹$amt recorded for ${f.customer}!'),
+                        content: Text(editing
+                            ? 'Demand updated to ₹$amt for ${f.customer}.'
+                            : 'Demand of ₹$amt recorded for ${f.customer}!'),
                         backgroundColor: AppColors.success,
                       ),
                     );
@@ -733,7 +743,7 @@ class _KedlScreenState extends State<KedlScreen> {
                           const Icon(Icons.currency_rupee_rounded,
                               color: AppColors.warning, size: 18),
                           const SizedBox(width: 6),
-                          Text(f.demand > 0 ? 'Edit Demand' : 'Raise Demand',
+                          Text(f.openDemandId != null ? 'Edit Demand' : 'Raise Demand',
                               style: AppTextStyles.labelMedium
                                   .copyWith(color: AppColors.warning)),
                         ],
@@ -756,12 +766,7 @@ class _KedlScreenState extends State<KedlScreen> {
                         Navigator.pop(ctx);
                         setState(() => _isLoading = true);
                         try {
-                          await ApiClient().updateKedlDemand(
-                            fileId: f.id,
-                            demandAmount: f.demand,
-                            status: 'demand_paid',
-                            demandRef: f.demandRef,
-                          );
+                          await ApiClient().markKedlDemandsPaid(f.id);
                           await _fetchData();
                           if (mounted) {
                             ScaffoldMessenger.of(context).showSnackBar(
@@ -814,12 +819,11 @@ class _KedlScreenState extends State<KedlScreen> {
                       };
                       setState(() => _isLoading = true);
                       try {
-                        await ApiClient().updateKedlDemand(
-                          fileId: f.id,
-                          demandAmount: f.demand,
-                          status: next,
-                          demandRef: f.demandRef,
-                        );
+                        if (next == 'demand_paid') {
+                          await ApiClient().markKedlDemandsPaid(f.id);
+                        } else {
+                          await ApiClient().setKedlFileStatus(f.id, next);
+                        }
                         await _fetchData();
                         if (mounted) {
                           ScaffoldMessenger.of(context).showSnackBar(
@@ -1200,6 +1204,11 @@ class _KedlFile {
   final String demandRef;
   final String demandPaidDate;
 
+  /// Latest unpaid demand notice (edited in place by "Edit Demand").
+  final String? openDemandId;
+  final int openDemandAmount;
+  final String openDemandRef;
+
   const _KedlFile({
     required this.id,
     required this.customerId,
@@ -1211,17 +1220,34 @@ class _KedlFile {
     this.demandPaidDate = '',
     this.location = '',
     this.assignedTo = 'KEDL Liaison',
+    this.openDemandId,
+    this.openDemandAmount = 0,
+    this.openDemandRef = '',
   });
 
   factory _KedlFile.fromMap(Map<String, dynamic> m) {
+    final open = (m['demands'] is List ? m['demands'] as List : const [])
+        .whereType<Map>()
+        .where((d) => d['status'] == 'open')
+        .toList();
+    final latestOpen = open.isEmpty ? null : open.last;
     return _KedlFile(
+      openDemandId: latestOpen?['id']?.toString(),
+      openDemandAmount: ((latestOpen?['amount'] ?? 0) as num).toInt() ~/ 100,
+      openDemandRef: (latestOpen?['notice_no'] ?? '').toString(),
       id: (m['id'] ?? m['_id'] ?? '').toString(),
       customerId: (m['customer_id'] ?? '').toString(),
       customer: (m['customer_name'] ?? m['customer'] ?? 'Customer').toString(),
       type: (m['file_type'] ?? m['type'] ?? 'net').toString(),
       status: (m['status'] ?? 'not_started').toString(),
-      demand: (m['demand_amount'] ?? m['demand'] ?? 0) as int,
-      demandRef: (m['demand_notice_ref'] ?? m['demand_ref'] ?? '').toString(),
+      // Backend stores demand_amount in paise; this screen works in rupees.
+      demand: ((m['demand_amount'] ?? m['demand'] ?? 0) as num).toInt() ~/ 100,
+      demandRef: (m['demand_notice_ref'] ??
+              ((m['demands'] is List && (m['demands'] as List).isNotEmpty)
+                  ? ((m['demands'] as List).last as Map)['notice_no']
+                  : null) ??
+              '')
+          .toString(),
       demandPaidDate: (m['demand_paid_date'] ?? '').toString(),
       location: (m['location'] ?? '').toString(),
       assignedTo: (m['assigned_employee_name'] ?? m['assignedTo'] ?? 'KEDL Liaison').toString(),

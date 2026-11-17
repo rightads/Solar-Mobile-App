@@ -14,14 +14,15 @@ class _WorkAssignmentScreenState extends State<WorkAssignmentScreen>
     with SingleTickerProviderStateMixin {
   late TabController _tabController;
 
-  final List<_WorkJob> _structureJobs = [];
-  final List<_WorkJob> _electricalJobs = [];
-  final List<_WorkJob> _civilJobs = [];
+  List<_WorkJob> _structureJobs = [];
+  List<_WorkJob> _electricalJobs = [];
+  List<_WorkJob> _civilJobs = [];
 
   @override
   void initState() {
     super.initState();
     _tabController = TabController(length: 3, vsync: this);
+    _load();
   }
 
   @override
@@ -30,24 +31,48 @@ class _WorkAssignmentScreenState extends State<WorkAssignmentScreen>
     super.dispose();
   }
 
-  void _onJobStatusChange(_WorkJob job, String type, String newStatus) {
+  Future<void> _load() async {
+    final rows = await ApiClient().getWorkAssignments();
+    if (!mounted) return;
+    List<_WorkJob> of(String type) => rows
+        .where((r) => (r['work_type'] ?? '').toString().toLowerCase() == type && r['status'] != 'cancelled')
+        .map(_WorkJob.fromJson)
+        .toList();
     setState(() {
-      final list = switch (type) {
-        'Structure' => _structureJobs,
-        'Electrical' => _electricalJobs,
-        _ => _civilJobs,
-      };
-      final idx = list.indexWhere((it) => it.id == job.id);
-      if (idx != -1) {
-        list[idx] = list[idx].copyWith(status: newStatus);
-      }
+      _structureJobs = of('structure');
+      _electricalJobs = of('electrical');
+      _civilJobs = of('civil');
     });
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('Job for ${job.customer} updated to ${newStatus.replaceAll('_', ' ').toUpperCase()}'),
-        backgroundColor: newStatus == 'completed' ? AppColors.success : AppColors.warning,
-      ),
-    );
+  }
+
+  Future<void> _onJobStatusChange(_WorkJob job, String type, String newStatus) async {
+    final action = switch (newStatus) {
+      'completed' => 'complete',
+      'in_progress' => job.status == 'completed' ? 'reopen' : 'start',
+      _ => null,
+    };
+    if (action == null) return;
+    try {
+      await ApiClient().dio.post('/work-assignments/${job.id}/$action');
+      await _load();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Job for ${job.customer} updated to ${newStatus.replaceAll('_', ' ').toUpperCase()}'),
+          backgroundColor: newStatus == 'completed' ? AppColors.success : AppColors.warning,
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(ApiClient.toFriendly(e, fallback: 'Could not update the job.')
+              .toString()
+              .replaceFirst('Exception: ', '')),
+          backgroundColor: AppColors.error,
+        ),
+      );
+    }
   }
 
   void _showJobDetailSheet(BuildContext context, _WorkJob job, String type) {
@@ -604,28 +629,12 @@ class _WorkAssignmentScreenState extends State<WorkAssignmentScreen>
                                 notes: notesCtrl.text.trim(),
                               );
 
-                              final newJob = _WorkJob(
-                                DateTime.now().millisecondsSinceEpoch.toString(),
-                                custName,
-                                team.isEmpty ? 'Team A' : team,
-                                'assigned',
-                                startStr,
-                                endStr,
-                                loc.isEmpty ? 'Site' : loc,
-                              );
-
-                              setState(() {
-                                if (selectedType == 'Structure') {
-                                  _structureJobs.insert(0, newJob);
-                                  _tabController.index = 0;
-                                } else if (selectedType == 'Electrical') {
-                                  _electricalJobs.insert(0, newJob);
-                                  _tabController.index = 1;
-                                } else {
-                                  _civilJobs.insert(0, newJob);
-                                  _tabController.index = 2;
-                                }
-                              });
+                              await _load();
+                              _tabController.index = switch (selectedType) {
+                                'Structure' => 0,
+                                'Electrical' => 1,
+                                _ => 2,
+                              };
 
                               if (mounted) {
                                 Navigator.pop(ctx);
@@ -724,23 +733,32 @@ class _WorkAssignmentScreenState extends State<WorkAssignmentScreen>
       body: TabBarView(
         controller: _tabController,
         children: [
-          _WorkList(
+          RefreshIndicator(
+            onRefresh: _load,
+            child: _WorkList(
             type: 'Structure',
             color: AppColors.orange500,
             jobs: _structureJobs,
             onJobTap: (j) => _showJobDetailSheet(context, j, 'Structure'),
           ),
-          _WorkList(
+          ),
+          RefreshIndicator(
+            onRefresh: _load,
+            child: _WorkList(
             type: 'Electrical',
             color: AppColors.purple500,
             jobs: _electricalJobs,
             onJobTap: (j) => _showJobDetailSheet(context, j, 'Electrical'),
           ),
-          _WorkList(
+          ),
+          RefreshIndicator(
+            onRefresh: _load,
+            child: _WorkList(
             type: 'Civil',
             color: AppColors.teal500,
             jobs: _civilJobs,
             onJobTap: (j) => _showJobDetailSheet(context, j, 'Civil'),
+          ),
           ),
         ],
       ),
@@ -773,7 +791,7 @@ class _WorkList extends StatelessWidget {
 
     return ListView.separated(
       padding: const EdgeInsets.all(16),
-      physics: const BouncingScrollPhysics(),
+      physics: const AlwaysScrollableScrollPhysics(parent: BouncingScrollPhysics()),
       itemCount: jobs.length,
       separatorBuilder: (_, __) => const SizedBox(height: 10),
       itemBuilder: (context, i) {
@@ -858,6 +876,26 @@ class _WorkList extends StatelessWidget {
 class _WorkJob {
   final String id, customer, team, status, start, end, location;
   const _WorkJob(this.id, this.customer, this.team, this.status, this.start, this.end, this.location);
+
+  factory _WorkJob.fromJson(Map<String, dynamic> j) {
+    String s(List<String> keys, String fallback) {
+      for (final k in keys) {
+        final v = j[k]?.toString() ?? '';
+        if (v.isNotEmpty) return v;
+      }
+      return fallback;
+    }
+
+    return _WorkJob(
+      s(['id', '_id'], ''),
+      s(['customer_name'], 'Customer'),
+      s(['assigned_employee_name', 'assigned_staff', 'team_name'], 'Unassigned'),
+      s(['status'], 'pending'),
+      s(['start_date'], '—'),
+      s(['end_date'], '—'),
+      s(['location'], 'Site'),
+    );
+  }
 
   _WorkJob copyWith({String? status}) {
     return _WorkJob(

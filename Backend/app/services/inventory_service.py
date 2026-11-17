@@ -1,38 +1,50 @@
-import calendar
-from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
-import uuid
-from sqlalchemy import func, or_, select
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
+"""Inventory on MongoDB: items, suppliers, a stock ledger and serial-number tracking.
 
-from app.core.exceptions import ConflictException, NotFoundException, ValidationException
-from app.models.customer import Customer
-from app.models.enums import ItemCategory, ItemUnit, SerialStatus, StockMovementType
-from app.models.inventory import InventoryItem, PlannedMaterial, SerialItem, StockMovement, Supplier
-from app.models.user import User
+Collections
+  inventory_items  one document per material; ``stock_qty`` is the live count
+  suppliers        vendors stock is bought from
+  stock_movements  append-only ledger (in / out / adjust / return); names are
+                   snapshotted so history stays readable after renames
+  serial_items     one document per serialised unit (panel, inverter, ...)
+
+Consistency rules
+  * Stock counts only change through conditional ``$inc`` updates, so two
+    people issuing the last units at the same time cannot drive stock negative.
+  * Serial numbers are stored upper-cased and are unique across all items
+    (the service team looks them up without knowing the item).
+  * For serialised items ``stock_qty`` always equals the number of serials
+    ``in_stock``; manual count adjustments are refused for them.
+"""
+import calendar
+import re
+import uuid
+from datetime import datetime, timezone
+from typing import Any, Dict, Iterable, List, Optional
+
+from pymongo import ASCENDING, ReturnDocument
+from pymongo.errors import DuplicateKeyError
+
+from app.core.exceptions import BadRequestException, ConflictException, NotFoundException, ValidationException
+from app.db.mongo import get_mongo_db
+from app.models.enums import SerialStatus, StockMovementType
 from app.schemas.inventory import (
-    CustomerMaterialItemRead,
-    CustomerMaterialsResponse,
     InventoryItemCreate,
-    InventoryItemRead,
     InventoryItemUpdate,
-    LowStockItemRead,
-    SerialDetailRead,
-    SerialItemRead,
     SerialStatusUpdate,
     StockAdjustRequest,
     StockInRequest,
-    StockMovementRead,
     StockOutRequest,
     SupplierCreate,
-    SupplierRead,
     SupplierUpdate,
 )
 
+ITEMS, SUPPLIERS, MOVES, SERIALS = "inventory_items", "suppliers", "stock_movements", "serial_items"
+_LIVE = {"is_deleted": {"$ne": True}}
+_indexes_ready = False
+
 
 def _add_months(dt: datetime, months: int) -> datetime:
-    """Add calendar months to a datetime, clamping the day to the target month's length."""
+    """Add calendar months, clamping the day to the target month's length."""
     month_index = dt.month - 1 + months
     year = dt.year + month_index // 12
     month = month_index % 12 + 1
@@ -40,561 +52,390 @@ def _add_months(dt: datetime, months: int) -> datetime:
     return dt.replace(year=year, month=month, day=day)
 
 
+def _now() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def _aware(dt: Optional[datetime]) -> Optional[datetime]:
+    if dt is None or dt.tzinfo is not None:
+        return dt
+    return dt.replace(tzinfo=timezone.utc)
+
+
+def _db():
+    global _indexes_ready
+    db = get_mongo_db()
+    if db is None:
+        raise BadRequestException("Inventory is temporarily unavailable. Please try again.")
+    if not _indexes_ready:
+        db[SERIALS].create_index([("serial_no", ASCENDING)], unique=True, name="serial_no_unique")
+        db[SERIALS].create_index([("item_id", ASCENDING), ("status", ASCENDING)])
+        db[MOVES].create_index([("moved_at", -1)])
+        db[MOVES].create_index([("customer_id", ASCENDING)])
+        _indexes_ready = True
+    return db
+
+
+def _clean_serials(raw: Optional[Iterable[str]]) -> List[str]:
+    return [s.strip().upper() for s in (raw or []) if s and s.strip()]
+
+
+def _out(doc: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    if doc is None:
+        return None
+    d = dict(doc)
+    d["id"] = str(d.pop("_id"))
+    return d
+
+
+def _user_label(user: Any) -> Dict[str, Any]:
+    return {"moved_by": str(getattr(user, "id", "")), "mover_name": getattr(user, "name", None)}
+
+
+def _customer(db, customer_id: str) -> Dict[str, Any]:
+    cid = str(customer_id)
+    cust = db["customers"].find_one({"$or": [{"_id": cid}, {"id": cid}], "is_deleted": {"$ne": True}})
+    if not cust:
+        raise NotFoundException("Customer not found.")
+    return cust
+
+
+def _record(db, item: Dict[str, Any], type_: StockMovementType, qty: int, user: Any, **extra) -> Dict[str, Any]:
+    mid = str(uuid.uuid4())
+    move = {
+        "_id": mid, "item_id": str(item["_id"]), "item_name": item.get("name"), "type": type_.value, "qty": int(qty),
+        "supplier_id": None, "supplier_name": None, "customer_id": None, "customer_name": None,
+        "unit_cost": None, "invoice_no": None, "note": None, "serial_numbers": [],
+        "moved_at": _now(), **_user_label(user),
+    }
+    move.update({k: v for k, v in extra.items() if v is not None})
+    db[MOVES].insert_one(move)
+    return _out(move)
+
+
 class InventoryService:
-    # ------------------ SUPPLIER METHODS ------------------
+    # ------------------ SUPPLIERS ------------------
     @staticmethod
-    async def create_supplier(db: AsyncSession, data: SupplierCreate) -> Supplier:
-        supplier = Supplier(
-            name=data.name,
-            phone=data.phone,
-            address=data.address,
-            gst_no=data.gst_no,
-        )
-        db.add(supplier)
-        await db.commit()
-        await db.refresh(supplier)
-        return supplier
+    def create_supplier(data: SupplierCreate) -> Dict[str, Any]:
+        now = _now()
+        sid = str(uuid.uuid4())
+        doc = {"_id": sid, **{k: (v.strip() if isinstance(v, str) else v) for k, v in data.model_dump().items()},
+               "is_active": True, "is_deleted": False, "created_at": now, "updated_at": now}
+        _db()[SUPPLIERS].insert_one(doc)
+        return _out(doc)
 
     @staticmethod
-    async def get_supplier(db: AsyncSession, supplier_id: uuid.UUID) -> Supplier:
-        stmt = select(Supplier).where(Supplier.id == supplier_id, Supplier.is_deleted == False)  # noqa: E712
-        supplier = (await db.execute(stmt)).scalar_one_or_none()
-        if not supplier:
+    def _supplier_doc(supplier_id: str) -> Dict[str, Any]:
+        doc = _db()[SUPPLIERS].find_one({"_id": str(supplier_id), **_LIVE})
+        if not doc:
             raise NotFoundException("Supplier not found.")
-        return supplier
+        return doc
 
     @staticmethod
-    async def list_suppliers(
-        db: AsyncSession,
-        is_active: Optional[bool] = None,
-        limit: int = 50,
-        offset: int = 0,
-    ) -> List[Supplier]:
-        stmt = (
-            select(Supplier)
-            .where(Supplier.is_deleted == False)  # noqa: E712
-            .order_by(Supplier.name.asc())
-            .offset(offset)
-            .limit(limit)
-        )
+    def get_supplier(supplier_id: str) -> Dict[str, Any]:
+        return _out(InventoryService._supplier_doc(supplier_id))
+
+    @staticmethod
+    def list_suppliers(is_active: Optional[bool] = None, limit: int = 50, offset: int = 0) -> List[Dict[str, Any]]:
+        query: Dict[str, Any] = dict(_LIVE)
         if is_active is not None:
-            stmt = stmt.where(Supplier.is_active == is_active)
-        result = await db.execute(stmt)
-        return list(result.scalars().all())
+            query["is_active"] = is_active
+        cur = _db()[SUPPLIERS].find(query).sort("name", ASCENDING).skip(offset).limit(limit)
+        return [_out(d) for d in cur]
 
     @staticmethod
-    async def update_supplier(
-        db: AsyncSession, supplier_id: uuid.UUID, data: SupplierUpdate
-    ) -> Supplier:
-        supplier = await InventoryService.get_supplier(db, supplier_id)
-        update_data = data.model_dump(exclude_unset=True)
-        for key, value in update_data.items():
-            setattr(supplier, key, value)
-        await db.commit()
-        await db.refresh(supplier)
-        return supplier
+    def update_supplier(supplier_id: str, data: SupplierUpdate) -> Dict[str, Any]:
+        InventoryService._supplier_doc(supplier_id)
+        updates = {k: (v.strip() if isinstance(v, str) else v) for k, v in data.model_dump(exclude_unset=True).items()}
+        updates["updated_at"] = _now()
+        doc = _db()[SUPPLIERS].find_one_and_update({"_id": str(supplier_id)}, {"$set": updates},
+                                                   return_document=ReturnDocument.AFTER)
+        return _out(doc)
 
     @staticmethod
-    async def delete_supplier(db: AsyncSession, supplier_id: uuid.UUID) -> None:
-        supplier = await InventoryService.get_supplier(db, supplier_id)
-        supplier.is_deleted = True
-        await db.commit()
+    def delete_supplier(supplier_id: str) -> None:
+        InventoryService._supplier_doc(supplier_id)
+        _db()[SUPPLIERS].update_one({"_id": str(supplier_id)},
+                                    {"$set": {"is_deleted": True, "is_active": False, "updated_at": _now()}})
 
-    # ------------------ ITEM METHODS ------------------
+    # ------------------ ITEMS ------------------
     @staticmethod
-    async def create_item(db: AsyncSession, data: InventoryItemCreate) -> InventoryItem:
-        item = InventoryItem(
-            category=data.category,
-            name=data.name,
-            brand=data.brand,
-            model=data.model,
-            unit=data.unit,
-            has_serial=data.has_serial,
-            min_stock=data.min_stock,
-            stock_qty=0,
-            specs=data.specs,
-        )
-        db.add(item)
-        await db.commit()
-        await db.refresh(item)
-        return item
+    def create_item(data: InventoryItemCreate) -> Dict[str, Any]:
+        now = _now()
+        iid = str(uuid.uuid4())
+        fields = data.model_dump(mode="json")
+        for k in ("name", "brand", "model"):
+            if isinstance(fields.get(k), str):
+                fields[k] = fields[k].strip() or None
+        if not fields.get("name"):
+            raise ValidationException("Item name is required.")
+        doc = {"_id": iid, **fields, "stock_qty": 0, "is_active": True, "is_deleted": False,
+               "created_at": now, "updated_at": now}
+        _db()[ITEMS].insert_one(doc)
+        return _out(doc)
 
     @staticmethod
-    async def get_item(db: AsyncSession, item_id: uuid.UUID) -> InventoryItem:
-        stmt = select(InventoryItem).where(
-            InventoryItem.id == item_id,
-            InventoryItem.is_deleted == False,  # noqa: E712
-        )
-        item = (await db.execute(stmt)).scalar_one_or_none()
-        if not item:
+    def _item_doc(item_id: str) -> Dict[str, Any]:
+        doc = _db()[ITEMS].find_one({"_id": str(item_id), **_LIVE})
+        if not doc:
             raise NotFoundException("Inventory item not found.")
-        return item
+        return doc
 
     @staticmethod
-    async def list_items(
-        db: AsyncSession,
-        category: Optional[ItemCategory] = None,
-        low_stock: bool = False,
-        search: Optional[str] = None,
-        is_active: Optional[bool] = None,
-        limit: int = 50,
-        offset: int = 0,
-    ) -> List[InventoryItem]:
-        stmt = (
-            select(InventoryItem)
-            .where(InventoryItem.is_deleted == False)  # noqa: E712
-            .order_by(InventoryItem.name.asc())
-            .offset(offset)
-            .limit(limit)
-        )
+    def get_item(item_id: str) -> Dict[str, Any]:
+        return _out(InventoryService._item_doc(item_id))
+
+    @staticmethod
+    def list_items(category: Optional[str] = None, low_stock: bool = False, search: Optional[str] = None,
+                   is_active: Optional[bool] = None, limit: int = 50, offset: int = 0) -> List[Dict[str, Any]]:
+        clauses: List[Dict[str, Any]] = [dict(_LIVE)]
         if category:
-            stmt = stmt.where(InventoryItem.category == category)
+            clauses.append({"category": str(getattr(category, "value", category))})
         if is_active is not None:
-            stmt = stmt.where(InventoryItem.is_active == is_active)
+            clauses.append({"is_active": is_active})
         if low_stock:
-            stmt = stmt.where(InventoryItem.stock_qty <= InventoryItem.min_stock)
+            clauses.append({"$expr": {"$lte": ["$stock_qty", "$min_stock"]}})
         if search:
-            pattern = f"%{search}%"
-            stmt = stmt.where(
-                or_(
-                    InventoryItem.name.ilike(pattern),
-                    InventoryItem.brand.ilike(pattern),
-                    InventoryItem.model.ilike(pattern),
-                )
-            )
-        result = await db.execute(stmt)
-        return list(result.scalars().all())
+            rx = {"$regex": re.escape(search.strip()), "$options": "i"}
+            clauses.append({"$or": [{"name": rx}, {"brand": rx}, {"model": rx}]})
+        cur = _db()[ITEMS].find({"$and": clauses}).sort("name", ASCENDING).skip(offset).limit(limit)
+        return [_out(d) for d in cur]
 
     @staticmethod
-    async def get_low_stock_items(db: AsyncSession) -> List[LowStockItemRead]:
-        stmt = (
-            select(InventoryItem)
-            .where(
-                InventoryItem.is_deleted == False,  # noqa: E712
-                InventoryItem.is_active == True,  # noqa: E712
-                InventoryItem.stock_qty <= InventoryItem.min_stock,
-            )
-            .order_by((InventoryItem.min_stock - InventoryItem.stock_qty).desc())
-        )
-        result = await db.execute(stmt)
-        items = result.scalars().all()
-        return [
-            LowStockItemRead(
-                id=i.id,
-                category=i.category,
-                name=i.name,
-                brand=i.brand,
-                model=i.model,
-                unit=i.unit,
-                min_stock=i.min_stock,
-                stock_qty=i.stock_qty,
-                shortage=max(0, i.min_stock - i.stock_qty),
-            )
-            for i in items
-        ]
+    def get_low_stock_items() -> List[Dict[str, Any]]:
+        items = [i for i in _db()[ITEMS].find({**_LIVE, "is_active": True})
+                 if int(i.get("stock_qty", 0)) <= int(i.get("min_stock", 0))]
+        items.sort(key=lambda i: int(i.get("min_stock", 0)) - int(i.get("stock_qty", 0)), reverse=True)
+        return [{**_out(i), "shortage": max(0, int(i.get("min_stock", 0)) - int(i.get("stock_qty", 0)))} for i in items]
 
     @staticmethod
-    async def update_item(
-        db: AsyncSession, item_id: uuid.UUID, data: InventoryItemUpdate
-    ) -> InventoryItem:
-        item = await InventoryService.get_item(db, item_id)
-        update_data = data.model_dump(exclude_unset=True)
-        for key, value in update_data.items():
-            setattr(item, key, value)
-        await db.commit()
-        await db.refresh(item)
-        return item
+    def update_item(item_id: str, data: InventoryItemUpdate) -> Dict[str, Any]:
+        InventoryService._item_doc(item_id)
+        updates = data.model_dump(mode="json", exclude_unset=True)
+        for k in ("name", "brand", "model"):
+            if isinstance(updates.get(k), str):
+                updates[k] = updates[k].strip() or None
+        if "name" in updates and not updates["name"]:
+            raise ValidationException("Item name is required.")
+        updates["updated_at"] = _now()
+        doc = _db()[ITEMS].find_one_and_update({"_id": str(item_id)}, {"$set": updates},
+                                               return_document=ReturnDocument.AFTER)
+        return _out(doc)
 
     @staticmethod
-    async def delete_item(db: AsyncSession, item_id: uuid.UUID) -> None:
-        item = await InventoryService.get_item(db, item_id)
-        item.is_deleted = True
-        await db.commit()
+    def delete_item(item_id: str) -> None:
+        item = InventoryService._item_doc(item_id)
+        if int(item.get("stock_qty", 0)) > 0:
+            raise BadRequestException("This item still has stock. Issue or adjust it to zero before deleting.")
+        _db()[ITEMS].update_one({"_id": item["_id"]}, {"$set": {"is_deleted": True, "is_active": False, "updated_at": _now()}})
 
     # ------------------ STOCK MOVEMENTS ------------------
     @staticmethod
-    async def stock_in(
-        db: AsyncSession, data: StockInRequest, user: User
-    ) -> StockMovement:
-        # Lock item row
-        stmt = (
-            select(InventoryItem)
-            .where(InventoryItem.id == data.item_id, InventoryItem.is_deleted == False)  # noqa: E712
-            .with_for_update()
-        )
-        item = (await db.execute(stmt)).scalar_one_or_none()
-        if not item:
-            raise NotFoundException("Inventory item not found.")
-
-        if data.supplier_id:
-            await InventoryService.get_supplier(db, data.supplier_id)
-
-        # Validate serial numbers for serialized items
-        if item.has_serial:
-            serials = data.serial_numbers or []
+    def stock_in(data: StockInRequest, user: Any) -> Dict[str, Any]:
+        db = _db()
+        item = InventoryService._item_doc(data.item_id)
+        supplier = InventoryService._supplier_doc(data.supplier_id) if data.supplier_id else None
+        serials: List[str] = []
+        if item.get("has_serial"):
+            serials = _clean_serials(data.serial_numbers)
             if len(serials) != data.qty:
                 raise ValidationException(
-                    f"Item '{item.name}' requires exactly {data.qty} serial numbers, received {len(serials)}."
-                )
-
-            # Check for duplicate serials within this request
+                    f"'{item['name']}' needs exactly {data.qty} serial numbers, received {len(serials)}.")
             if len(set(serials)) != len(serials):
-                raise ValidationException("Duplicate serial numbers detected in request.")
-
-            # Check if any serial number already exists for this item
-            dup_stmt = select(SerialItem.serial_no).where(
-                SerialItem.item_id == item.id,
-                SerialItem.serial_no.in_(serials),
-            )
-            existing_serials = list((await db.execute(dup_stmt)).scalars().all())
-            if existing_serials:
-                raise ConflictException(
-                    f"Serial number(s) already exist for this item: {', '.join(existing_serials)}"
-                )
-
-            # Insert serial items
-            for s_no in serials:
-                serial_obj = SerialItem(
-                    item_id=item.id,
-                    serial_no=s_no.strip(),
-                    status=SerialStatus.IN_STOCK,
-                    supplier_id=data.supplier_id,
-                    warranty_months=data.warranty_months,
-                )
-                db.add(serial_obj)
-
-        # Update stock quantity
-        item.stock_qty += data.qty
-
-        movement = StockMovement(
-            item_id=item.id,
-            type=StockMovementType.IN,
-            qty=data.qty,
-            supplier_id=data.supplier_id,
-            unit_cost=data.unit_cost,
-            invoice_no=data.invoice_no,
-            note=data.note,
-            moved_by=user.id,
+                raise ValidationException("Duplicate serial numbers in this delivery.")
+            existing = [d["serial_no"] for d in db[SERIALS].find({"serial_no": {"$in": serials}}, {"serial_no": 1})]
+            if existing:
+                raise ConflictException(f"Serial number(s) already registered: {', '.join(sorted(existing))}")
+            now = _now()
+            docs = [{
+                "_id": str(uuid.uuid4()), "item_id": str(item["_id"]), "item_name": item["name"], "serial_no": s,
+                "status": SerialStatus.IN_STOCK.value, "customer_id": None, "customer_name": None,
+                "supplier_id": str(supplier["_id"]) if supplier else None,
+                "supplier_name": supplier.get("name") if supplier else None,
+                "warranty_months": data.warranty_months, "warranty_until": None, "installed_on": None,
+                "created_at": now, "updated_at": now,
+            } for s in serials]
+            try:
+                db[SERIALS].insert_many(docs, ordered=True)
+            except DuplicateKeyError:
+                # Lost a race with another delivery: undo what we inserted.
+                db[SERIALS].delete_many({"_id": {"$in": [d["_id"] for d in docs]}, "status": SerialStatus.IN_STOCK.value})
+                raise ConflictException("One or more serial numbers were registered at the same time. Please retry.")
+        db[ITEMS].update_one({"_id": item["_id"]}, {"$inc": {"stock_qty": data.qty}, "$set": {"updated_at": _now()}})
+        return _record(
+            db, item, StockMovementType.IN, data.qty, user,
+            supplier_id=str(supplier["_id"]) if supplier else None,
+            supplier_name=supplier.get("name") if supplier else None,
+            unit_cost=data.unit_cost, invoice_no=(data.invoice_no or "").strip() or None,
+            note=(data.note or "").strip() or None, serial_numbers=serials,
         )
-        db.add(movement)
-        await db.commit()
-        await db.refresh(movement)
-        return movement
 
     @staticmethod
-    async def stock_out(
-        db: AsyncSession, data: StockOutRequest, user: User
-    ) -> StockMovement:
-        # Lock item row
-        stmt = (
-            select(InventoryItem)
-            .where(InventoryItem.id == data.item_id, InventoryItem.is_deleted == False)  # noqa: E712
-            .with_for_update()
+    def stock_out(data: StockOutRequest, user: Any) -> Dict[str, Any]:
+        db = _db()
+        item = InventoryService._item_doc(data.item_id)
+        customer = _customer(db, data.customer_id)
+        cid, cname = str(customer["_id"]), customer.get("name")
+        serials: List[str] = []
+        claimed: List[str] = []
+        now = _now()
+        if item.get("has_serial"):
+            serials = _clean_serials(data.serial_numbers)
+            if len(serials) != data.qty or len(set(serials)) != len(serials):
+                raise ValidationException(
+                    f"Select exactly {data.qty} different serial numbers of '{item['name']}' to issue.")
+            # Claim each serial atomically; roll back if any is not in stock.
+            for s in serials:
+                doc = db[SERIALS].find_one_and_update(
+                    {"serial_no": s, "item_id": str(item["_id"]), "status": SerialStatus.IN_STOCK.value},
+                    {"$set": {"status": SerialStatus.INSTALLED.value, "customer_id": cid, "customer_name": cname,
+                              "installed_on": now, "updated_at": now}},
+                    return_document=ReturnDocument.AFTER,
+                )
+                if not doc:
+                    InventoryService._release(db, claimed)
+                    raise ValidationException(f"Serial number {s} is not in stock for '{item['name']}'.")
+                claimed.append(s)
+                if int(doc.get("warranty_months") or 0) > 0:
+                    db[SERIALS].update_one({"_id": doc["_id"]},
+                                           {"$set": {"warranty_until": _add_months(now, int(doc["warranty_months"]))}})
+        res = db[ITEMS].update_one(
+            {"_id": item["_id"], "stock_qty": {"$gte": data.qty}},
+            {"$inc": {"stock_qty": -data.qty}, "$set": {"updated_at": now}},
         )
-        item = (await db.execute(stmt)).scalar_one_or_none()
-        if not item:
-            raise NotFoundException("Inventory item not found.")
-
-        # Validate customer
-        cust_stmt = select(Customer).where(Customer.id == data.customer_id, Customer.is_deleted == False)  # noqa: E712
-        customer = (await db.execute(cust_stmt)).scalar_one_or_none()
-        if not customer:
-            raise NotFoundException("Customer not found.")
-
-        # Check stock quantity
-        if item.stock_qty < data.qty:
+        if res.modified_count != 1:
+            InventoryService._release(db, claimed)
+            latest = db[ITEMS].find_one({"_id": item["_id"]}) or item
             raise ValidationException(
-                f"Insufficient stock for '{item.name}'. Available: {item.stock_qty}, Requested: {data.qty}"
-            )
-
-        # Handle serialized items
-        if item.has_serial:
-            serials = data.serial_numbers or []
-            if len(serials) != data.qty:
-                raise ValidationException(
-                    f"Item '{item.name}' requires selecting exactly {data.qty} serial numbers from stock, received {len(serials)}."
-                )
-
-            # Fetch requested serials with lock
-            serials_stmt = (
-                select(SerialItem)
-                .where(
-                    SerialItem.item_id == item.id,
-                    SerialItem.serial_no.in_(serials),
-                    SerialItem.status == SerialStatus.IN_STOCK,
-                )
-                .with_for_update()
-            )
-            available_serials = list((await db.execute(serials_stmt)).scalars().all())
-            if len(available_serials) != data.qty:
-                found_serials = {s.serial_no for s in available_serials}
-                missing = [s for s in serials if s not in found_serials]
-                raise ValidationException(
-                    f"The following serial numbers are not available in stock: {', '.join(missing)}"
-                )
-
-            # Mark serials as installed and calculate warranty
-            now = datetime.now(timezone.utc)
-            for s in available_serials:
-                s.status = SerialStatus.INSTALLED
-                s.customer_id = customer.id
-                s.installed_on = now
-                if s.warranty_months > 0:
-                    s.warranty_until = _add_months(now, s.warranty_months)
-
-        # Decrease stock quantity
-        item.stock_qty -= data.qty
-
-        movement = StockMovement(
-            item_id=item.id,
-            type=StockMovementType.OUT,
-            qty=data.qty,
-            customer_id=customer.id,
-            note=data.note,
-            moved_by=user.id,
-        )
-        db.add(movement)
-        await db.commit()
-        await db.refresh(movement)
-        return movement
+                f"Not enough stock of '{item['name']}'. Available: {int(latest.get('stock_qty', 0))}, requested: {data.qty}.")
+        return _record(db, item, StockMovementType.OUT, data.qty, user, customer_id=cid, customer_name=cname,
+                       note=(data.note or "").strip() or None, serial_numbers=serials)
 
     @staticmethod
-    async def adjust_stock(
-        db: AsyncSession, data: StockAdjustRequest, user: User
-    ) -> StockMovement:
-        stmt = (
-            select(InventoryItem)
-            .where(InventoryItem.id == data.item_id, InventoryItem.is_deleted == False)  # noqa: E712
-            .with_for_update()
-        )
-        item = (await db.execute(stmt)).scalar_one_or_none()
-        if not item:
-            raise NotFoundException("Inventory item not found.")
-
-        old_qty = item.stock_qty
-        delta = data.new_qty - old_qty
-        item.stock_qty = data.new_qty
-
-        movement = StockMovement(
-            item_id=item.id,
-            type=StockMovementType.ADJUST,
-            qty=delta,
-            note=f"Adjustment from {old_qty} to {data.new_qty}: {data.note}",
-            moved_by=user.id,
-        )
-        db.add(movement)
-        await db.commit()
-        await db.refresh(movement)
-        return movement
+    def _release(db, serials: List[str]) -> None:
+        if serials:
+            db[SERIALS].update_many({"serial_no": {"$in": serials}}, {"$set": {
+                "status": SerialStatus.IN_STOCK.value, "customer_id": None, "customer_name": None,
+                "installed_on": None, "warranty_until": None, "updated_at": _now()}})
 
     @staticmethod
-    async def list_movements(
-        db: AsyncSession,
-        item_id: Optional[uuid.UUID] = None,
-        customer_id: Optional[uuid.UUID] = None,
-        supplier_id: Optional[uuid.UUID] = None,
-        movement_type: Optional[StockMovementType] = None,
-        limit: int = 50,
-        offset: int = 0,
-    ) -> List[StockMovement]:
-        stmt = (
-            select(StockMovement)
-            .options(
-                selectinload(StockMovement.item),
-                selectinload(StockMovement.supplier),
-                selectinload(StockMovement.customer),
-                selectinload(StockMovement.mover),
-            )
-            .order_by(StockMovement.moved_at.desc())
-            .offset(offset)
-            .limit(limit)
-        )
+    def adjust_stock(data: StockAdjustRequest, user: Any) -> Dict[str, Any]:
+        db = _db()
+        item = InventoryService._item_doc(data.item_id)
+        if item.get("has_serial"):
+            raise BadRequestException(
+                "Stock of serial-tracked items follows their serial numbers. Use Stock In, Issue, "
+                "or mark a serial defective/returned instead.")
+        old = db[ITEMS].find_one_and_update({"_id": item["_id"]},
+                                            {"$set": {"stock_qty": data.new_qty, "updated_at": _now()}})
+        old_qty = int((old or item).get("stock_qty", 0))
+        return _record(db, item, StockMovementType.ADJUST, data.new_qty - old_qty, user,
+                       note=f"Adjusted from {old_qty} to {data.new_qty}: {data.note.strip()}")
+
+    @staticmethod
+    def list_movements(item_id: Optional[str] = None, customer_id: Optional[str] = None,
+                       supplier_id: Optional[str] = None, movement_type: Optional[str] = None,
+                       limit: int = 50, offset: int = 0) -> List[Dict[str, Any]]:
+        query: Dict[str, Any] = {}
         if item_id:
-            stmt = stmt.where(StockMovement.item_id == item_id)
+            query["item_id"] = str(item_id)
         if customer_id:
-            stmt = stmt.where(StockMovement.customer_id == customer_id)
+            query["customer_id"] = str(customer_id)
         if supplier_id:
-            stmt = stmt.where(StockMovement.supplier_id == supplier_id)
+            query["supplier_id"] = str(supplier_id)
         if movement_type:
-            stmt = stmt.where(StockMovement.type == movement_type)
+            query["type"] = str(getattr(movement_type, "value", movement_type))
+        cur = _db()[MOVES].find(query).sort("moved_at", -1).skip(offset).limit(limit)
+        return [_out(d) for d in cur]
 
-        result = await db.execute(stmt)
-        return list(result.scalars().all())
-
-    # ------------------ CUSTOMER PROJECT MATERIALS ------------------
+    # ------------------ SERIALS ------------------
     @staticmethod
-    async def get_customer_materials(
-        db: AsyncSession, customer_id: uuid.UUID
-    ) -> CustomerMaterialsResponse:
-        cust_stmt = select(Customer).where(Customer.id == customer_id, Customer.is_deleted == False)  # noqa: E712
-        customer = (await db.execute(cust_stmt)).scalar_one_or_none()
-        if not customer:
-            raise NotFoundException("Customer not found.")
-
-        # Query all stock out movements for this customer
-        stmt = (
-            select(StockMovement)
-            .options(selectinload(StockMovement.item))
-            .where(
-                StockMovement.customer_id == customer_id,
-                StockMovement.type == StockMovementType.OUT,
-            )
-        )
-        movements = list((await db.execute(stmt)).scalars().all())
-
-        # Query all serial items installed for this customer
-        serial_stmt = (
-            select(SerialItem)
-            .options(selectinload(SerialItem.item), selectinload(SerialItem.supplier))
-            .where(SerialItem.customer_id == customer_id)
-        )
-        serials = list((await db.execute(serial_stmt)).scalars().all())
-
-        # Group serials by item_id
-        serials_by_item: Dict[uuid.UUID, List[SerialItem]] = {}
-        for s in serials:
-            serials_by_item.setdefault(s.item_id, []).append(s)
-
-        # Group movements by item_id
-        items_map: Dict[uuid.UUID, Dict[str, Any]] = {}
-        for m in movements:
-            if m.item_id not in items_map:
-                items_map[m.item_id] = {
-                    "item": m.item,
-                    "total_qty": 0,
-                }
-            items_map[m.item_id]["total_qty"] += m.qty
-
-        material_items: List[CustomerMaterialItemRead] = []
-        for item_id, data in items_map.items():
-            item = data["item"]
-            item_serials = serials_by_item.get(item_id, [])
-            serials_read = [
-                SerialItemRead(
-                    id=s.id,
-                    item_id=s.item_id,
-                    item_name=item.name,
-                    serial_no=s.serial_no,
-                    status=s.status,
-                    customer_id=s.customer_id,
-                    customer_name=customer.name,
-                    supplier_id=s.supplier_id,
-                    supplier_name=s.supplier.name if s.supplier else None,
-                    warranty_months=s.warranty_months,
-                    warranty_until=s.warranty_until,
-                    installed_on=s.installed_on,
-                    created_at=s.created_at,
-                )
-                for s in item_serials
-            ]
-            material_items.append(
-                CustomerMaterialItemRead(
-                    item_id=item.id,
-                    item_name=item.name,
-                    category=item.category,
-                    unit=item.unit,
-                    total_qty=data["total_qty"],
-                    serials=serials_read,
-                )
-            )
-
-        return CustomerMaterialsResponse(
-            customer_id=customer.id,
-            customer_name=customer.name,
-            materials=material_items,
-        )
-
-    # ------------------ SERIAL LOOKUPS & WARRANTY ------------------
-    @staticmethod
-    async def get_serial_detail(db: AsyncSession, serial_no: str) -> SerialDetailRead:
-        stmt = (
-            select(SerialItem)
-            .options(
-                selectinload(SerialItem.item),
-                selectinload(SerialItem.customer),
-                selectinload(SerialItem.supplier),
-            )
-            .where(SerialItem.serial_no == serial_no.strip())
-        )
-        serial = (await db.execute(stmt)).scalar_one_or_none()
-        if not serial:
-            raise NotFoundException(f"Serial number '{serial_no}' not found.")
-
-        now = datetime.now(timezone.utc)
-        is_under_warranty = False
-        if serial.warranty_until:
-            warranty_tz = serial.warranty_until if serial.warranty_until.tzinfo else serial.warranty_until.replace(tzinfo=timezone.utc)
-            is_under_warranty = warranty_tz >= now
-
-        return SerialDetailRead(
-            id=serial.id,
-            item_id=serial.item_id,
-            item_name=serial.item.name,
-            category=serial.item.category,
-            brand=serial.item.brand,
-            model=serial.item.model,
-            serial_no=serial.serial_no,
-            status=serial.status,
-            customer_id=serial.customer_id,
-            customer_name=serial.customer.name if serial.customer else None,
-            customer_phone=serial.customer.phone if serial.customer else None,
-            customer_address=serial.customer.address if serial.customer else None,
-            supplier_id=serial.supplier_id,
-            supplier_name=serial.supplier.name if serial.supplier else None,
-            warranty_months=serial.warranty_months,
-            installed_on=serial.installed_on,
-            warranty_until=serial.warranty_until,
-            is_under_warranty=is_under_warranty,
-        )
+    def list_serials(status: Optional[str] = None, item_id: Optional[str] = None, search: Optional[str] = None,
+                     limit: int = 100, offset: int = 0) -> List[Dict[str, Any]]:
+        query: Dict[str, Any] = {}
+        if status:
+            query["status"] = str(getattr(status, "value", status))
+        if item_id:
+            query["item_id"] = str(item_id)
+        if search:
+            rx = {"$regex": re.escape(search.strip()), "$options": "i"}
+            query["$or"] = [{"serial_no": rx}, {"item_name": rx}, {"customer_name": rx}]
+        cur = _db()[SERIALS].find(query).sort("updated_at", -1).skip(offset).limit(limit)
+        return [_out(d) for d in cur]
 
     @staticmethod
-    async def update_serial_status(
-        db: AsyncSession, serial_id: uuid.UUID, data: SerialStatusUpdate, user: User
-    ) -> SerialItem:
-        stmt = (
-            select(SerialItem)
-            .options(selectinload(SerialItem.item), selectinload(SerialItem.customer))
-            .where(SerialItem.id == serial_id)
-        )
-        serial = (await db.execute(stmt)).scalar_one_or_none()
-        if not serial:
+    def get_customer_materials(customer: Dict[str, Any]) -> Dict[str, Any]:
+        db = _db()
+        cid = str(customer["_id"])
+        totals: Dict[str, int] = {}
+        for m in db[MOVES].find({"customer_id": cid, "type": StockMovementType.OUT.value}):
+            totals[m["item_id"]] = totals.get(m["item_id"], 0) + int(m.get("qty", 0))
+        serials_by_item: Dict[str, List[Dict[str, Any]]] = {}
+        for s in db[SERIALS].find({"customer_id": cid}):
+            serials_by_item.setdefault(s["item_id"], []).append(_out(s))
+        materials = []
+        for iid in sorted(set(totals) | set(serials_by_item)):
+            item = db[ITEMS].find_one({"_id": iid}) or {}
+            materials.append({
+                "item_id": iid, "item_name": item.get("name") or "Removed item",
+                "category": item.get("category", "other"), "unit": item.get("unit", "pcs"),
+                "total_qty": totals.get(iid, len(serials_by_item.get(iid, []))),
+                "serials": serials_by_item.get(iid, []),
+            })
+        return {"customer_id": cid, "customer_name": customer.get("name") or "Customer", "materials": materials}
+
+    @staticmethod
+    def get_serial_detail(serial_no: str) -> Dict[str, Any]:
+        db = _db()
+        s = db[SERIALS].find_one({"serial_no": serial_no.strip().upper()})
+        if not s:
+            raise NotFoundException(f"Serial number '{serial_no.strip()}' not found.")
+        item = db[ITEMS].find_one({"_id": s["item_id"]}) or {}
+        cust = db["customers"].find_one({"_id": s["customer_id"]}) if s.get("customer_id") else None
+        until = _aware(s.get("warranty_until"))
+        return {
+            **_out(s),
+            "item_name": item.get("name") or s.get("item_name") or "Solar component",
+            "category": item.get("category", "other"), "brand": item.get("brand"), "model": item.get("model"),
+            "customer_name": (cust or {}).get("name") or s.get("customer_name"),
+            "customer_phone": (cust or {}).get("phone"), "customer_address": (cust or {}).get("address"),
+            "warranty_until": until,
+            "is_under_warranty": bool(until and until >= _now()),
+        }
+
+    @staticmethod
+    def update_serial_status(serial_id: str, data: SerialStatusUpdate, user: Any) -> Dict[str, Any]:
+        """Move a serial between in_stock / defective / returned (installing goes through stock-out).
+
+        in_stock → defective/returned takes the unit out of sellable stock;
+        defective/returned/installed → in_stock puts it back (an installed unit
+        returned to the warehouse leaves the customer's project).
+        """
+        db = _db()
+        s = db[SERIALS].find_one({"_id": str(serial_id)})
+        if not s:
             raise NotFoundException("Serial item not found.")
-
-        old_status = serial.status
-        serial.status = data.status
-
-        # If marking defective or returned and it was previously installed, log a note movement if applicable
-        if data.status in [SerialStatus.DEFECTIVE, SerialStatus.RETURNED] and old_status == SerialStatus.INSTALLED:
-            movement = StockMovement(
-                item_id=serial.item_id,
-                type=StockMovementType.RETURN if data.status == SerialStatus.RETURNED else StockMovementType.ADJUST,
-                qty=0,
-                customer_id=serial.customer_id,
-                note=f"Serial {serial.serial_no} status changed from {old_status.value} to {data.status.value}: {data.note or 'No reason provided'}",
-                moved_by=user.id,
-            )
-            db.add(movement)
-
-        await db.commit()
-        await db.refresh(serial)
-        return serial
-
-    @staticmethod
-    def build_movement_read(m: StockMovement) -> StockMovementRead:
-        return StockMovementRead(
-            id=m.id,
-            item_id=m.item_id,
-            item_name=m.item.name if m.item else None,
-            type=m.type,
-            qty=m.qty,
-            supplier_id=m.supplier_id,
-            supplier_name=m.supplier.name if m.supplier else None,
-            customer_id=m.customer_id,
-            customer_name=m.customer.name if m.customer else None,
-            unit_cost=m.unit_cost,
-            invoice_no=m.invoice_no,
-            note=m.note,
-            moved_by=m.moved_by,
-            mover_name=m.mover.name if m.mover else None,
-            moved_at=m.moved_at,
-        )
+        old, new = s["status"], data.status.value
+        if new == old:
+            return _out(s)
+        if new == SerialStatus.INSTALLED.value:
+            raise BadRequestException("Issue the serial to a customer with Stock Out to mark it installed.")
+        item = db[ITEMS].find_one({"_id": s["item_id"]}) or {"_id": s["item_id"], "name": s.get("item_name")}
+        note = (data.note or "").strip() or "No reason given"
+        updates: Dict[str, Any] = {"status": new, "updated_at": _now()}
+        delta = 0
+        if old == SerialStatus.IN_STOCK.value:
+            delta = -1
+        elif new == SerialStatus.IN_STOCK.value:
+            delta = 1
+            updates.update({"customer_id": None, "customer_name": None, "installed_on": None, "warranty_until": None})
+        res = db[SERIALS].update_one({"_id": s["_id"], "status": old}, {"$set": updates})
+        if res.modified_count != 1:
+            raise ConflictException("This serial was changed by someone else. Refresh and try again.")
+        if delta:
+            db[ITEMS].update_one({"_id": item["_id"]}, {"$inc": {"stock_qty": delta}, "$set": {"updated_at": _now()}})
+        move_type = StockMovementType.RETURN if (new == SerialStatus.RETURNED.value or old == SerialStatus.INSTALLED.value) \
+            else StockMovementType.ADJUST
+        _record(db, item, move_type, delta, user, customer_id=s.get("customer_id"), customer_name=s.get("customer_name"),
+                note=f"Serial {s['serial_no']}: {old} → {new}. {note}", serial_numbers=[s["serial_no"]])
+        return _out(db[SERIALS].find_one({"_id": s["_id"]}))

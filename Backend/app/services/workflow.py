@@ -410,8 +410,11 @@ def migrate_legacy_customers() -> int:
     db = _db()
     if db is None:
         return 0
+    from app.db.mongo import is_self_registered_project
     count = 0
-    for cust in db["customers"].find({"workflow_version": {"$ne": 2}}, {"_id": 1}):
+    for cust in db["customers"].find({"workflow_version": {"$ne": 2}}):
+        if is_self_registered_project(cust):
+            continue  # sign-up placeholder: no workflow until sales takes it on
         try:
             advance(cust["_id"])
             db["customers"].update_one({"_id": cust["_id"]}, {"$set": {"workflow_version": 2}})
