@@ -196,15 +196,18 @@ class SiteJobCard extends StatelessWidget {
                         color: isToday ? AppColors.gold500 : AppColors.grey400,
                       ),
                       const SizedBox(width: 6),
-                      Text(
-                        dateStr,
-                        style: TextStyle(
-                          color: isToday ? AppColors.gold500 : AppColors.fg,
-                          fontSize: 12,
-                          fontWeight: isToday ? FontWeight.w700 : FontWeight.w500,
+                      Expanded(
+                        child: Text(
+                          dateStr,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            color: isToday ? AppColors.gold500 : AppColors.fg,
+                            fontSize: 12,
+                            fontWeight: isToday ? FontWeight.w700 : FontWeight.w500,
+                          ),
                         ),
                       ),
-                      const Spacer(),
                       const Icon(Icons.photo_library_outlined, size: 14, color: AppColors.grey400),
                       const SizedBox(width: 5),
                       Text(

@@ -443,7 +443,11 @@ class _EmployeeShellState extends State<EmployeeShell> {
               borderRadius: BorderRadius.circular(AppRadius.lg),
               border: Border.all(color: AppColors.navy600),
             ),
-            child: Column(
+            // ListTiles paint on the nearest Material; give them one inside the
+            // coloured box (Flutter asserts otherwise and the tab fails to build).
+            child: Material(
+              type: MaterialType.transparency,
+              child: Column(
               children: [
                 ListTile(
                   leading: const Icon(Icons.cloud_sync_rounded, color: AppColors.gold500),
@@ -483,6 +487,7 @@ class _EmployeeShellState extends State<EmployeeShell> {
                   subtitle: const Text('JWT authenticated tokens stored securely', style: TextStyle(color: AppColors.grey500, fontSize: 12)),
                 ),
               ],
+            ),
             ),
           ),
           const SizedBox(height: 28),

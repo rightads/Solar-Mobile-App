@@ -58,8 +58,13 @@ class SpSolarSystemCard extends StatelessWidget {
               children: [
                 Row(
                   children: [
-                    Text('Your Solar System', style: AppTextStyles.headlineSmall.copyWith(fontSize: 15)),
-                    const Spacer(),
+                    Expanded(
+                      child: Text('Your Solar System',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: AppTextStyles.headlineSmall.copyWith(fontSize: 15)),
+                    ),
+                    const SizedBox(width: 8),
                     _StatusPill(active: active),
                   ],
                 ),

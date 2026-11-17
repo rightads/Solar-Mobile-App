@@ -333,8 +333,12 @@ class ClientStatusTab extends StatelessWidget {
                           children: [
                             const Icon(Icons.payment_rounded, color: AppColors.gold500, size: 18),
                             const SizedBox(width: 8),
-                            Text('Submit Payment',
-                                style: AppTextStyles.labelMedium.copyWith(color: AppColors.gold400, fontWeight: FontWeight.bold)),
+                            Flexible(
+                              child: Text('Submit Payment',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: AppTextStyles.labelMedium.copyWith(color: AppColors.gold400, fontWeight: FontWeight.bold)),
+                            ),
                           ],
                         ),
                       ),
@@ -356,8 +360,12 @@ class ClientStatusTab extends StatelessWidget {
                           children: [
                             const Icon(Icons.support_agent_rounded, color: AppColors.orange400, size: 18),
                             const SizedBox(width: 8),
-                            Text('Raise Ticket',
-                                style: AppTextStyles.labelMedium.copyWith(color: AppColors.orange400, fontWeight: FontWeight.bold)),
+                            Flexible(
+                              child: Text('Raise Ticket',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: AppTextStyles.labelMedium.copyWith(color: AppColors.orange400, fontWeight: FontWeight.bold)),
+                            ),
                           ],
                         ),
                       ),
@@ -374,8 +382,11 @@ class ClientStatusTab extends StatelessWidget {
               padding: const EdgeInsets.fromLTRB(16, 20, 16, 8),
               child: Row(
                 children: [
-                  Text('Project Milestones', style: AppTextStyles.headlineSmall),
-                  const Spacer(),
+                  Expanded(
+                    child: Text('Project Milestones',
+                        maxLines: 1, overflow: TextOverflow.ellipsis, style: AppTextStyles.headlineSmall),
+                  ),
+                  const SizedBox(width: 8),
                   Text('Real-time sync',
                       style: AppTextStyles.caption.copyWith(color: AppColors.grey500)),
                 ],

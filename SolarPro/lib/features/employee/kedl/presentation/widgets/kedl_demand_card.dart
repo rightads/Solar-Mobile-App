@@ -50,13 +50,17 @@ class KedlDemandCard extends StatelessWidget {
                 children: [
                   Icon(Icons.warning_amber_rounded, color: AppColors.fg, size: 16),
                   SizedBox(width: 6),
-                  Text(
-                    'OVERDUE DEMAND - ACTION REQUIRED',
-                    style: TextStyle(
-                      color: AppColors.fg,
-                      fontSize: 11,
-                      fontWeight: FontWeight.w800,
-                      letterSpacing: 0.5,
+                  Expanded(
+                    child: Text(
+                      'OVERDUE DEMAND - ACTION REQUIRED',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: AppColors.fg,
+                        fontSize: 11,
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: 0.5,
+                      ),
                     ),
                   ),
                 ],
