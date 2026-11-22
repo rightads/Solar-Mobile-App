@@ -2,10 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:timeline_tile/timeline_tile.dart';
+import 'package:solar_pro/core/constants/project_stages.dart';
 import 'package:solar_pro/core/theme/app_theme.dart';
 import 'package:solar_pro/shared/animations/motion.dart';
 import 'package:solar_pro/shared/widgets/sp_solar_system_card.dart';
 import 'package:solar_pro/features/client/data/models/client_dashboard_model.dart';
+import 'package:solar_pro/features/quotations/presentation/client_quotations_section.dart';
 
 class ClientStatusTab extends StatelessWidget {
   final Map<String, dynamic>? homeData;
@@ -99,7 +101,7 @@ class ClientStatusTab extends StatelessWidget {
                   capacityKw: capacity,
                   stageLabel: currentStage == 'REGISTRATION_SUBMITTED'
                       ? 'Registration Submitted'
-                      : _formatStageName(currentStage),
+                      : projectStageLabel(currentStage),
                   completed: completedCount,
                   total: totalCount,
                   percentage: progressPercentage,
@@ -107,6 +109,12 @@ class ClientStatusTab extends StatelessWidget {
                 ),
               ),
             ),
+          ),
+
+          // Quotation waiting for approval (or the approved one). Keyed to the
+          // dashboard data so a pull-to-refresh reloads it too.
+          SliverToBoxAdapter(
+            child: ClientQuotationsSection(key: ObjectKey(homeData), onDecided: onRefresh),
           ),
 
           // REQUIREMENT 1: "Status with Employee No." Card
@@ -633,13 +641,6 @@ class ClientStatusTab extends StatelessWidget {
     return by.isEmpty || by == 'System' ? null : by;
   }
 
-  String _formatStageName(String stage) {
-    return stage
-        .replaceAll('_', ' ')
-        .split(' ')
-        .map((w) => w.isNotEmpty ? '${w[0].toUpperCase()}${w.substring(1).toLowerCase()}' : '')
-        .join(' ');
-  }
 }
 
 /// One site trade (structure / electrical / civil) inside the installation stage.

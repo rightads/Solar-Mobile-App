@@ -73,7 +73,10 @@ enum KedlFileStatus {
   demandRaised,
   demandPaid,
   approved,
-  rejected;
+  rejected,
+
+  /// The project does not need this file (e.g. no load enhancement).
+  notRequired;
 
   static KedlFileStatus fromBackendString(String? val) {
     final clean = val?.trim().toLowerCase() ?? '';
@@ -90,6 +93,8 @@ enum KedlFileStatus {
         return KedlFileStatus.approved;
       case 'rejected':
         return KedlFileStatus.rejected;
+      case 'not_required':
+        return KedlFileStatus.notRequired;
       case 'not_started':
       default:
         return KedlFileStatus.notStarted;
@@ -110,6 +115,8 @@ enum KedlFileStatus {
         return 'approved';
       case KedlFileStatus.rejected:
         return 'rejected';
+      case KedlFileStatus.notRequired:
+        return 'not_required';
     }
   }
 
@@ -127,6 +134,8 @@ enum KedlFileStatus {
         return 'Approved';
       case KedlFileStatus.rejected:
         return 'Rejected';
+      case KedlFileStatus.notRequired:
+        return 'Not Required';
     }
   }
 
@@ -144,6 +153,8 @@ enum KedlFileStatus {
         return const Color(0xFF10B981); // Emerald
       case KedlFileStatus.rejected:
         return const Color(0xFFEF4444); // Red
+      case KedlFileStatus.notRequired:
+        return const Color(0xFF94A3B8); // Grey
     }
   }
 
@@ -160,6 +171,7 @@ enum KedlFileStatus {
       case KedlFileStatus.approved:
         return 4;
       case KedlFileStatus.rejected:
+      case KedlFileStatus.notRequired:
         return 4;
     }
   }

@@ -35,7 +35,8 @@ class AdminStats {
   static const _doneWorks = {'completed', 'cancelled'};
   static const _doneKedl = {'approved', 'rejected'};
   static const _doneTickets = {'resolved', 'closed'};
-  static const _liveStages = {'SYSTEM_LIVE', 'HANDED_OVER'};
+  // Net metering done: the system is live (account / bill or completed).
+  static const _liveStages = {'ACCOUNT_BILL', 'COMPLETED'};
 
   static Future<AdminStats> load() async {
     final api = ApiClient();

@@ -50,7 +50,7 @@ Future<void> _exercise(WidgetTester tester, Widget home, String name, String rol
   await _settle(tester);
   _expectNoError(tester, '$name load');
   for (final label in ['Leads', 'Customers', 'Payments', 'My Jobs', 'Calendar', 'Files', 'Demands', 'Tickets',
-      'Serials', 'More', 'Status', 'Home']) {
+      'Serials', 'Projects', 'More', 'Status', 'Home']) {
     final f = find.text(label);
     if (f.evaluate().isEmpty) continue;
     await tester.tap(f.last, warnIfMissed: false);
@@ -66,9 +66,12 @@ void main() {
   for (final p in EmployeePortalType.values) {
     testWidgets('employee portal ${p.name}', (tester) async {
       await _exercise(tester, EmployeeShell(portalType: p), p.name,
-          {'salesman': 'sales', 'site': 'site', 'kedl': 'kedl', 'service': 'service'}[p.name]!);
+          {'salesman': 'sales', 'site': 'site', 'kedl': 'kedl', 'service': 'service', 'desk': 'subsidy'}[p.name]!);
     });
   }
+  testWidgets('employee portal desk (account / bill)', (tester) async {
+    await _exercise(tester, const EmployeeShell(portalType: EmployeePortalType.desk), 'desk-account', 'account');
+  });
   final vendorScreens = <String, Widget>{
     'vendor leads': const LeadsScreen(),
     'vendor customers': const CustomersScreen(),

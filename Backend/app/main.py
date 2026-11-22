@@ -42,7 +42,7 @@ async def lifespan(app: FastAPI):
         from app.services.workflow import migrate_legacy_customers
         migrated = migrate_legacy_customers()
         if migrated:
-            logger.info("Migrated customers to the 4-stage workflow", count=migrated)
+            logger.info("Migrated customers to the 8-stage workflow", count=migrated)
     except Exception as e:
         logger.warning("Workflow migration skipped", error=str(e))
     try:

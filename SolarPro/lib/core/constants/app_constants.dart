@@ -94,6 +94,7 @@ class AppRoutes {
   static const String reports     = '/vendor/reports';
   static const String adminApprovals = '/admin/approvals';
   static const String adminEmployees = '/admin/employees';
+  static const String adminAccounts = '/admin/accounts';
   static const String notifications = '/notifications';
   // Client
   static const String clientDash  = '/client/dashboard';
@@ -106,6 +107,7 @@ class AppRoutes {
   static const String employeeSite     = '/employee/site';
   static const String employeeKedl     = '/employee/kedl';
   static const String employeeService  = '/employee/service';
+  static const String employeeDesk     = '/employee/desk';
   static const String unsupportedRole  = '/unsupported-role';
 }
 
@@ -127,11 +129,16 @@ String resolveRoleHomeRoute(String? role, {String? teamType}) {
     case 'office_staff':
       return AppRoutes.employeeSalesman;
     case 'kedl':
+    case 'discom':
       return AppRoutes.employeeKedl;
+    case 'subsidy':
+    case 'account':
+      return AppRoutes.employeeDesk;
     case 'service':
       return AppRoutes.employeeService;
     case 'electrician':
     case 'structure':
+    case 'wiring':
     case 'civil':
     case 'site':
       return AppRoutes.employeeSite;

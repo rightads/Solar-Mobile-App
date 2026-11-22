@@ -1,3 +1,4 @@
+import 'package:solar_pro/features/quotations/presentation/quotation_form_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:solar_pro/core/services/media_picker.dart';
@@ -542,16 +543,19 @@ class _ConvertLeadScreenState extends State<ConvertLeadScreen> {
             },
             child: const Text('Back to Leads', style: TextStyle(color: AppColors.grey400)),
           ),
-          ElevatedButton(
-            onPressed: () {
+          ElevatedButton.icon(
+            // Next step: the quotation the customer approves in their app.
+            onPressed: () async {
               Navigator.of(ctx).pop();
-              Navigator.of(context).pop(true);
+              await QuotationFormScreen.open(context, customerId: customer.id, customerName: customer.name);
+              if (mounted) Navigator.of(context).pop(true);
             },
             style: ElevatedButton.styleFrom(
               backgroundColor: AppColors.teal500,
               foregroundColor: AppColors.fg,
             ),
-            child: const Text('Proceed to Payments'),
+            icon: const Icon(Icons.request_quote_rounded, size: 18),
+            label: const Text('Create Quotation'),
           ),
         ],
       ),

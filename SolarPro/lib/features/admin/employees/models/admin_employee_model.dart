@@ -170,6 +170,7 @@ class EmployeeTask {
       case 'lead':
         return Icons.person_search_rounded;
       case 'kedl':
+      case 'discom':
         return Icons.receipt_long_rounded;
       default:
         return Icons.assignment_rounded;

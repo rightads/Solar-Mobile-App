@@ -126,6 +126,7 @@ class NotificationRepository {
     // 2. Site Workers (Electrician, Structure, Civil)
     if (role == 'electrician' ||
         role == 'structure' ||
+        role == 'wiring' ||
         role == 'civil' ||
         role == 'labour' ||
         role == 'site') {
@@ -133,8 +134,13 @@ class NotificationRepository {
     }
 
     // 3. KEDL Discom Employee
-    if (role == 'kedl') {
+    if (role == 'kedl' || role == 'discom') {
       return AppRoutes.employeeKedl; // Lands on KEDL portal
+    }
+
+    // Subsidy / Account desk
+    if (role == 'subsidy' || role == 'account') {
+      return AppRoutes.employeeDesk;
     }
 
     // 4. Service Employee
@@ -193,7 +199,8 @@ class NotificationRepository {
       if (n.targetRole == null || n.targetRole!.isEmpty) return true;
       return n.targetRole == role ||
           (role.contains('admin') && n.targetRole!.contains('admin')) ||
-          ((role == 'electrician' || role == 'structure' || role == 'civil') && n.targetRole == 'site');
+          ((role == 'electrician' || role == 'structure' || role == 'wiring' || role == 'civil') && n.targetRole == 'site') ||
+          (role == 'discom' && n.targetRole == 'kedl');
     }).toList();
   }
 

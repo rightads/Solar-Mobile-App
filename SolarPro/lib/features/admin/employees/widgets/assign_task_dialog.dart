@@ -84,7 +84,7 @@ class _AssignTaskDialogState extends State<AssignTaskDialog> {
 
   void _initDefaultCategory() {
     final role = widget.employee.role.toLowerCase();
-    if (role.contains('elec')) {
+    if (role.contains('elec') || role.contains('wiring')) {
       _selectedCategory = 'electrical';
     } else if (role.contains('struc')) {
       _selectedCategory = 'structure';
@@ -94,7 +94,7 @@ class _AssignTaskDialogState extends State<AssignTaskDialog> {
       _selectedCategory = 'service';
     } else if (role.contains('sales')) {
       _selectedCategory = 'sales';
-    } else if (role.contains('kedl')) {
+    } else if (role.contains('kedl') || role.contains('discom')) {
       _selectedCategory = 'kedl';
     } else {
       _selectedCategory = 'general';

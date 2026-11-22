@@ -99,8 +99,12 @@ class _KedlFileDetailScreenState extends State<KedlFileDetailScreen> {
         title: Text('Move to ${newStatus.displayName}?', style: const TextStyle(color: AppColors.fg, fontWeight: FontWeight.bold)),
         content: Text(
           newStatus == KedlFileStatus.approved && _file.fileType == KedlFileType.net
-              ? 'Approving the Net Metering file will automatically advance the customer project stage to SYSTEM LIVE.'
-              : 'Update the paperwork status of this ${_file.fileType.displayName} file to ${newStatus.displayName}?',
+              ? 'Approving the Net Metering file completes the "Discom: Net Metering" stage: the system goes live '
+                  'and the project moves to Account / Bill.'
+              : newStatus == KedlFileStatus.approved || newStatus == KedlFileStatus.notRequired
+                  ? 'Once the Name Change and Load files are both approved (or Load is not required), the '
+                      '"Discom: Name Change" stage is done and the project moves to Structure work.'
+                  : 'Update the paperwork status of this ${_file.fileType.displayName} file to ${newStatus.displayName}?',
           style: const TextStyle(color: AppColors.grey300, fontSize: 13, height: 1.4),
         ),
         actions: [
@@ -394,7 +398,18 @@ class _KedlFileDetailScreenState extends State<KedlFileDetailScreen> {
                                 label: const Text('Approve File'),
                                 style: ElevatedButton.styleFrom(backgroundColor: AppColors.success, foregroundColor: AppColors.fg),
                               ),
-                            if (_file.status != KedlFileStatus.rejected && _file.status != KedlFileStatus.approved)
+                            if (_file.fileType == KedlFileType.loadIncrease &&
+                                _file.status != KedlFileStatus.approved &&
+                                _file.status != KedlFileStatus.notRequired)
+                              OutlinedButton.icon(
+                                onPressed: () => _changeStatus(KedlFileStatus.notRequired),
+                                icon: const Icon(Icons.do_not_disturb_alt_rounded, size: 14),
+                                label: const Text('Not Required'),
+                                style: OutlinedButton.styleFrom(foregroundColor: AppColors.grey300),
+                              ),
+                            if (_file.status != KedlFileStatus.rejected &&
+                                _file.status != KedlFileStatus.approved &&
+                                _file.status != KedlFileStatus.notRequired)
                               OutlinedButton.icon(
                                 onPressed: () => _changeStatus(KedlFileStatus.rejected),
                                 icon: const Icon(Icons.cancel_outlined, size: 14),

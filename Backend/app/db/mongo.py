@@ -232,14 +232,8 @@ def mongo_approve_user(user_id: str) -> Optional[Dict[str, Any]]:
     role = str(user.get("role", "employee")).lower()
     employee_no = user.get("employee_no")
     if not employee_no and role != "client":
-        if "sales" in role:
-            prefix = "EMP-SLS"
-        elif "kedl" in role:
-            prefix = "EMP-KEDL"
-        elif "service" in role or "tech" in role:
-            prefix = "EMP-SRV"
-        else:
-            prefix = "EMP-SITE"
+        from app.core.access import EMPLOYEE_NO_PREFIX, normalize_department
+        prefix = EMPLOYEE_NO_PREFIX.get(normalize_department(role) or "", "EMP-STF")
         employee_no = f"{prefix}-{str(user['_id'])[:4].upper()}"
 
     update_fields = {
@@ -779,9 +773,44 @@ def mongo_get_salespersons() -> List[Dict[str, Any]]:
 
 # ── Page 1 & 2: Employees Add Like Labour & Labour Teams ─────────────────────
 
+_INVALID_DEPARTMENT = ("Invalid employee role. Choose Salesman, Discom, Structure, Wiring, "
+                       "Civil Work, Subsidy or Account / Bill.")
+
+
+def mongo_create_admin(data: Dict[str, Any], created_by: str) -> Dict[str, Any]:
+    """Create an administrator account (Super Admin only; checked by the caller)."""
+    from app.core.security import normalize_email, validate_password_strength
+    db = get_mongo_db()
+    if db is None:
+        raise RuntimeError("MongoDB is not available.")
+    name = " ".join(str(data.get("name") or "").split())[:100]
+    if len(name) < 2:
+        raise ValueError("Admin name is required.")
+    phone = normalize_phone(data.get("phone", ""))
+    email = normalize_email(data.get("email") or "")
+    password = str(data.get("password") or "")
+    validate_password_strength(password)
+    if db["users"].find_one({"$or": [{"phone": phone}, {"email": email}]}):
+        raise ValueError("An account with this mobile number or email already exists.")
+    now = datetime.now(timezone.utc)
+    uid = str(uuid.uuid4())
+    doc = {
+        "_id": uid, "id": uid, "name": name, "phone": phone, "email": email,
+        "role": "admin", "is_superadmin": False, "is_active": True, "approval_status": "approved",
+        "employee_no": f"ADM-{uid[:6].upper()}",
+        # The Super Admin vouches for the email, so password resets reach it.
+        "is_email_verified": True, "is_phone_verified": False, "token_version": 0,
+        "password_hash": hash_password(password), "created_by": created_by,
+        "created_at": now, "updated_at": now, "last_login_at": None,
+    }
+    db["users"].insert_one(doc)
+    doc.pop("password_hash")
+    return _format_mongo_doc(doc)
+
+
 def mongo_create_employee(employee_data: Dict[str, Any]) -> Dict[str, Any]:
     """Create a new staff account (admin only). Never modifies an existing account."""
-    from app.core.access import ASSIGNABLE_STAFF_ROLES, normalize_department
+    from app.core.access import ASSIGNABLE_STAFF_ROLES, EMPLOYEE_NO_PREFIX, normalize_department
     from app.core.security import normalize_email, validate_password_strength
     db = get_mongo_db()
     if db is None:
@@ -791,10 +820,10 @@ def mongo_create_employee(employee_data: Dict[str, Any]) -> Dict[str, Any]:
 
     raw_role = str(employee_data.get("role") or "").strip().lower()
     if raw_role in ("admin", "main_admin", "co_admin", "super_admin", "vendor", "manager", "client"):
-        raise ValueError("Invalid employee role. Choose Sales, Site-ops, KEDL or Service.")
+        raise ValueError(_INVALID_DEPARTMENT)
     role = normalize_department(raw_role) or normalize_department(employee_data.get("trade"))
     if role not in ASSIGNABLE_STAFF_ROLES:
-        raise ValueError("Invalid employee role. Choose Sales, Site-ops, KEDL or Service.")
+        raise ValueError(_INVALID_DEPARTMENT)
     name = " ".join(str(employee_data.get("name") or "").split())[:100]
     if len(name) < 2:
         raise ValueError("Employee name is required.")
@@ -810,7 +839,7 @@ def mongo_create_employee(employee_data: Dict[str, Any]) -> Dict[str, Any]:
         raise ValueError("An account with this mobile number or email already exists.")
 
     emp_id = str(uuid.uuid4())
-    prefix = {"sales": "EMP-SLS", "kedl": "EMP-KEDL", "service": "EMP-SRV"}.get(role, "EMP-SITE")
+    prefix = EMPLOYEE_NO_PREFIX[role]
     doc = {
         "_id": emp_id,
         "id": emp_id,
@@ -843,16 +872,16 @@ def mongo_create_employee(employee_data: Dict[str, Any]) -> Dict[str, Any]:
 def mongo_get_employees(trade: Optional[str] = None, team: Optional[str] = None, status: Optional[str] = None) -> List[Dict[str, Any]]:
     """Staff directory with active task counts.
 
-    ``trade`` filters by department (sales, site, kedl, service); legacy labels
-    such as "structure" or "electrician" are mapped onto their department.
+    ``trade`` filters by department (see access.DEPARTMENTS); legacy labels such
+    as "kedl" or "electrician" are mapped onto their department.
     Only approved, active staff are listed unless ``status`` is specified.
     """
-    from app.core.access import KEDL_ROLES, SALES_ROLES, SERVICE_ROLES, SITE_ROLES, department_of, normalize_department
+    from app.core.access import MANAGER_ROLES, STAFF_ROLES, department_of, normalize_department
     db = get_mongo_db()
     if db is None:
         return []
     query: Dict[str, Any] = {
-        "role": {"$in": sorted(SALES_ROLES | SITE_ROLES | KEDL_ROLES | SERVICE_ROLES)},
+        "role": {"$in": sorted(STAFF_ROLES - MANAGER_ROLES)},
         "deleted_at": None,
     }
     if status and status.lower() == "pending":
@@ -1297,6 +1326,11 @@ def mongo_update_kedl_demand(
 
 # ── Client Mobile Experience (Home & Payments) ───────────────────────────────
 
+def access_department_field(department: str) -> Optional[str]:
+    from app.core.access import DEPARTMENT_FIELD
+    return DEPARTMENT_FIELD.get(department)
+
+
 def mongo_get_client_home(user: Dict[str, Any], customer: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     """Aggregate dashboard data for a client.
 
@@ -1369,54 +1403,33 @@ def mongo_get_client_home(user: Dict[str, Any], customer: Optional[Dict[str, Any
     # Installation breakdown so the client sees each trade finish, not only
     # the whole installation.
     task_label = {"completed": "done", "in_progress": "in_progress", "active": "in_progress"}
-    tasks = []
-    for wt in workflow.SITE_SEQUENCE:
-        w = work_by_type.get(wt) or {}
-        status = task_label.get(str(w.get("status") or ""), "pending")
-        done_at = w.get("completed_at")
-        tasks.append({
-            "work_type": wt,
-            "title": f"{wt.capitalize()} work",
-            "status": status,
-            "assigned_to": w.get("assigned_employee_name") or w.get("assigned_staff") or None,
-            "completed_at": done_at.isoformat() if isinstance(done_at, datetime) else done_at,
-        })
-    tasks_done = sum(1 for t in tasks if t["status"] == "done")
+    # Site trade progress (structure / wiring / civil) shown on its own stage.
     for item in timeline:
-        if item["stage"] != "INSTALLATION_COMPLETE":
-            continue
-        item["tasks"] = tasks
-        if item["status"] == "current" and not awaiting_survey:
-            words = {"done": "done", "in_progress": "in progress", "pending": "pending"}
-            item["note"] = " · ".join(f"{t['work_type'].capitalize()} {words[t['status']]}" for t in tasks)
+        wt = workflow.STAGE_WORK_TYPE.get(item["stage"])
+        w = work_by_type.get(wt) if wt else None
+        if w and item["status"] == "current" and not awaiting_survey:
+            item["work_status"] = task_label.get(str(w.get("status") or ""), "pending")
 
     completed_count = sum(1 for item in timeline if item["status"] == "done")
     total_stages = len(timeline)
-    install_done = any(i["stage"] == "INSTALLATION_COMPLETE" and i["status"] == "done" for i in timeline)
-    partial = 0.0 if install_done or awaiting_survey else tasks_done / len(workflow.SITE_SEQUENCE)
-    progress_pct = int(((completed_count + partial) / total_stages) * 100) if total_stages > 0 else 0
+    progress_pct = int((completed_count / total_stages) * 100) if total_stages > 0 else 0
 
     # Responsible contact: whoever owns the project right now (see workflow.advance).
-    role_contact = {
-        "site": ("site_employee_id", "Site Installation Lead"),
-        "kedl": ("kedl_employee_id", "KEDL Paperwork Officer"),
-        "service": ("service_employee_id", "Service Engineer"),
-    }
     officer, officer_title = None, None
     role = str(customer.get("assigned_role") or "")
-    if role in role_contact and not awaiting_survey:
-        field, officer_title = role_contact[role]
+    field = access_department_field(role)
+    if field and not awaiting_survey and role != "sales":
+        from app.core.access import DEPARTMENT_LABELS
+        officer_title = f"{DEPARTMENT_LABELS.get(role, role.title())} Officer"
         officer = _user(customer.get(field) or customer.get("assigned_to"))
-        if not officer and role == "site":
-            # No site lead on the project: the engineer on the current trade.
-            active = next((w for t in workflow.SITE_SEQUENCE
-                           if (w := work_by_type.get(t)) and w.get("status") != "completed"), None)
+        if not officer:
+            wt = workflow.STAGE_WORK_TYPE.get(str(customer.get("stage") or ""))
+            active = work_by_type.get(wt) if wt else None
             if active and active.get("assigned_to"):
                 officer = _user(active["assigned_to"]) or {
                     "name": active.get("assigned_employee_name") or active.get("assigned_staff") or "Site Lead",
                     "phone": "", "employee_no": active.get("assigned_employee_no") or "", "email": "",
                 }
-                officer_title = f"{str(active.get('work_type', 'site')).capitalize()} Work Lead"
     if not officer and customer.get("assigned_officer_id"):
         officer, officer_title = _user(customer["assigned_officer_id"]), "Project Officer"
 

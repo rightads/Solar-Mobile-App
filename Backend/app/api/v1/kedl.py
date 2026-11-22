@@ -1,6 +1,8 @@
-"""KEDL discom paperwork: name change, load enhancement and net-metering files,
-their demand notices and documents. Approving the net-metering file makes the
-customer's system live (see services.workflow)."""
+"""Discom (formerly "KEDL") paperwork: name change, load enhancement and
+net-metering files, their demand notices and documents. Approving the name
+change + load files completes the "Discom: Name Change" stage; approving the
+net-metering file completes "Discom: Net Metering" (see services.workflow).
+A load file that the project does not need is marked ``not_required``."""
 from datetime import date, datetime, timezone
 from typing import Literal, Optional
 import uuid
@@ -19,7 +21,7 @@ require_kedl = require_roles(UserRole.ADMIN, UserRole.KEDL)
 require_kedl_or_sales = require_roles(UserRole.ADMIN, UserRole.KEDL, UserRole.SALES)
 
 FileType = Literal["name_change", "load", "net"]
-FileStatus = Literal["not_started", "submitted", "demand_raised", "demand_paid", "approved"]
+FileStatus = Literal["not_started", "submitted", "demand_raised", "demand_paid", "approved", "not_required", "rejected"]
 
 
 class KedlFileIn(BaseModel):
@@ -87,7 +89,7 @@ def _new_file(cust: dict, file_type: str, assignee: Optional[str]) -> dict:
         "_id": fid, "id": fid, "customer_id": str(cust["_id"]), "customer_name": cust.get("name", ""),
         "location": cust.get("address", ""), "file_type": file_type, "status": "not_started",
         "application_no": None, "remarks": None, "demand_amount": 0, "demands": [], "documents": [],
-        "status_log": [], "assigned_to": assignee or cust.get("kedl_employee_id"),
+        "status_log": [], "assigned_to": assignee or cust.get("discom_employee_id") or cust.get("kedl_employee_id"),
         "created_at": now, "updated_at": now,
     }
 
@@ -183,7 +185,7 @@ async def update_kedl_status(file_id: str, payload: KedlStatusIn, current_user: 
     log = {"from": doc.get("status"), "to": payload.status, "by": current_user.name,
            "note": (payload.note or "").strip() or None, "at": now.isoformat()}
     res = _save(doc, updates, current_user, push={"status_log": log})
-    if (doc.get("status") == "approved") != (payload.status == "approved"):
+    if doc.get("status") != payload.status:
         workflow.on_kedl_file_status(res, current_user)
     return _format_mongo_doc(res)
 

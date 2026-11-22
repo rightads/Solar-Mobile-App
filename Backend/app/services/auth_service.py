@@ -82,6 +82,7 @@ def _user_payload(doc: Dict[str, Any]) -> Dict[str, Any]:
         "phone": doc.get("phone", ""),
         "email": doc.get("email"),
         "role": str(doc.get("role", "client")).lower(),
+        "is_superadmin": bool(doc.get("is_superadmin", False)),
         "is_active": bool(doc.get("is_active", False)),
         "is_email_verified": bool(doc.get("is_email_verified", False)),
         "is_phone_verified": bool(doc.get("is_phone_verified", False)),
@@ -278,10 +279,8 @@ class AuthService:
                 "user": _user_payload(doc),
             }
 
-        role_display = {
-            "sales": "Sales Executive", "kedl": "KEDL Liaison",
-            "service": "Service Technician", "site": "Site Installation Crew",
-        }.get(role_clean, role_clean.capitalize())
+        from app.core.access import DEPARTMENT_LABELS
+        role_display = DEPARTMENT_LABELS.get(role_clean, role_clean.capitalize())
         try:
             from app.db.mongo import mongo_create_notification
             mongo_create_notification({

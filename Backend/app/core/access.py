@@ -10,17 +10,32 @@ from app.core.exceptions import ForbiddenException, NotFoundException
 ADMIN_ROLES: Set[str] = {"admin", "main_admin", "co_admin", "super_admin", "vendor"}
 MANAGER_ROLES: Set[str] = ADMIN_ROLES | {"manager"}
 SALES_ROLES: Set[str] = {"sales", "salesman", "employee", "office_staff"}
-SITE_ROLES: Set[str] = {"site", "technician", "labour", "electrician", "structure", "civil"}
-KEDL_ROLES: Set[str] = {"kedl"}
+# Discom (electricity board) paperwork. "kedl" is the legacy name.
+KEDL_ROLES: Set[str] = {"discom", "kedl"}
+DISCOM_ROLES = KEDL_ROLES
+# Installation trades. "site", "labour", "electrician" and "technician" are
+# legacy names for the same field crews.
+SITE_ROLES: Set[str] = {"structure", "wiring", "civil", "site", "technician", "labour", "electrician"}
+SUBSIDY_ROLES: Set[str] = {"subsidy"}
+ACCOUNT_ROLES: Set[str] = {"account"}
+# Legacy: Service is no longer a department, but existing service accounts
+# keep handling the client tickets assigned to them.
 SERVICE_ROLES: Set[str] = {"service", "technician"}
 CLIENT_ROLES: Set[str] = {"client"}
-STAFF_ROLES: Set[str] = MANAGER_ROLES | SALES_ROLES | SITE_ROLES | KEDL_ROLES | SERVICE_ROLES
+STAFF_ROLES: Set[str] = (MANAGER_ROLES | SALES_ROLES | SITE_ROLES | KEDL_ROLES | SERVICE_ROLES
+                         | SUBSIDY_ROLES | ACCOUNT_ROLES)
 
-# The business has exactly four employee departments. Older accounts may still
-# carry legacy role names (labour, electrician, technician, ...); those are
-# mapped onto a department by department_of() and are never offered for new
-# accounts.
-DEPARTMENTS = ("sales", "site", "kedl", "service")
+# The employee departments, in project order. Older accounts may carry legacy
+# role names; department_of() maps those onto a department.
+DEPARTMENTS = ("sales", "discom", "structure", "wiring", "civil", "subsidy", "account")
+DEPARTMENT_LABELS = {
+    "sales": "Salesman", "discom": "Discom", "structure": "Structure", "wiring": "Wiring",
+    "civil": "Civil Work", "subsidy": "Subsidy", "account": "Account / Bill",
+}
+EMPLOYEE_NO_PREFIX = {
+    "sales": "EMP-SLS", "discom": "EMP-DSC", "structure": "EMP-STR", "wiring": "EMP-WIR",
+    "civil": "EMP-CVL", "subsidy": "EMP-SUB", "account": "EMP-ACC",
+}
 
 # Roles anyone may request through public self-registration (always pending
 # admin approval except "client"). Admin accounts are never self-service.
@@ -31,14 +46,22 @@ ASSIGNABLE_STAFF_ROLES: Set[str] = set(DEPARTMENTS)
 
 _DEPARTMENT_ALIASES = {
     "salesman": "sales", "employee": "sales", "office_staff": "sales",
-    "site_ops": "site", "site-ops": "site", "labour": "site", "electrician": "site",
-    "electrical": "site", "structure": "site", "civil": "site",
-    "technician": "service",
+    "kedl": "discom",
+    "site": "structure", "site_ops": "structure", "site-ops": "structure", "labour": "structure",
+    "electrician": "wiring", "electrical": "wiring", "technician": "wiring",
+    "accounts": "account", "billing": "account",
+}
+
+# Customer field holding the assigned employee of each department.
+DEPARTMENT_FIELD = {
+    "sales": "sales_id", "discom": "discom_employee_id", "structure": "structure_employee_id",
+    "wiring": "wiring_employee_id", "civil": "civil_employee_id",
+    "subsidy": "subsidy_employee_id", "account": "account_employee_id",
 }
 
 
 def normalize_department(value: Any) -> Optional[str]:
-    """Map a role / legacy trade label to one of the four departments."""
+    """Map a role / legacy trade label to one of the departments."""
     key = str(value or "").strip().lower()
     if key in DEPARTMENTS:
         return key
@@ -153,6 +176,10 @@ def staff_can_view_customer(user: Any, cust: Dict[str, Any]) -> bool:
         return True
     if role in SALES_ROLES:
         return str(cust.get("sales_id") or "") in ("", uid)
+    department = normalize_department(role)
+    field = DEPARTMENT_FIELD.get(department or "")
+    if field and cust.get(field) == uid:
+        return True
     db = _db()
     if role in KEDL_ROLES:
         if cust.get("kedl_employee_id") == uid:
@@ -168,6 +195,10 @@ def staff_can_view_customer(user: Any, cust: Dict[str, Any]) -> bool:
                 {"assigned_to": None}, {"assigned_to": {"$exists": False}}],
     }):
         return True
+    if role in SUBSIDY_ROLES | ACCOUNT_ROLES:
+        # Unassigned projects currently waiting on this department (the queue).
+        from app.services.workflow import STAGE_DEPARTMENT
+        return not cust.get(field) and STAGE_DEPARTMENT.get(str(cust.get("stage") or "")) == department
     if role in SERVICE_ROLES:
         if cust.get("service_employee_id") == uid:
             return True
@@ -232,7 +263,7 @@ def require_ticket(user: Any, ticket_id: str) -> Dict[str, Any]:
 
 def site_trades(user: Any) -> Set[str]:
     trades = {str(getattr(user, "trade", "") or "").lower(), str(getattr(user, "team", "") or "").lower(), role_of(user)}
-    return {t for t in trades if t in {"structure", "electrical", "civil", "electrician"}} or set()
+    return {t for t in trades if t in {"structure", "electrical", "civil", "electrician", "wiring"}} or set()
 
 
 def work_scope_query(user: Any) -> Dict[str, Any]:
@@ -247,7 +278,8 @@ def work_scope_query(user: Any) -> Dict[str, Any]:
     if role in SITE_ROLES:
         uid = user_id(user)
         unassigned: Dict[str, Any] = {"$or": [{"assigned_to": None}, {"assigned_to": ""}, {"assigned_to": {"$exists": False}}]}
-        trades = {"electrical" if t == "electrician" else t for t in site_trades(user)}
+        # Wiring work is stored as work_type "electrical".
+        trades = {"electrical" if t in ("electrician", "wiring") else t for t in site_trades(user)}
         if trades:
             unassigned = {"$and": [unassigned, {"work_type": {"$in": sorted(trades)}}]}
         return {"$or": [{"assigned_to": uid}, {"assigned_employee_id": uid}, unassigned]}

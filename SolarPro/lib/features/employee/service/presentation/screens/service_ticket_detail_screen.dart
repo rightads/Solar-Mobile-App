@@ -47,13 +47,21 @@ class _ServiceTicketDetailScreenState extends State<ServiceTicketDetailScreen> {
       _ticket.status == TicketStatus.assigned ||
       _ticket.status == TicketStatus.reopened;
 
-  /// Admin: pick a service engineer for this ticket.
+  /// Roles a ticket can be assigned to: service engineers (legacy) and the
+  /// installation trades.
+  static const _ticketRoles = {
+    'service', 'technician', 'structure', 'wiring', 'civil', 'site', 'labour', 'electrician',
+  };
+
+  /// Admin: pick an engineer for this ticket.
   Future<void> _assignEngineer() async {
-    final engineers = await ApiClient().getEmployees(trade: 'service');
+    final engineers = (await ApiClient().getEmployees())
+        .where((e) => _ticketRoles.contains((e['role'] ?? '').toString().toLowerCase()))
+        .toList();
     if (!mounted) return;
     if (engineers.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('No active Service employees yet. Add one in the Staff Directory.')),
+        const SnackBar(content: Text('No active Structure, Wiring or Civil employees yet. Add one in the Staff Directory.')),
       );
       return;
     }

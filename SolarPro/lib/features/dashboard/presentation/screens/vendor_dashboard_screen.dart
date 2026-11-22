@@ -644,6 +644,7 @@ class _MoreMenu extends StatelessWidget {
           ).animate().fadeIn(duration: 250.ms),
 
           // Menu items
+          const _SuperAdminMenuItem(),
           _MenuItemCard(
             label: 'Staff & Employees Directory',
             icon: Icons.badge_rounded,
@@ -673,7 +674,7 @@ class _MoreMenu extends StatelessWidget {
           ),
           const SizedBox(height: 10),
           _MenuItemCard(
-            label: 'KEDL & Net Metering Tracker',
+            label: 'Discom & Net Metering Tracker',
             icon: Icons.description_rounded,
             color: AppColors.purple500,
             onTap: () => context.push(AppRoutes.kedl),
@@ -724,6 +725,40 @@ class _MoreMenu extends StatelessWidget {
           ),
           const SizedBox(height: 40),
         ],
+      ),
+    );
+  }
+}
+
+/// "Admin Accounts" — shown only to the Super Admin (the server enforces it too).
+class _SuperAdminMenuItem extends StatefulWidget {
+  const _SuperAdminMenuItem();
+
+  @override
+  State<_SuperAdminMenuItem> createState() => _SuperAdminMenuItemState();
+}
+
+class _SuperAdminMenuItemState extends State<_SuperAdminMenuItem> {
+  bool _isSuperAdmin = false;
+
+  @override
+  void initState() {
+    super.initState();
+    ApiClient().getMe().then((me) {
+      if (mounted && me?['is_superadmin'] == true) setState(() => _isSuperAdmin = true);
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (!_isSuperAdmin) return const SizedBox.shrink();
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: _MenuItemCard(
+        label: 'Admin Accounts (create, passwords)',
+        icon: Icons.admin_panel_settings_rounded,
+        color: AppColors.teal500,
+        onTap: () => context.push(AppRoutes.adminAccounts),
       ),
     );
   }

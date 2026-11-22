@@ -146,6 +146,7 @@ async def get_me(current_user: MongoUserProxy = Depends(get_current_user)):
         "phone": current_user.phone,
         "email": current_user.email,
         "role": getattr(current_user.role, "value", str(current_user.role)),
+        "is_superadmin": current_user.is_superadmin,
         "is_active": current_user.is_active,
         "is_phone_verified": current_user.is_phone_verified,
         "is_email_verified": current_user.is_email_verified,

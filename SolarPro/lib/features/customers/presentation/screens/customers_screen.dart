@@ -1,3 +1,4 @@
+import 'package:solar_pro/core/constants/project_stages.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:flutter_animate/flutter_animate.dart';
@@ -18,13 +19,8 @@ class _CustomersScreenState extends State<CustomersScreen> {
   String _filterStage = 'All';
   String _searchQuery = '';
 
-  final _stages = ['All', 'Site Installation', 'KEDL Process', 'Live'];
-
-  /// Stages from the old 10-step flow all belong to Site Installation now.
-  static const _installStages = {
-    'SALE_CONFIRMED', 'DOCUMENTS_RECEIVED', 'ADVANCE_VERIFIED',
-    'STRUCTURE_WORK', 'ELECTRICAL_WORK', 'CIVIL_WORK', 'INSTALLATION_COMPLETE',
-  };
+  /// Filter chips: All, each project stage, and Completed.
+  final _stages = ['All', for (final st in kProjectStages) st.label, projectStageLabel(kStageCompleted)];
 
   List<_Customer> _customers = [];
   bool _isLoading = true;
@@ -56,7 +52,7 @@ class _CustomersScreenState extends State<CustomersScreen> {
           address: item['address']?.toString() ?? 'Site Location',
           locationGps: item['location_gps']?.toString(),
           kw: (item['kw'] is num) ? (item['kw'] as num).toInt() : 5,
-          stage: item['stage']?.toString() ?? 'INSTALLATION_COMPLETE',
+          stage: item['stage']?.toString() ?? kStageRegistration,
           // The API stores money in paise; this screen works in rupees.
           amount: (item['total_amount'] is num) ? (item['total_amount'] as num) ~/ 100 : 0,
           paid: (item['paid_amount'] is num) ? (item['paid_amount'] as num) ~/ 100 : 0,
@@ -82,25 +78,9 @@ class _CustomersScreenState extends State<CustomersScreen> {
     super.dispose();
   }
 
-  Color _stageColor(String stage) {
-    if (_installStages.contains(stage)) return AppColors.orange500;
-    return switch (stage) {
-      'KEDL_PROCESS' => AppColors.gold500,
-      'SYSTEM_LIVE' => AppColors.green400,
-      'HANDED_OVER' => AppColors.teal500,
-      _ => AppColors.grey500,
-    };
-  }
+  Color _stageColor(String stage) => projectStageColor(stage);
 
-  String _stageLabel(String stage) {
-    if (_installStages.contains(stage)) return 'Site Installation';
-    return switch (stage) {
-      'KEDL_PROCESS' => 'KEDL Process',
-      'SYSTEM_LIVE' => 'System Live',
-      'HANDED_OVER' => 'Handed Over ✓',
-      _ => stage,
-    };
-  }
+  String _stageLabel(String stage) => projectStageLabel(stage);
 
   List<_Customer> get _filteredCustomers {
     return _customers.where((c) {
@@ -110,18 +90,8 @@ class _CustomersScreenState extends State<CustomersScreen> {
           c.phone.contains(_searchQuery);
 
       if (!matchesSearch) return false;
-
       if (_filterStage == 'All') return true;
-      if (_filterStage == 'Site Installation') {
-        return _installStages.contains(c.stage);
-      }
-      if (_filterStage == 'KEDL Process') {
-        return c.stage == 'KEDL_PROCESS';
-      }
-      if (_filterStage == 'Live') {
-        return c.stage == 'SYSTEM_LIVE' || c.stage == 'HANDED_OVER';
-      }
-      return true;
+      return projectStageLabel(c.stage) == _filterStage;
     }).toList();
   }
 

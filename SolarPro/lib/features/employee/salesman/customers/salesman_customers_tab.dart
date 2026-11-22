@@ -1,3 +1,4 @@
+import 'package:solar_pro/core/constants/project_stages.dart';
 import 'package:flutter/material.dart';
 import 'package:solar_pro/core/theme/app_theme.dart';
 import 'package:solar_pro/features/customers/data/customer_repository.dart';
@@ -25,13 +26,7 @@ class _SalesmanCustomersTabState extends State<SalesmanCustomersTab> {
   String? _errorMessage;
   String _selectedStageFilter = 'All';
 
-  final List<String> _stages = [
-    'All',
-    'Site Installation',
-    'KEDL Process',
-    'System Live',
-    'Handed Over',
-  ];
+  final List<String> _stages = ['All', for (final st in kProjectStages) st.label];
 
   @override
   void initState() {
@@ -53,14 +48,8 @@ class _SalesmanCustomersTabState extends State<SalesmanCustomersTab> {
 
     try {
       String? backendStage;
-      if (_selectedStageFilter == 'Site Installation') {
-        backendStage = 'INSTALLATION_COMPLETE';
-      } else if (_selectedStageFilter == 'KEDL Process') {
-        backendStage = 'KEDL_PROCESS';
-      } else if (_selectedStageFilter == 'System Live') {
-        backendStage = 'SYSTEM_LIVE';
-      } else if (_selectedStageFilter == 'Handed Over') {
-        backendStage = 'HANDED_OVER';
+      for (final st in kProjectStages) {
+        if (st.label == _selectedStageFilter) backendStage = st.key;
       }
 
       final items = await _repository.getCustomers(

@@ -61,6 +61,10 @@ s2 = mkuser("sales", "9333333332", "s2@x.in")
 site = mkuser("site", "9444444441", "site@x.in", trade="structure")
 kedl = mkuser("kedl", "9555555551", "kedl@x.in")
 svc = mkuser("service", "9666666661", "svc@x.in")
+wir = mkuser("wiring", "9444444451", "wir@x.in")
+civ = mkuser("civil", "9444444461", "civ@x.in")
+sub = mkuser("subsidy", "9444444471", "sub@x.in")
+acc = mkuser("account", "9444444481", "acc@x.in")
 pending = mkuser("sales", "9777777771", "pend@x.in", is_active=False, approval_status="pending")
 admin_doc = db["users"].find_one({"is_superadmin": True})
 check("superadmin seeded from env", admin_doc is not None)
@@ -74,12 +78,13 @@ db["tickets"].insert_one({"_id": "tB", "id": "tB", "customer_id": "custB", "titl
 db["work_assignments"].insert_one({"_id": "wB", "id": "wB", "customer_id": "custB", "work_type": "civil", "status": "assigned",
                                    "assigned_to": "someone-else", "created_at": now})
 from app.services.workflow import migrate_legacy_customers
-check("legacy customers migrated to the 4-stage workflow", migrate_legacy_customers() == 3)
+check("legacy customers migrated to the 8-stage workflow", migrate_legacy_customers() == 3)
 check("migration is idempotent", migrate_legacy_customers() == 0)
 db["notifications"].insert_one({"_id": "nB", "id": "nB", "user_id": clientB["_id"], "title": "private", "is_read": False, "read": False, "created_at": now.isoformat()})
 
 TA, TB, TS1, TS2 = tok(clientA), tok(clientB), tok(s1), tok(s2)
 TSITE, TKEDL, TSVC = tok(site), tok(kedl), tok(svc)
+TWIR, TCIV, TSUB, TACC = tok(wir), tok(civ), tok(sub), tok(acc)
 TADM = login("boss@solarpro.in", "BossPass123", "10.9.9.9").json()["access_token"]
 c = client
 
@@ -227,39 +232,143 @@ check("admin verifies", c.post(f"/api/v1/payments/{pay['id']}/verify", headers=H
 ca = db["customers"].find_one({"_id": "custA"})
 check("paid_amount computed server-side", ca.get("paid_amount") == 5000000)
 tl = c.get("/api/v1/customers/custA/timeline", headers=H(TADM)).json()
-check("timeline has the 4 department stages", [x["stage"] for x in tl.get("stages", [])] == ["INSTALLATION_COMPLETE", "KEDL_PROCESS", "SYSTEM_LIVE", "HANDED_OVER"], tl)
-check("project starts with Site-ops", ca.get("assigned_role") == "site" and ca.get("stage") == "INSTALLATION_COMPLETE", (ca.get("assigned_role"), ca.get("stage")))
-works = {w["work_type"]: w for w in db["work_assignments"].find({"customer_id": "custA"})}
-check("site work auto-created (structure active, others pending)", works.get("structure", {}).get("status") == "assigned" and works.get("electrical", {}).get("status") == "pending")
+STAGES8 = ["DOCUMENTS_COLLECTION", "DISCOM_NAME_CHANGE", "STRUCTURE_WORK", "WIRING_WORK", "CIVIL_WORK",
+           "SUBSIDY_WORK", "DISCOM_NET_METERING", "ACCOUNT_BILL"]
+check("timeline has the 8 department stages", [x["stage"] for x in tl.get("stages", [])] == STAGES8, tl)
+check("project starts with the salesman collecting documents", ca.get("assigned_role") == "sales" and ca.get("stage") == "DOCUMENTS_COLLECTION", (ca.get("assigned_role"), ca.get("stage")))
+check("no site work before its stage", db["work_assignments"].count_documents({"customer_id": "custA"}) == 0)
+check("legacy project is exempt from the quotation gate", ca.get("quotation_waived") is True)
 
-# Sales assigns the Site-ops and KEDL employees on its own customer.
-check("sales cannot assign on another sales' customer", c.patch("/api/v1/customers/custB", json={"site_employee_id": site["_id"]}, headers=H(TS1)).status_code == 404)
-check("sales cannot assign the service engineer", c.patch("/api/v1/customers/custA", json={"service_employee_id": svc["_id"]}, headers=H(TS1)).status_code == 400)
-check("assignee must be in the matching department", c.patch("/api/v1/customers/custA", json={"site_employee_id": kedl["_id"]}, headers=H(TS1)).status_code == 400)
-check("pending staff cannot be assigned", c.patch("/api/v1/customers/custA", json={"kedl_employee_id": pending["_id"]}, headers=H(TS1)).status_code == 400)
-r = c.patch("/api/v1/customers/custA", json={"site_employee_id": site["_id"], "kedl_employee_id": kedl["_id"]}, headers=H(TS1))
-check("sales assigns Site-ops & KEDL on own customer", r.status_code == 200 and r.json().get("site_employee_id") == site["_id"] and r.json().get("kedl_employee_name") == kedl["name"], r.text[:200])
-ca = db["customers"].find_one({"_id": "custA"})
-check("assignment hands the project to that Site-ops employee", ca.get("assigned_to") == site["_id"])
-check("open site work moved to the assigned employee", all(w.get("assigned_to") == site["_id"] for w in db["work_assignments"].find({"customer_id": "custA"})))
-check("assigned employee notified", db["notifications"].find_one({"user_id": kedl["_id"], "target_id": "custA"}) is not None)
-check("admin assigns the service engineer", c.patch("/api/v1/customers/custA", json={"service_employee_id": svc["_id"]}, headers=H(TADM)).status_code == 200)
+def stage_of(cid="custA"):
+    d = db["customers"].find_one({"_id": cid})
+    return d.get("stage"), d.get("assigned_role"), d.get("assigned_to")
+
+# Sales assigns every department's employee on its own customer.
+check("sales cannot assign on another sales' customer", c.patch("/api/v1/customers/custB", json={"structure_employee_id": site["_id"]}, headers=H(TS1)).status_code == 404)
+check("sales cannot change the sales owner", c.patch("/api/v1/customers/custA", json={"sales_id": s2["_id"]}, headers=H(TS1)).status_code == 400)
+check("assignee must be in the matching department", c.patch("/api/v1/customers/custA", json={"structure_employee_id": kedl["_id"]}, headers=H(TS1)).status_code == 400)
+check("wiring slot rejects a civil employee", c.patch("/api/v1/customers/custA", json={"wiring_employee_id": civ["_id"]}, headers=H(TS1)).status_code == 400)
+check("pending staff cannot be assigned", c.patch("/api/v1/customers/custA", json={"discom_employee_id": pending["_id"]}, headers=H(TS1)).status_code == 400)
+r = c.patch("/api/v1/customers/custA", json={"discom_employee_id": kedl["_id"], "structure_employee_id": site["_id"],
+            "wiring_employee_id": wir["_id"], "civil_employee_id": civ["_id"], "subsidy_employee_id": sub["_id"],
+            "account_employee_id": acc["_id"]}, headers=H(TS1))
+check("sales assigns all departments on own customer (legacy KEDL/site staff count as Discom/Structure)",
+      r.status_code == 200 and r.json().get("discom_employee_name") == kedl["name"] and r.json().get("account_employee_id") == acc["_id"], r.text[:200])
+check("assigned employees notified", db["notifications"].find_one({"user_id": wir["_id"], "target_id": "custA"}) is not None)
+r = c.patch("/api/v1/customers/custB", json={"site_employee_id": site["_id"]}, headers=H(TS2))
+check("old app field site_employee_id maps to Structure", r.status_code == 200 and r.json().get("structure_employee_id") == site["_id"], r.text[:200])
+
+# 1 → 2: documents done hands off to Discom and opens the name-change files.
+check("sales cannot toggle another department's stage", c.post("/api/v1/customers/custA/timeline", json={"stage": "STRUCTURE_WORK", "done": True}, headers=H(TS1)).status_code == 404)
+r = c.post("/api/v1/customers/custA/timeline", json={"stage": "DOCUMENTS_COLLECTION", "done": True}, headers=H(TS1))
+check("salesman completes documents collection", r.status_code == 200, r.text[:200])
+check("documents → Discom hand-off", stage_of() == ("DISCOM_NAME_CHANGE", "discom", kedl["_id"]), stage_of())
+kfiles = {f["file_type"]: f for f in db["kedl_files"].find({"customer_id": "custA"})}
+check("name-change + load files opened (net metering not yet)", set(kfiles) == {"name_change", "load"} and kfiles["load"]["assigned_to"] == kedl["_id"])
+check("sales cannot approve a discom file", c.post(f"/api/v1/kedl-files/{kfiles['name_change']['_id']}/status", json={"status": "approved"}, headers=H(TS1)).status_code == 403)
+c.post(f"/api/v1/kedl-files/{kfiles['name_change']['_id']}/status", json={"status": "approved"}, headers=H(TKEDL))
+check("name change alone does not finish the stage", stage_of()[0] == "DISCOM_NAME_CHANGE")
+r = c.post(f"/api/v1/kedl-files/{kfiles['load']['_id']}/status", json={"status": "not_required"}, headers=H(TKEDL))
+check("load marked not required → Structure hand-off", r.status_code == 200 and stage_of() == ("STRUCTURE_WORK", "structure", site["_id"]), stage_of())
+
+# 3 → 5: each site trade completes its own stage and hands to the next trade.
+works = {w["work_type"]: w for w in db["work_assignments"].find({"customer_id": "custA"})}
+check("only the structure task exists, assigned to the structure employee", set(works) == {"structure"} and works["structure"]["assigned_to"] == site["_id"] and works["structure"]["status"] == "assigned")
+_wl = c.get("/api/v1/work-assignments", headers=H(TWIR)).json()
+_wl = _wl.get("items", []) if isinstance(_wl, dict) else _wl
+check("wiring employee cannot see the structure task", all(w.get("id") != works["structure"]["_id"] for w in _wl))
+check("wiring employee cannot open the structure task", c.get(f"/api/v1/work-assignments/{works['structure']['_id']}", headers=H(TWIR)).status_code == 404)
 check("site cannot complete without photo proof", c.post(f"/api/v1/work-assignments/{works['structure']['_id']}/complete", headers=H(TSITE)).status_code == 400)
-for wt in ("structure", "electrical", "civil"):
+for wt, tk, nxt in (("structure", TSITE, ("WIRING_WORK", "wiring", wir["_id"])),
+                    ("electrical", TWIR, ("CIVIL_WORK", "civil", civ["_id"])),
+                    ("civil", TCIV, ("SUBSIDY_WORK", "subsidy", sub["_id"]))):
     w = db["work_assignments"].find_one({"customer_id": "custA", "work_type": wt})
-    c.post(f"/api/v1/work-assignments/{w['_id']}/photos", files=[("files", ("p.png", png, "image/png"))], headers=H(TSITE))
-    r = c.post(f"/api/v1/work-assignments/{w['_id']}/complete", headers=H(TSITE))
-    check(f"site completes {wt}", r.status_code == 200, r.text[:150])
-ca = db["customers"].find_one({"_id": "custA"})
-check("site→KEDL hand-off", ca.get("assigned_role") == "kedl" and db["kedl_files"].count_documents({"customer_id": "custA"}) == 3)
+    c.post(f"/api/v1/work-assignments/{w['_id']}/photos", files=[("files", ("p.png", png, "image/png"))], headers=H(tk))
+    r = c.post(f"/api/v1/work-assignments/{w['_id']}/complete", headers=H(tk))
+    check(f"{wt} completed by its own employee → {nxt[1]} hand-off", r.status_code == 200 and stage_of() == nxt, (r.text[:120], stage_of()))
+
+# 6 → 8: subsidy, net metering, account.
+check("subsidy employee sees the project in their list", any(x["id"] == "custA" for x in c.get("/api/v1/customers", headers=H(TSUB)).json()["items"]))
+acc2 = mkuser("account", "9444444482", "acc2@x.in")
+check("an unassigned account employee cannot see it", all(x["id"] != "custA" for x in c.get("/api/v1/customers", headers=H(tok(acc2))).json()["items"]))
+check("account cannot complete the subsidy stage", c.post("/api/v1/customers/custA/timeline", json={"stage": "SUBSIDY_WORK", "done": True}, headers=H(TACC)).status_code == 404)
+r = c.post("/api/v1/customers/custA/timeline", json={"stage": "SUBSIDY_WORK", "done": True, "remark": "PM Surya Ghar applied"}, headers=H(TSUB))
+check("subsidy done → Discom net metering hand-off", r.status_code == 200 and stage_of() == ("DISCOM_NET_METERING", "discom", kedl["_id"]), stage_of())
+check("stage remark saved on the timeline", next(x for x in r.json()["stages"] if x["stage"] == "SUBSIDY_WORK").get("remark") == "PM Surya Ghar applied")
 net = db["kedl_files"].find_one({"customer_id": "custA", "file_type": "net"})
-check("sales cannot approve KEDL file", c.post(f"/api/v1/kedl-files/{net['_id']}/status", json={"status": "approved"}, headers=H(TS1)).status_code == 403)
+check("net-metering file opened at its stage", net is not None and net.get("assigned_to") == kedl["_id"])
 r = c.post(f"/api/v1/kedl-files/{net['_id']}/status", json={"status": "approved"}, headers=H(TKEDL))
 ca = db["customers"].find_one({"_id": "custA"})
-check("net approval → SYSTEM_LIVE + service hand-off", r.status_code == 200 and ca.get("is_system_live") and ca.get("assigned_role") == "service", (ca.get("stage"), ca.get("assigned_role")))
-check("sales cannot toggle site stages", c.post("/api/v1/customers/custA/timeline", json={"stage": "INSTALLATION_COMPLETE", "done": False}, headers=H(TS1)).status_code == 404)
+check("net approval → system live + Account hand-off", r.status_code == 200 and ca.get("is_system_live") and stage_of() == ("ACCOUNT_BILL", "account", acc["_id"]), stage_of())
+r = c.post("/api/v1/customers/custA/timeline", json={"stage": "ACCOUNT_BILL", "done": True}, headers=H(TACC))
+ca = db["customers"].find_one({"_id": "custA"})
+check("account / bill done completes the project", r.status_code == 200 and ca.get("is_completed") and ca.get("stage") == "COMPLETED" and ca.get("progress") == 100, (ca.get("stage"), ca.get("progress")))
+r = c.post("/api/v1/customers/custA/timeline", json={"stage": "WIRING_WORK", "done": False}, headers=H(TADM))
+w = db["work_assignments"].find_one({"customer_id": "custA", "work_type": "electrical"})
+check("admin reopens wiring → back with Wiring and task reopened", r.status_code == 200 and stage_of() == ("WIRING_WORK", "wiring", wir["_id"]) and w["status"] == "in_progress", (stage_of(), w["status"]))
 t = c.post("/api/v1/client/tickets", json={"type": "inverter", "title": "Inverter error", "description": "Shows E05 fault"}, headers=H(TA)).json()
-check("client ticket routes to linked service engineer (no hardcoded staff)", t.get("assigned_to") == svc["_id"] and "Vikram" not in json.dumps(t))
+check("client ticket goes to the admin queue (no hardcoded staff)", t.get("assigned_to") is None and "Vikram" not in json.dumps(t), json.dumps(t)[:200])
+
+# ── Quotations ──────────────────────────────────────────────────────────────
+from app.services import workflow as _wf
+clientQ = mkuser("client", "9300000001", "q@x.in", is_phone_verified=True)
+db["customers"].insert_one({"_id": "custQ", "id": "custQ", "name": "Quote Cust", "phone": clientQ["phone"], "mobile": clientQ["phone"],
+                            "address": "q house", "sales_id": s1["_id"], "final_price": 0, "documents": {}, "created_at": now})
+_wf.on_customer_created("custQ")
+TQ = tok(clientQ)
+QUOTE = {"customer_id": "custQ", "capacity_kw": 5, "load_kw": 5, "project_cost": 250000, "discom_charges": 3000, "file_charges": 625,
+         "items": {"solar_module": {"make": "Waaree", "capacity": "540 W", "quantity": 10, "technology": "Mono PERC"},
+                   "solar_inverter": {"make": "Growatt", "capacity": "5 kW", "quantity": 1},
+                   "ac_wire": {"make": "Polycab", "size": "4 sq mm", "quantity": 30},
+                   "civil_work": {"size": "4 pedestals"}},
+         "other_items": [{"title": "Monitoring", "details": "WiFi dongle"}], "remark": "Includes 5-year AMC"}
+check("client cannot create quotations", c.post("/api/v1/quotations", json=QUOTE, headers=H(TQ)).status_code == 403)
+check("other sales cannot quote this customer", c.post("/api/v1/quotations", json=QUOTE, headers=H(TS2)).status_code == 404)
+check("site staff cannot quote", c.post("/api/v1/quotations", json=QUOTE, headers=H(TSITE)).status_code == 403)
+check("unknown quotation item rejected", c.post("/api/v1/quotations", json={**QUOTE, "items": {"gold_panel": {}}}, headers=H(TS1)).status_code == 422)
+check("remark is required", c.post("/api/v1/quotations", json={**QUOTE, "remark": "  "}, headers=H(TS1)).status_code == 422)
+check("documents stage blocked until a quotation is approved", c.post("/api/v1/customers/custQ/timeline", json={"stage": "DOCUMENTS_COLLECTION", "done": True}, headers=H(TS1)).status_code == 400)
+r = c.post("/api/v1/quotations", json=QUOTE, headers=H(TS1))
+q1 = r.json()
+check("salesman sends a quotation", r.status_code == 201 and q1.get("status") == "sent" and q1.get("version") == 1 and q1.get("total_amount") == 253625, r.text[:200])
+check("client notified of the quotation", db["notifications"].find_one({"user_id": clientQ["_id"], "target_id": q1.get("id")}) is not None)
+mine = c.get("/api/v1/quotations/mine", headers=H(TQ)).json()
+check("client sees the quotation", [x["id"] for x in mine] == [q1["id"]])
+check("another client cannot see it", all(x["id"] != q1["id"] for x in c.get("/api/v1/quotations/mine", headers=H(TB)).json()))
+check("another client cannot approve it", c.post(f"/api/v1/quotations/{q1['id']}/approve", headers=H(TB)).status_code == 404)
+check("staff cannot approve on the client's behalf", c.post(f"/api/v1/quotations/{q1['id']}/approve", headers=H(TADM)).status_code == 403)
+check("site staff cannot read quotations (prices)", c.get("/api/v1/quotations", params={"customer_id": "custQ"}, headers=H(TSITE)).status_code == 403)
+check("reject needs a remark", c.post(f"/api/v1/quotations/{q1['id']}/reject", json={"remark": ""}, headers=H(TQ)).status_code == 422)
+r = c.post(f"/api/v1/quotations/{q1['id']}/reject", json={"remark": "Price too high, need Tata panels"}, headers=H(TQ))
+check("client rejects with a remark", r.status_code == 200 and r.json().get("status") == "rejected" and r.json().get("client_remark") == "Price too high, need Tata panels")
+check("salesman notified of the rejection", db["notifications"].find_one({"user_id": s1["_id"], "title": "Quotation rejected"}) is not None)
+check("rejected quotation cannot then be approved", c.post(f"/api/v1/quotations/{q1['id']}/approve", headers=H(TQ)).status_code == 400)
+r = c.post("/api/v1/quotations", json={**QUOTE, "project_cost": 240000, "revision_of": q1["id"]}, headers=H(TS1))
+q2 = r.json()
+check("salesman regenerates after rejection (version 2)", r.status_code == 201 and q2.get("version") == 2 and q2.get("revision_of") == q1["id"], r.text[:200])
+q3 = c.post("/api/v1/quotations", json={**QUOTE, "project_cost": 235000}, headers=H(TADM)).json()
+check("admin can also send a quotation; it supersedes the pending one",
+      q3.get("version") == 3 and db["quotations"].find_one({"_id": q2["id"]})["status"] == "superseded")
+check("client list hides superseded versions", [x["id"] for x in c.get("/api/v1/quotations/mine", headers=H(TQ)).json()] == [q3["id"], q1["id"]])
+check("superseded quotation cannot be approved", c.post(f"/api/v1/quotations/{q2['id']}/approve", headers=H(TQ)).status_code == 400)
+r = c.post(f"/api/v1/quotations/{q3['id']}/approve", headers=H(TQ))
+cq = db["customers"].find_one({"_id": "custQ"})
+check("client approves; quotation locked", r.status_code == 200 and r.json().get("status") == "approved" and r.json().get("locked") is True, r.text[:200])
+check("approved values copied to the project", cq.get("approved_quotation_id") == q3["id"] and cq.get("final_price") == 23862500
+      and cq.get("capacity_kw") == 5 and cq.get("panel_brand") == "Waaree" and cq.get("panel_count") == 10 and cq.get("panel_watt") == 540,
+      {k: cq.get(k) for k in ("final_price", "capacity_kw", "panel_brand", "panel_count", "panel_watt")})
+check("approved quotation cannot be approved/rejected again", c.post(f"/api/v1/quotations/{q3['id']}/approve", headers=H(TQ)).status_code == 400
+      and c.post(f"/api/v1/quotations/{q3['id']}/reject", json={"remark": "changed my mind"}, headers=H(TQ)).status_code == 400)
+check("no new quotation once approved (sales)", c.post("/api/v1/quotations", json=QUOTE, headers=H(TS1)).status_code == 400)
+check("no new quotation once approved (admin)", c.post("/api/v1/quotations", json=QUOTE, headers=H(TADM)).status_code == 400)
+check("quotations have no edit or delete route", c.patch(f"/api/v1/quotations/{q3['id']}", json={"project_cost": 1}, headers=H(TADM)).status_code == 405
+      and c.delete(f"/api/v1/quotations/{q3['id']}", headers=H(TADM)).status_code == 405)
+check("admin cannot change the approved price", c.patch("/api/v1/customers/custQ", json={"final_price": 100}, headers=H(TADM)).status_code == 400)
+check("admin cannot change the approved specs", c.patch("/api/v1/customers/custQ", json={"capacity_kw": 9, "panel_brand": "X"}, headers=H(TADM)).status_code == 400)
+check("unlocked fields stay editable", c.patch("/api/v1/customers/custQ", json={"address": "new q house"}, headers=H(TADM)).status_code == 200)
+check("stored quotation unchanged", db["quotations"].find_one({"_id": q3["id"]})["project_cost"] == 235000)
+r = c.post("/api/v1/customers/custQ/timeline", json={"stage": "DOCUMENTS_COLLECTION", "done": True}, headers=H(TS1))
+check("after approval the documents stage can complete", r.status_code == 200 and stage_of("custQ")[1] == "discom", stage_of("custQ"))
 
 # ── Sign-up verification: email code + SMS code ────────────────────────────
 from app.core.security import hash_token as _ht
@@ -278,7 +387,7 @@ r = sc.post("/api/v1/auth/verify-signup", json={"email": "nc@x.in", "email_code"
 nc = db["users"].find_one({"email": "nc@x.in"})
 check("both codes verify the client and sign in", r.status_code == 200 and "access_token" in r.json() and nc.get("is_email_verified") and nc.get("is_phone_verified"), r.text[:200])
 check("signup codes are single-use", sc.post("/api/v1/auth/verify-signup", json={"email": "nc@x.in", "email_code": "222222", "phone": "9012345670", "phone_code": "111111"}).status_code in (200, 400))
-r = TestClient(app, client=("10.8.1.1", 1)).post("/api/v1/auth/register", json={"name": "New Kedl", "phone": "9012345671", "email": "nk@x.in", "password": "NewKedl1234", "role": "kedl"})
+r = TestClient(app, client=("10.8.1.1", 1)).post("/api/v1/auth/register", json={"name": "New Discom", "phone": "9012345671", "email": "nk@x.in", "password": "NewKedl1234", "role": "discom"})
 check("staff sign-up also requires both codes", r.status_code == 201 and r.json().get("requires_verification") and r.json().get("requires_approval"))
 db["otp_codes"].update_many({"phone": "9012345671"}, {"$set": {"code_hash": _ht("333333")}})
 db["email_verifications"].update_many({"email": "nk@x.in"}, {"$set": {"code_hash": _ht("444444")}})
@@ -365,17 +474,54 @@ fc(22).post("/api/v1/auth/forgot-password", json={"email": "gone@x.in"})
 check("no reset email for a deleted account", len(_mails) == n_before)
 check("reset needs a token or email + code", fc(23).post("/api/v1/auth/reset-password", json={"new_password": "Reset1Pass"}).status_code == 400)
 
-# ── Staff directory: only 4 departments ─────────────────────────────────────
+# ── Staff directory: the 7 departments ─────────────────────────────────────
 legacy = mkuser("electrician", "9444444443", "el@x.in", trade="electrical")
-site_list = c.get("/api/v1/teams/employees", params={"trade": "site"}, headers=H(TADM)).json()
-ids_ = {e["id"] for e in site_list}
-check("Site-ops filter lists site and legacy trade staff", site["_id"] in ids_ and legacy["_id"] in ids_ and all(e.get("department") == "site" for e in site_list))
+wiring_list = c.get("/api/v1/teams/employees", params={"trade": "wiring"}, headers=H(TADM)).json()
+ids_ = {e["id"] for e in wiring_list}
+check("Wiring filter lists wiring and legacy electrician staff", wir["_id"] in ids_ and legacy["_id"] in ids_ and all(e.get("department") == "wiring" for e in wiring_list))
+check("Discom filter includes legacy KEDL staff", kedl["_id"] in {e["id"] for e in c.get("/api/v1/teams/employees", params={"trade": "discom"}, headers=H(TADM)).json()})
 check("Sales filter lists only sales", all(e.get("department") == "sales" for e in c.get("/api/v1/teams/employees", params={"trade": "sales"}, headers=H(TADM)).json()))
 check("unknown department filter is empty", c.get("/api/v1/teams/employees", params={"trade": "plumbing"}, headers=H(TADM)).json() == [])
-r = c.post("/api/v1/teams/employees", json={"name": "New Site", "phone": "9100000011", "role": "site", "password": "SitePass123"}, headers=H(TADM))
-check("admin creates a Site-ops employee with a password", r.status_code == 201 and r.json().get("role") == "site", r.text[:200])
+r = c.post("/api/v1/teams/employees", json={"name": "New Civil", "phone": "9100000011", "role": "civil", "password": "SitePass123"}, headers=H(TADM))
+check("admin creates a Civil employee with a password", r.status_code == 201 and r.json().get("role") == "civil" and r.json().get("employee_no", "").startswith("EMP-CVL"), r.text[:200])
 check("new employee can sign in with that password", login("9100000011", "SitePass123", "10.8.3.1").status_code == 200)
 check("legacy role names are not created as-is", c.post("/api/v1/teams/employees", json={"name": "Legacy Guy", "phone": "9100000012", "role": "office_staff"}, headers=H(TADM)).json().get("role") == "sales")
+check("service is no longer a department", c.post("/api/v1/teams/employees", json={"name": "Svc Guy", "phone": "9100000013", "role": "service"}, headers=H(TADM)).status_code == 400)
+for i, dept in enumerate(("sales", "discom", "structure", "wiring", "civil", "subsidy", "account")):
+    r = TestClient(app, client=(f"10.7.{i}.9", 1)).post("/api/v1/auth/register", json={"name": f"New {dept}", "phone": f"92000000{i:02d}",
+        "email": f"new{dept}@x.in", "password": "NewStaff123", "role": dept})
+    check(f"sign-up offers {dept} (pending approval)", r.status_code == 201 and db["users"].find_one({"email": f"new{dept}@x.in"})["approval_status"] == "pending", r.text[:150])
+r = TestClient(app, client=("10.7.20.9", 1)).post("/api/v1/auth/register", json={"name": "Old Kedl", "phone": "9200000099",
+    "email": "oldk@x.in", "password": "NewStaff123", "role": "service"})
+check("sign-up no longer offers service", r.status_code == 400)
+
+# ── Super Admin: administrator accounts ────────────────────────────────────
+NEW_ADMIN = {"name": "Manish", "email": "manish@x.in", "phone": "9400000001", "password": "AdminPass123"}
+check("weak admin password rejected", c.post("/api/v1/users/admins", json={**NEW_ADMIN, "password": "password"}, headers=H(TADM)).status_code in (400, 422))
+r = c.post("/api/v1/users/admins", json=NEW_ADMIN, headers=H(TADM))
+na = r.json()
+check("super admin creates an admin account", r.status_code == 201 and na.get("role") == "admin" and not na.get("is_superadmin") and "password_hash" not in na, r.text[:200])
+check("duplicate admin email rejected", c.post("/api/v1/users/admins", json={**NEW_ADMIN, "phone": "9400000002"}, headers=H(TADM)).status_code == 400)
+r = login("manish@x.in", "AdminPass123", "10.6.0.1")
+check("new admin signs in", r.status_code == 200 and r.json().get("user", {}).get("role") == "admin", r.text[:200])
+TNA = r.json().get("access_token")
+check("admin cannot create admins", c.post("/api/v1/users/admins", json={**NEW_ADMIN, "email": "x2@x.in", "phone": "9400000003"}, headers=H(TNA)).status_code == 403)
+check("admin cannot list admins", c.get("/api/v1/users/admins", headers=H(TNA)).status_code == 403)
+check("admin cannot reset another admin's password", c.post(f"/api/v1/users/admins/{admin_doc['_id']}/password", json={"new_password": "Hijack1234"}, headers=H(TNA)).status_code == 403)
+check("sales cannot create admins", c.post("/api/v1/users/admins", json=NEW_ADMIN, headers=H(TS1)).status_code == 403)
+check("super admin lists admins", {a["email"] for a in c.get("/api/v1/users/admins", headers=H(TADM)).json()} >= {"boss@solarpro.in", "manish@x.in"})
+check("password reset only targets admin accounts", c.post(f"/api/v1/users/admins/{s1['_id']}/password", json={"new_password": "NewPass1234"}, headers=H(TADM)).status_code == 404)
+r = c.post(f"/api/v1/users/admins/{na['id']}/password", json={"new_password": "Fresh1Admin"}, headers=H(TADM))
+check("super admin sets an admin's password", r.status_code == 200, r.text[:200])
+check("admin's old sessions are signed out", c.get("/api/v1/auth/me", headers=H(TNA)).status_code == 401)
+check("old admin password rejected", login("manish@x.in", "AdminPass123", "10.6.0.2").status_code == 401)
+check("new admin password works", login("manish@x.in", "Fresh1Admin", "10.6.0.3").status_code == 200)
+_rl.reset("forgot_pw:cooldown:manish@x.in")
+n_before = len(_mails)
+fc(40).post("/api/v1/auth/forgot-password", json={"email": "manish@x.in"})
+check("admins can use forgot-password", len(_mails) == n_before + 1 and _mails[-1]["to_email"] == "manish@x.in")
+check("super admin deactivates an admin", c.patch(f"/api/v1/users/{na['id']}", json={"is_active": False}, headers=H(TADM)).status_code == 200
+      and login("manish@x.in", "Fresh1Admin", "10.6.0.4").status_code in (401, 403))
 
 # ── Misc hardening ──────────────────────────────────────────────────────────
 h = c.get("/api/v1/health").headers

@@ -5,9 +5,11 @@ import 'package:flutter_animate/flutter_animate.dart';
 import 'package:timeline_tile/timeline_tile.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:solar_pro/core/constants/app_constants.dart';
+import 'package:solar_pro/core/constants/project_stages.dart';
 import 'package:solar_pro/core/constants/staff_departments.dart';
 import 'package:solar_pro/core/network/api_client.dart';
 import 'package:solar_pro/core/theme/app_theme.dart';
+import 'package:solar_pro/features/quotations/presentation/customer_quotations_tab.dart';
 
 class CustomerDetailScreen extends StatefulWidget {
   final String customerId;
@@ -24,17 +26,10 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen>
   late _CustomerInfo _customer;
   bool _isLoading = true;
 
-  // Site-ops (installation) → KEDL (paperwork, system live) → Service (handover).
-  static const _stageMeta = [
-    ('INSTALLATION_COMPLETE', 'Site Installation (Site Ops)', Icons.solar_power_rounded),
-    ('KEDL_PROCESS', 'KEDL Process', Icons.description_rounded),
-    ('SYSTEM_LIVE', 'System Live / Net Meter', Icons.bolt_rounded),
-    ('HANDED_OVER', 'Handed Over (Service)', Icons.celebration_rounded),
-  ];
-
-  // Live project timeline from the backend (never hardcoded).
+  // Live project timeline from the backend (never hardcoded): the 8 stages,
+  // each owned by one department (see core/constants/project_stages.dart).
   List<_StageInfo> _stages = [
-    for (final m in _stageMeta) _StageInfo(m.$1, m.$2, false, AppColors.grey600, m.$3),
+    for (final m in kProjectStages) _StageInfo(m.key, m.label, false, AppColors.grey600, m.icon),
   ];
   String? _togglingStage;
 
@@ -44,16 +39,19 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen>
       if (st is Map) byKey[st['stage'].toString()] = st;
     }
     return [
-      for (final m in _stageMeta)
+      for (final m in kProjectStages)
         _StageInfo(
-          m.$1,
-          m.$2,
-          byKey[m.$1]?['done'] == true,
-          byKey[m.$1]?['status'] == 'current' ? AppColors.warning : AppColors.success,
-          m.$3,
-          current: byKey[m.$1]?['status'] == 'current',
-          by: byKey[m.$1]?['by']?.toString(),
-          date: byKey[m.$1]?['date']?.toString(),
+          m.key,
+          byKey[m.key]?['title']?.toString() ?? m.label,
+          byKey[m.key]?['done'] == true,
+          byKey[m.key]?['status'] == 'current' ? AppColors.warning : AppColors.success,
+          m.icon,
+          current: byKey[m.key]?['status'] == 'current',
+          by: byKey[m.key]?['by']?.toString(),
+          date: byKey[m.key]?['date']?.toString(),
+          department: staffDepartment(m.department)?.label ?? m.department,
+          assignee: byKey[m.key]?['assigned_name']?.toString(),
+          remark: byKey[m.key]?['remark']?.toString(),
         ),
     ];
   }
@@ -67,16 +65,57 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen>
     } catch (_) {}
   }
 
+  /// Confirm, with an optional remark when marking a stage Done.
+  Future<String?> _confirmToggle(_StageInfo stage) {
+    final ctrl = TextEditingController();
+    return showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: AppColors.navy800,
+        title: Text(stage.done ? 'Mark as incomplete?' : 'Mark as done?'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              stage.done
+                  ? '"${stage.label}" will be reopened and the project moves back to ${stage.department}.'
+                  : '"${stage.label}" will be marked done and the project hands over to the next department.',
+              style: AppTextStyles.bodySmall.copyWith(color: AppColors.grey400),
+            ),
+            if (!stage.done) ...[
+              const SizedBox(height: 12),
+              TextField(
+                controller: ctrl,
+                maxLength: 500,
+                maxLines: 2,
+                style: const TextStyle(color: AppColors.fg),
+                decoration: const InputDecoration(labelText: 'Remark (optional)', border: OutlineInputBorder()),
+              ),
+            ],
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+          ElevatedButton(onPressed: () => Navigator.pop(ctx, ctrl.text.trim()), child: const Text('Confirm')),
+        ],
+      ),
+    ).whenComplete(() => WidgetsBinding.instance.addPostFrameCallback((_) => ctrl.dispose()));
+  }
+
   Future<void> _toggleStage(_StageInfo stage) async {
     if (_togglingStage != null) return;
+    final remark = await _confirmToggle(stage);
+    if (remark == null || !mounted) return;
     setState(() => _togglingStage = stage.key);
     try {
       final res = await ApiClient().dio.post(
         '/customers/${widget.customerId}/timeline',
-        data: {'stage': stage.key, 'done': !stage.done},
+        data: {'stage': stage.key, 'done': !stage.done, if (remark.isNotEmpty) 'remark': remark},
       );
       if (mounted && res.data is Map) {
         setState(() => _stages = _parseTimeline(Map<String, dynamic>.from(res.data as Map)));
+        _loadFromBackend();
       }
     } catch (e) {
       if (mounted) {
@@ -93,7 +132,7 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen>
     }
   }
 
-  // Employees assigned to this customer (sales owner, Site-ops, KEDL).
+  // Employees assigned to this customer, one per department.
   Map<String, String?> _assignees = const {};
   bool _canAssign = false;
   String? _assigningField;
@@ -106,12 +145,12 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen>
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 5, vsync: this);
+    _tabController = TabController(length: 6, vsync: this);
     _initCustomerDefaults();
     _loadFromBackend();
     SharedPreferences.getInstance().then((prefs) {
       final role = prefs.getString(AppConstants.kUserRole)?.toLowerCase() ?? '';
-      // Admins and the customer's sales owner assign the Site-ops and KEDL employees.
+      // Admins and the customer's salesman assign employees and send quotations.
       final canAssign = role == 'admin' || role == 'manager' || role == 'vendor' || departmentOf(role) == 'sales';
       if (mounted && canAssign) setState(() => _canAssign = true);
     });
@@ -248,13 +287,12 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen>
         final finalPrice = ((cMap['final_price'] ?? cMap['total_amount'] ?? 0) as num) / 100;
         final paidAmt = ((cMap['paid_amount'] ?? 0) as num) / 100;
         final phase = (cMap['phase'] ?? 'Three Phase').toString();
-        final stage = (cMap['stage'] ?? 'INSTALLATION_COMPLETE').toString();
+        final stage = (cMap['stage'] ?? kStageRegistration).toString();
         final assignees = <String, String?>{
-          'sales_name': cMap['sales_name']?.toString(),
-          'site_employee_id': cMap['site_employee_id']?.toString(),
-          'site_employee_name': cMap['site_employee_name']?.toString(),
-          'kedl_employee_id': cMap['kedl_employee_id']?.toString(),
-          'kedl_employee_name': cMap['kedl_employee_name']?.toString(),
+          for (final d in kStaffDepartments) ...{
+            d.field: cMap[d.field]?.toString(),
+            d.nameField: cMap[d.nameField]?.toString(),
+          },
         };
 
         // Documents
@@ -720,10 +758,11 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen>
                       unselectedLabelColor: AppColors.grey500,
                       tabs: [
                         const Tab(text: 'Timeline'),
+                        const Tab(text: 'Quotation'),
                         Tab(text: 'Documents (${_documents.where((d) => d.uploaded).length}/5)'),
                         const Tab(text: 'Milestones & Payments'),
                         Tab(text: 'Work (${_workAssignments.length})'),
-                        Tab(text: 'KEDL (${_kedlFiles.length})'),
+                        Tab(text: 'Discom (${_kedlFiles.length})'),
                       ],
                     ),
                   ),
@@ -742,6 +781,12 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen>
                       busyField: _assigningField,
                       onAssign: _pickAssignee,
                     ),
+                  ),
+                  CustomerQuotationsTab(
+                    customerId: widget.customerId,
+                    customerName: _customer.name,
+                    canCreate: _canAssign,
+                    onChanged: _loadFromBackend,
                   ),
                   _DocumentsTab(
                     docs: _documents,
@@ -798,8 +843,9 @@ class _SliverAppBarDelegate extends SliverPersistentHeaderDelegate {
 
 // ── Timeline Tab ──────────────────────────────────────────────────────────────
 
-/// Who works on this project. Sales assigns the Site-ops and KEDL employees;
-/// Service engineers pick up the customer's raised tickets.
+/// Who works on this project: one employee per department. The salesman
+/// (or an admin) assigns them; each takes over when the project reaches
+/// their stage.
 class _AssignedTeamCard extends StatelessWidget {
   final Map<String, String?> assignees;
   final bool canAssign;
@@ -872,15 +918,8 @@ class _AssignedTeamCard extends StatelessWidget {
           Text('Assigned Team', style: AppTextStyles.headlineSmall.copyWith(fontSize: 16)),
           const SizedBox(height: 4),
           row(dept('sales'), assignees['sales_name']),
-          row(dept('site'), assignees['site_employee_name'], field: 'site_employee_id'),
-          row(dept('kedl'), assignees['kedl_employee_name'], field: 'kedl_employee_id'),
-          Padding(
-            padding: const EdgeInsets.only(top: 6, right: 8),
-            child: Text(
-              'Service engineers handle the tickets this customer raises.',
-              style: AppTextStyles.caption.copyWith(color: AppColors.grey500),
-            ),
-          ),
+          for (final d in kStaffDepartments)
+            if (d.key != 'sales') row(d, assignees[d.nameField], field: d.field),
         ],
       ),
     );
@@ -961,6 +1000,17 @@ class _TimelineTab extends StatelessWidget {
                               : (stage.current ? AppColors.warning : AppColors.grey600),
                         ),
                       ),
+                      if (stage.department.isNotEmpty)
+                        Text(
+                          '${stage.department} · ${(stage.assignee ?? '').isEmpty ? 'not assigned' : stage.assignee}',
+                          style: AppTextStyles.caption.copyWith(color: AppColors.grey500),
+                        ),
+                      if (stage.done && (stage.remark ?? '').isNotEmpty)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 2),
+                          child: Text('"${stage.remark}"',
+                              style: AppTextStyles.caption.copyWith(color: AppColors.grey400, fontStyle: FontStyle.italic)),
+                        ),
                     ],
                   ),
                 ),
@@ -2002,7 +2052,11 @@ class _StageInfo {
   final bool current;
   final String? by;
   final String? date;
-  const _StageInfo(this.key, this.label, this.done, this.color, this.icon, {this.current = false, this.by, this.date});
+  final String department;
+  final String? assignee;
+  final String? remark;
+  const _StageInfo(this.key, this.label, this.done, this.color, this.icon,
+      {this.current = false, this.by, this.date, this.department = '', this.assignee, this.remark});
 }
 
 class _DocItem {

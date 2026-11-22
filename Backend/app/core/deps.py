@@ -96,6 +96,12 @@ _ROLE_GROUPS = {
     "sales": access.SALES_ROLES,
     "office_staff": {"office_staff"},
     "kedl": access.KEDL_ROLES,
+    "discom": access.KEDL_ROLES,
+    "structure": access.SITE_ROLES,
+    "wiring": access.SITE_ROLES,
+    "civil": access.SITE_ROLES,
+    "subsidy": access.SUBSIDY_ROLES,
+    "account": access.ACCOUNT_ROLES,
     "service": access.SERVICE_ROLES,
     "technician": access.SITE_ROLES | access.SERVICE_ROLES,
     "labour": access.SITE_ROLES,
@@ -128,3 +134,10 @@ def require_roles(*allowed_roles: UserRole | str) -> Callable:
 require_staff = require_roles(*access.STAFF_ROLES)
 require_client = require_roles(UserRole.CLIENT)
 require_admin = require_roles(UserRole.ADMIN)
+
+
+async def require_superadmin(current_user: MongoUserProxy = Depends(require_admin)) -> MongoUserProxy:
+    """Only the Super Admin (manages administrator accounts)."""
+    if not current_user.is_superadmin:
+        raise ForbiddenException("Only the Super Admin can perform this action.")
+    return current_user

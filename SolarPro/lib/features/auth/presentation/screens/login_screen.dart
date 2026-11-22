@@ -1,3 +1,4 @@
+import 'package:solar_pro/core/constants/staff_departments.dart';
 import 'dart:async';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
@@ -45,13 +46,8 @@ extension on _Portal {
       };
 }
 
-/// Employee departments selectable at sign-up (pending admin approval).
-const _departments = [
-  ('sales', 'Sales', Icons.handshake_outlined),
-  ('site', 'Site Ops', Icons.construction_outlined),
-  ('kedl', 'KEDL', Icons.description_outlined),
-  ('service', 'Service', Icons.build_circle_outlined),
-];
+/// Employee types selectable at sign-up (pending admin approval).
+final _departments = [for (final d in kStaffDepartments) (d.key, d.label, d.icon)];
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -742,7 +738,7 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
         ),
         const SizedBox(height: 20),
         if (_portal == _Portal.employee) ...[
-          SpEntrance(index: 2, child: Text('Department', style: AppTextStyles.labelLarge)),
+          SpEntrance(index: 2, child: Text('I work in', style: AppTextStyles.labelLarge)),
           const SizedBox(height: 10),
           SpEntrance(
             index: 2,

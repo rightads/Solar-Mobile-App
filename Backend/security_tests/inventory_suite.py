@@ -230,6 +230,10 @@ check("site GPS stored", cust["latitude"] == 28.4595 and cust["location_gps"] ==
 check("unknown equipment field rejected", c.post(f"{API}/leads/{lead['id']}/convert", json={"bom": {"price": 1}},
                                                   headers=S1).status_code == 422)
 site_id = db["users"].find_one({"email": "site@x.in"})["_id"]
+# Site tasks open when their stage becomes current; open the wiring task directly.
+from app.services import workflow as _wf  # noqa: E402
+check("no site task before its stage", db["work_assignments"].count_documents({"customer_id": cust["_id"]}) == 0)
+_wf._ensure_site_work(db, cust, "electrical")
 job = db["work_assignments"].find_one({"customer_id": cust["_id"], "work_type": "electrical"})
 db["work_assignments"].update_one({"_id": job["_id"]}, {"$set": {"assigned_to": site_id}})
 r = c.get(f"{API}/work-assignments/{job['_id']}/scope", headers=SITE)

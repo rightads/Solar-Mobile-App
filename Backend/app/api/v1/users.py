@@ -7,13 +7,14 @@ from fastapi import APIRouter, Depends, Query, status
 from pydantic import BaseModel, ConfigDict, Field
 import structlog
 from app.core import access
-from app.core.deps import MongoUserProxy, require_roles
+from app.core.deps import MongoUserProxy, require_roles, require_superadmin
 from app.core.exceptions import BadRequestException, ForbiddenException, NotFoundException
 from app.core.helpers import paginate_list
 from app.db.mongo import (
     _format_mongo_doc,
     get_mongo_db,
     mongo_approve_user,
+    mongo_create_admin,
     mongo_create_employee,
     mongo_get_registration_approvals,
     mongo_reject_user,
@@ -35,6 +36,19 @@ class UserCreateIn(BaseModel):
     trade: Optional[str] = Field(None, max_length=30)
     team: Optional[str] = Field(None, max_length=60)
     password: Optional[str] = Field(None, min_length=8, max_length=72)
+
+
+class AdminCreateIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    name: str = Field(..., min_length=2, max_length=100)
+    email: str = Field(..., min_length=5, max_length=120)
+    phone: str = Field(..., min_length=10, max_length=15)
+    password: str = Field(..., min_length=8, max_length=72)
+
+
+class PasswordSetIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    new_password: str = Field(..., min_length=8, max_length=72)
 
 
 class UserPatch(BaseModel):
@@ -134,6 +148,56 @@ async def reject_registration(user_id: str, admin_user: MongoUserProxy = Depends
     AuthService.revoke_all_sessions(str(target["_id"]))
     logger.info("user_registration_rejected", user_id=str(target["_id"]), rejected_by=admin_user.id)
     return {"message": "User registration request rejected.", "user": _format_mongo_doc(user)}
+
+
+# ── Administrator accounts (Super Admin only) ───────────────────────────────
+
+def _admin_target(user_id: str) -> dict:
+    target = _user(user_id)
+    if str(target.get("role", "")).lower() not in access.ADMIN_ROLES:
+        raise NotFoundException("Admin not found.")
+    return target
+
+
+@router.get("/admins", summary="List administrator accounts (Super Admin)")
+async def list_admins(superadmin: MongoUserProxy = Depends(require_superadmin)):
+    cursor = get_mongo_db()["users"].find(
+        {"role": {"$in": sorted(access.ADMIN_ROLES)}, "deleted_at": None},
+        {"password_hash": 0},
+    ).sort("created_at", 1)
+    return [_format_mongo_doc(d) for d in cursor]
+
+
+@router.post("/admins", status_code=status.HTTP_201_CREATED, summary="Create an administrator account (Super Admin)")
+async def create_admin(payload: AdminCreateIn, superadmin: MongoUserProxy = Depends(require_superadmin)):
+    try:
+        created = mongo_create_admin(payload.model_dump(), created_by=superadmin.id)
+    except ValueError as e:
+        raise BadRequestException(str(e))
+    logger.info("admin_created", admin_id=created.get("id"), by=superadmin.id)
+    return created
+
+
+@router.post("/admins/{user_id}/password", summary="Set a new password for an administrator (Super Admin)")
+async def set_admin_password(user_id: str, payload: PasswordSetIn,
+                             superadmin: MongoUserProxy = Depends(require_superadmin)):
+    from app.core.security import hash_password, validate_password_strength
+    target = _admin_target(user_id)
+    if target.get("is_superadmin") and str(target["_id"]) != superadmin.id:
+        raise ForbiddenException("The Super Admin password cannot be changed here.")
+    try:
+        validate_password_strength(payload.new_password)
+    except ValueError as e:
+        raise BadRequestException(str(e))
+    get_mongo_db()["users"].update_one({"_id": target["_id"]}, {"$set": {
+        "password_hash": hash_password(payload.new_password),
+        "password_changed_at": datetime.now(timezone.utc),
+        "updated_at": datetime.now(timezone.utc),
+    }})
+    # Sign the admin out everywhere so the old password's sessions end.
+    AuthService.revoke_all_sessions(str(target["_id"]))
+    logger.info("admin_password_set", admin_id=str(target["_id"]), by=superadmin.id)
+    return {"message": "Password updated. The admin has been signed out of all devices."}
 
 
 @router.get("/{user_id}", summary="User details")

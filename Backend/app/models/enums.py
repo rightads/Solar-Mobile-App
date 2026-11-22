@@ -13,6 +13,13 @@ class UserRole(str, enum.Enum):
     SERVICE = "service"
     SITE = "site"
     EMPLOYEE = "employee"
+    # Employee departments (sign-up choices).
+    DISCOM = "discom"
+    STRUCTURE = "structure"
+    WIRING = "wiring"
+    CIVIL = "civil"
+    SUBSIDY = "subsidy"
+    ACCOUNT = "account"
 
 
 class TeamType(str, enum.Enum):
@@ -35,6 +42,15 @@ class WorkStatus(str, enum.Enum):
 
 
 class CustomerStage(str, enum.Enum):
+    # Current 8-stage project flow (see app.core.constants.STAGE_ORDER).
+    DOCUMENTS_COLLECTION = "DOCUMENTS_COLLECTION"
+    DISCOM_NAME_CHANGE = "DISCOM_NAME_CHANGE"
+    WIRING_WORK = "WIRING_WORK"
+    SUBSIDY_WORK = "SUBSIDY_WORK"
+    DISCOM_NET_METERING = "DISCOM_NET_METERING"
+    ACCOUNT_BILL = "ACCOUNT_BILL"
+    # Shared with the current flow: STRUCTURE_WORK, CIVIL_WORK. The rest are
+    # legacy values kept so old records and the SQL models still validate.
     SALE_CONFIRMED = "SALE_CONFIRMED"
     DOCUMENTS_RECEIVED = "DOCUMENTS_RECEIVED"
     ADVANCE_VERIFIED = "ADVANCE_VERIFIED"

@@ -8,6 +8,7 @@ import 'package:solar_pro/core/constants/app_constants.dart';
 import 'package:solar_pro/core/network/api_client.dart';
 import 'package:solar_pro/core/theme/app_theme.dart';
 import 'package:solar_pro/features/employee/common/employee_empty_placeholder.dart';
+import 'package:solar_pro/features/employee/desk/desk_projects_tab.dart';
 import 'package:solar_pro/features/employee/salesman/customers/salesman_customers_tab.dart';
 import 'package:solar_pro/features/employee/salesman/home/salesman_home_tab.dart';
 import 'package:solar_pro/features/employee/salesman/leads/salesman_leads_tab.dart';
@@ -32,6 +33,8 @@ enum EmployeePortalType {
   site,
   kedl,
   service,
+  /// Subsidy and Account / Bill employees.
+  desk,
 }
 
 class EmployeeShell extends StatefulWidget {
@@ -109,14 +112,16 @@ class _EmployeeShellState extends State<EmployeeShell> {
       case EmployeePortalType.salesman:
         return 'Solar Sales Executive Division';
       case EmployeePortalType.site:
-        if (r.contains('elec')) return 'Electrical Installation Team';
+        if (r.contains('elec') || r.contains('wiring')) return 'Wiring Team';
         if (r.contains('struc')) return 'Structure & Mounts Team';
         if (r.contains('civil')) return 'Civil Foundation Team';
         return 'Field Operations Team';
       case EmployeePortalType.kedl:
-        return 'KEDL Discom Liason Division';
+        return 'Discom Liaison Division';
       case EmployeePortalType.service:
         return 'Field Service & Warranty Desk';
+      case EmployeePortalType.desk:
+        return r == 'account' ? 'Accounts & Billing Desk' : 'Subsidy Desk';
     }
   }
 
@@ -199,6 +204,11 @@ class _EmployeeShellState extends State<EmployeeShell> {
           SpNavItem(icon: Icons.qr_code_scanner_rounded, label: 'Serials'),
           SpNavItem(icon: Icons.menu_rounded, label: 'More'),
         ];
+      case EmployeePortalType.desk:
+        return const [
+          SpNavItem(icon: Icons.assignment_rounded, label: 'Projects'),
+          SpNavItem(icon: Icons.menu_rounded, label: 'More'),
+        ];
     }
   }
 
@@ -209,9 +219,11 @@ class _EmployeeShellState extends State<EmployeeShell> {
       case EmployeePortalType.site:
         return 'Site Operations';
       case EmployeePortalType.kedl:
-        return 'KEDL Discom';
+        return 'Discom';
       case EmployeePortalType.service:
         return 'Service Desk';
+      case EmployeePortalType.desk:
+        return _userRole.toLowerCase() == 'account' ? 'Account / Bill' : 'Subsidy';
     }
   }
 
@@ -278,6 +290,10 @@ class _EmployeeShellState extends State<EmployeeShell> {
           case 2:
             return const ServiceSerialLookupTab();
         }
+        break;
+
+      case EmployeePortalType.desk:
+        if (tabIndex == 0) return DeskProjectsTab(role: _userRole);
         break;
     }
 

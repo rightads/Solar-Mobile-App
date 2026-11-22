@@ -1,3 +1,4 @@
+import 'package:solar_pro/features/admin/accounts/admin_accounts_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:solar_pro/core/theme/app_theme.dart';
 import 'package:go_router/go_router.dart';
@@ -74,7 +75,11 @@ final routerProvider = Provider<GoRouter>((ref) {
           role == 'labour' ||
           role == 'electrician' ||
           role == 'structure' ||
-          role == 'civil');
+          role == 'civil' ||
+          role == 'discom' ||
+          role == 'wiring' ||
+          role == 'subsidy' ||
+          role == 'account');
 
       // Unauthorized vendor access
       if (isVendorRoute && !isAdminRole) {
@@ -202,6 +207,12 @@ final routerProvider = Provider<GoRouter>((ref) {
         ),
       ),
       GoRoute(
+        path: AppRoutes.employeeDesk,
+        builder: (context, state) => const EmployeeShell(
+          portalType: EmployeePortalType.desk,
+        ),
+      ),
+      GoRoute(
         path: AppRoutes.employeeService,
         builder: (context, state) => const EmployeeShell(
           portalType: EmployeePortalType.service,
@@ -223,6 +234,10 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: AppRoutes.adminApprovals,
         builder: (context, state) => const AdminApprovalsScreen(),
+      ),
+      GoRoute(
+        path: AppRoutes.adminAccounts,
+        builder: (context, state) => const AdminAccountsScreen(),
       ),
       GoRoute(
         path: AppRoutes.adminEmployees,

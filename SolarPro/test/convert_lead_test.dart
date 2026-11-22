@@ -150,7 +150,7 @@ void main() {
         'panel_count': 6,
         'inverter_brand': 'Sungrow',
         'structure_type': 'Aluminum Elevated',
-        'stage': 'DOCUMENTS_RECEIVED',
+        'stage': 'DOCUMENTS_COLLECTION',
         'documents_count': 5,
         'payment_summary': {
           'total_amount_paise': 22500000,
@@ -170,9 +170,9 @@ void main() {
       expect(customer.formattedPriceRupees, contains('2,25,000'));
       expect(customer.capacityKw, equals(3.3));
       expect(customer.phase, equals('single'));
-      expect(customer.stage, equals('DOCUMENTS_RECEIVED'));
-      // Pre-installation stages from the old 10-step flow fold into Site Installation.
-      expect(customer.stageDisplayLabel, equals('Site Installation'));
+      expect(customer.stage, equals('DOCUMENTS_COLLECTION'));
+      // Stage 1 of the 8-stage flow.
+      expect(customer.stageDisplayLabel, equals('Client Documents Collection'));
       expect(customer.documentsCount, equals(5));
       expect(customer.paymentSummary?['status'], equals('partially_paid'));
     });

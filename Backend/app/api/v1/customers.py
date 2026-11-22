@@ -47,18 +47,34 @@ class CustomerPatch(BaseModel):
     inverter_brand: Optional[str] = Field(None, max_length=100)
     structure_type: Optional[str] = Field(None, max_length=100)
     notes: Optional[str] = Field(None, max_length=2000)
-    # Assigned employees. Sales may set the Site-ops and KEDL employee on its
-    # own customers; the sales owner and service engineer are admin-only.
-    # An empty string / null un-assigns.
+    # Assigned employee per department. Sales may set them on its own
+    # customers; the sales owner is admin-only. An empty string / null un-assigns.
     sales_id: Optional[str] = Field(None, max_length=64)
-    service_employee_id: Optional[str] = Field(None, max_length=64)
+    discom_employee_id: Optional[str] = Field(None, max_length=64)
+    structure_employee_id: Optional[str] = Field(None, max_length=64)
+    wiring_employee_id: Optional[str] = Field(None, max_length=64)
+    civil_employee_id: Optional[str] = Field(None, max_length=64)
+    subsidy_employee_id: Optional[str] = Field(None, max_length=64)
+    account_employee_id: Optional[str] = Field(None, max_length=64)
+    # Legacy names sent by older app builds (mapped onto the fields above).
     kedl_employee_id: Optional[str] = Field(None, max_length=64)
     site_employee_id: Optional[str] = Field(None, max_length=64)
     # Equipment scope (inverter, structure, wiring, protection, civil) shown to the site team.
     bom: Optional[ProjectBom] = None
 
 
-ADMIN_ONLY_FIELDS = {"sales_id", "service_employee_id"}
+ADMIN_ONLY_FIELDS = {"sales_id"}
+
+# Set from the client-approved quotation; nobody (admins included) may edit
+# them afterwards.
+QUOTATION_LOCKED_FIELDS = {
+    "capacity_kw", "kw", "final_price", "phase", "panel_brand", "panel_watt", "panel_count",
+    "inverter_brand", "structure_type", "bom",
+}
+_LEGACY_ASSIGNMENT_FIELDS = {
+    "kedl_employee_id": ("discom_employee_id",),
+    "site_employee_id": ("structure_employee_id",),
+}
 
 
 class MilestoneIn(BaseModel):
@@ -155,6 +171,16 @@ async def update_customer(
 ):
     cust = access.require_customer_write(current_user, customer_id)
     updates = payload.model_dump(exclude_unset=True)
+    for legacy, new_fields in _LEGACY_ASSIGNMENT_FIELDS.items():
+        if legacy in updates:
+            value = updates.pop(legacy)
+            for f in new_fields:
+                updates.setdefault(f, value)
+    if cust.get("approved_quotation_id"):
+        locked = sorted(QUOTATION_LOCKED_FIELDS & updates.keys())
+        if locked:
+            raise BadRequestException(
+                "The client approved the quotation; these values are locked: " + ", ".join(locked) + ".")
     if not access.is_admin(current_user):
         blocked = ADMIN_ONLY_FIELDS & updates.keys()
         if blocked:
@@ -164,7 +190,7 @@ async def update_customer(
             updates[field] = updates[field].strip()
     from app.services import workflow
     db = get_mongo_db()
-    labels = {"sales": "Sales", "site": "Site-ops", "kedl": "KEDL", "service": "Service"}
+    labels = access.DEPARTMENT_LABELS
     changed_assignments = []
     for key, (department, name_key, no_key) in workflow.ASSIGNMENT_FIELDS.items():
         if key not in updates:
@@ -226,6 +252,7 @@ async def update_customer_stage(
     for i, stage in enumerate(workflow.STAGES):
         if workflow.is_done(cust, stage) != (i < cut):
             workflow.mark_stage(cid, stage, i < cut, current_user, cascade=False)
+            workflow.sync_work_from_stage(cid, stage, i < cut)
     workflow.advance(cid)
     return _format_mongo_doc(get_mongo_db()["customers"].find_one({"_id": cust["_id"]}))
 
@@ -273,9 +300,10 @@ async def upload_document(
     docs[doc_key] = meta
     count = sum(1 for k in KYC_DOCUMENTS if docs.get(k))
     updates = {"documents": docs, "documents_count": count}
-    if count == len(KYC_DOCUMENTS):
-        updates["documents_verified"] = True
+    updates["documents_verified"] = count == len(KYC_DOCUMENTS)
     mongo_update_customer(str(cust["_id"]), updates)
+    from app.services import workflow
+    workflow.on_documents_changed(str(cust["_id"]), current_user)
     return {"status": "success", "doc_type": doc_key, "document": meta, "documents_count": count}
 
 
@@ -293,6 +321,8 @@ async def delete_document(
     docs[key] = None
     count = sum(1 for k in KYC_DOCUMENTS if docs.get(k))
     mongo_update_customer(str(cust["_id"]), {"documents": docs, "documents_count": count, "documents_verified": False})
+    from app.services import workflow
+    workflow.on_documents_changed(str(cust["_id"]), current_user)
     return {"status": "success", "doc_type": key, "documents_count": count}
 
 
@@ -312,16 +342,27 @@ async def get_timeline(customer_id: str, current_user: MongoUserProxy = Depends(
 class StageToggle(BaseModel):
     stage: CustomerStage
     done: bool
+    remark: Optional[str] = Field(None, max_length=500)
 
 
 @router.post("/{customer_id}/timeline", summary="Mark a lifecycle stage Done or Incomplete")
 async def toggle_stage(customer_id: str, payload: StageToggle, current_user: MongoUserProxy = Depends(require_staff)):
-    from app.services.workflow import build_timeline, can_toggle_stage, mark_stage
+    from app.services import workflow
     cust = access.require_customer(current_user, customer_id)
-    if not can_toggle_stage(current_user, cust, payload.stage.value):
+    stage = payload.stage.value
+    if stage not in workflow.STAGES:
+        raise BadRequestException(f"Stage must be one of: {', '.join(workflow.STAGES)}.")
+    if not workflow.can_toggle_stage(current_user, cust, stage):
         raise NotFoundException("Customer not found.")
-    mark_stage(str(cust["_id"]), payload.stage.value, payload.done, current_user)
-    return build_timeline(get_mongo_db()["customers"].find_one({"_id": cust["_id"]}))
+    reason = workflow.stage_block_reason(cust, stage, payload.done)
+    if reason:
+        raise BadRequestException(reason)
+    cid = str(cust["_id"])
+    remark = (payload.remark or "").strip() or None
+    workflow.mark_stage(cid, stage, payload.done, current_user, cascade=False, remark=remark)
+    workflow.sync_work_from_stage(cid, stage, payload.done)
+    workflow.advance(cid)
+    return workflow.build_timeline(get_mongo_db()["customers"].find_one({"_id": cust["_id"]}))
 
 
 # ── Payment plan & bank loan ────────────────────────────────────────────────
