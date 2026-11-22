@@ -23,8 +23,8 @@ def get_mongo_client() -> Optional[MongoClient]:
             _client = MongoClient(
                 settings.MONGODB_URI,
                 tz_aware=True,
-                serverSelectionTimeoutMS=15000,
-                connectTimeoutMS=15000,
+                serverSelectionTimeoutMS=5000,
+                connectTimeoutMS=5000,
                 socketTimeoutMS=20000,
                 retryWrites=True,
             )
