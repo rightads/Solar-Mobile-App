@@ -309,6 +309,41 @@ check("admin reopens wiring → back with Wiring and task reopened", r.status_co
 t = c.post("/api/v1/client/tickets", json={"type": "inverter", "title": "Inverter error", "description": "Shows E05 fault"}, headers=H(TA)).json()
 check("client ticket goes to the admin queue (no hardcoded staff)", t.get("assigned_to") is None and "Vikram" not in json.dumps(t), json.dumps(t)[:200])
 
+# ── Tickets reach the installation trades they are assigned to ─────────────
+check("wiring staff see no unassigned tickets", all(x.get("id") != t.get("id") for x in c.get("/api/v1/tickets", headers=H(TWIR)).json()))
+check("wiring staff cannot open an unassigned ticket", c.get(f"/api/v1/tickets/{t['id']}", headers=H(TWIR)).status_code == 404)
+check("admin assigns a client ticket to a wiring employee", c.post(f"/api/v1/tickets/{t['id']}/assign", json={"assigned_to": wir["_id"]}, headers=H(TADM)).status_code == 200)
+check("assigned wiring employee sees the ticket", any(x.get("id") == t["id"] for x in c.get("/api/v1/tickets", headers=H(TWIR)).json()))
+check("other trades still cannot see it", all(x.get("id") != t["id"] for x in c.get("/api/v1/tickets", headers=H(TCIV)).json())
+      and c.get(f"/api/v1/tickets/{t['id']}", headers=H(TCIV)).status_code == 404)
+r = c.post(f"/api/v1/tickets/{t['id']}/status", json={"status": "in_progress"}, headers=H(TWIR))
+check("assigned wiring employee works the ticket", r.status_code == 200, r.text[:200])
+check("only an admin closes tickets", c.post(f"/api/v1/tickets/{t['id']}/status", json={"status": "closed"}, headers=H(TWIR)).status_code == 403)
+check("subsidy staff have no ticket access", c.get("/api/v1/tickets", headers=H(TSUB)).status_code == 403)
+
+# ── Any employee can create a lead ─────────────────────────────────────────
+LEAD = {"name": "Neighbour Ji", "phone": "9876500001", "area": "Sector 12", "kw": 3}
+r = c.post("/api/v1/leads", json={**LEAD, "status": "converted", "source": "x"}, headers=H(TWIR))
+ld = r.json()
+check("wiring employee creates a lead", r.status_code == 201, r.text[:200])
+check("referred lead goes to the sales pool as new, marked with the referrer",
+      ld.get("assigned_sales_id") is None and ld.get("status") == "new" and ld.get("referred_by_name") == wir["name"]
+      and ld.get("source", "").startswith("Referral:"), ld)
+check("admins notified of the referral", db["notifications"].find_one({"target_role": "admin", "target_id": ld.get("id")}) is not None)
+check("every salesman sees the referred lead in the pool", any(x["id"] == ld["id"] for x in c.get("/api/v1/leads", headers=H(TS2)).json()["items"]))
+check("duplicate referral of an open lead is refused", c.post("/api/v1/leads", json=LEAD, headers=H(TACC)).status_code == 400)
+check("discom and subsidy staff can refer leads too",
+      c.post("/api/v1/leads", json={**LEAD, "phone": "9876500002"}, headers=H(TKEDL)).status_code == 201
+      and c.post("/api/v1/leads", json={**LEAD, "phone": "9876500003"}, headers=H(TSUB)).status_code == 201)
+ref = c.get("/api/v1/leads/referred", headers=H(TWIR)).json()
+check("referrer tracks only their own referrals (no phone numbers)", [x["id"] for x in ref] == [ld["id"]] and "phone" not in ref[0], ref)
+check("non-sales staff still cannot browse the lead pool", c.get("/api/v1/leads", headers=H(TWIR)).status_code == 403)
+check("non-sales staff cannot open or edit leads", c.get(f"/api/v1/leads/{ld['id']}", headers=H(TWIR)).status_code == 403
+      and c.patch(f"/api/v1/leads/{ld['id']}", json={"status": "lost"}, headers=H(TWIR)).status_code == 403)
+check("clients cannot create leads", c.post("/api/v1/leads", json={**LEAD, "phone": "9876500004"}, headers=H(TA)).status_code == 403)
+r = c.post("/api/v1/leads", json={**LEAD, "phone": "9876500005"}, headers=H(TS1))
+check("a salesman's own lead stays assigned to them", r.status_code == 201 and r.json().get("assigned_sales_id") == s1["_id"] and r.json().get("referred_by_id") is None)
+
 # ── Quotations ──────────────────────────────────────────────────────────────
 from app.services import workflow as _wf
 clientQ = mkuser("client", "9300000001", "q@x.in", is_phone_verified=True)

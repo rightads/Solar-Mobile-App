@@ -1,4 +1,9 @@
-"""Sales leads. Sales staff see their own leads plus the unassigned pool."""
+"""Sales leads. Sales staff see their own leads plus the unassigned pool.
+
+Any employee may create a lead (a referral). A salesman's own lead is assigned
+to them; anyone else's goes to the unassigned pool for sales (and admins are
+notified), and the referrer can follow it under /leads/referred.
+"""
 from datetime import datetime, timezone
 from typing import Literal, Optional
 import re
@@ -16,6 +21,7 @@ from app.services import workflow
 
 router = APIRouter(prefix="/leads", tags=["Leads"])
 require_sales = require_roles(UserRole.ADMIN, UserRole.SALES)
+require_staff = require_roles(*access.STAFF_ROLES)
 
 LeadStatusT = Literal["new", "contacted", "qualified", "follow_up", "returned", "converted", "lost", "closed"]
 
@@ -100,23 +106,57 @@ def _phone(raw: str) -> str:
         raise BadRequestException(str(e))
 
 
-@router.post("", status_code=status.HTTP_201_CREATED, summary="Create a lead")
-async def create_lead(payload: LeadIn, current_user: MongoUserProxy = Depends(require_sales)):
+@router.post("", status_code=status.HTTP_201_CREATED, summary="Create a lead (any employee)")
+async def create_lead(payload: LeadIn, current_user: MongoUserProxy = Depends(require_staff)):
     import uuid
+    db = get_mongo_db()
     now = datetime.now(timezone.utc)
     lid = str(uuid.uuid4())
     kw = payload.kw if payload.kw is not None else (payload.expected_kw or 0)
+    role = access.role_of(current_user)
+    is_sales = role in access.SALES_ROLES
+    referral = not is_sales and not access.is_admin(current_user)
+    phone = _phone(payload.phone)
+    if referral and db["leads"].find_one({"phone": phone, "status": {"$nin": ["lost", "closed"]}}):
+        raise BadRequestException("This customer is already a lead. Sales is on it.")
+    department = access.DEPARTMENT_LABELS.get(access.normalize_department(role) or "", role.title())
     doc = {
-        "_id": lid, "id": lid, "name": payload.name.strip(), "phone": _phone(payload.phone),
+        "_id": lid, "id": lid, "name": payload.name.strip(), "phone": phone,
         "area": (payload.area or payload.address or "").strip(), "address": (payload.address or payload.area or "").strip(),
-        "kw": float(kw), "expected_kw": float(kw), "source": (payload.source or "Direct").strip(),
-        "notes": (payload.notes or "").strip(), "status": payload.status or "new",
-        "assigned_sales_id": None if access.is_admin(current_user) else current_user.id,
-        "assigned_sales_name": None if access.is_admin(current_user) else current_user.name,
-        "created_by": current_user.id, "created_at": now, "updated_at": now,
+        "kw": float(kw), "expected_kw": float(kw),
+        "source": (f"Referral: {current_user.name} ({department})" if referral else (payload.source or "Direct")).strip()[:60],
+        "notes": (payload.notes or "").strip(), "status": "new" if referral else (payload.status or "new"),
+        # A salesman keeps their own lead; admins and other employees feed the sales pool.
+        "assigned_sales_id": current_user.id if is_sales else None,
+        "assigned_sales_name": current_user.name if is_sales else None,
+        "created_by": current_user.id, "created_by_name": current_user.name, "created_by_role": role,
+        "referred_by_id": current_user.id if referral else None,
+        "referred_by_name": current_user.name if referral else None,
+        "created_at": now, "updated_at": now,
     }
-    get_mongo_db()["leads"].insert_one(doc)
+    db["leads"].insert_one(doc)
+    if referral:
+        try:
+            from app.db.mongo import mongo_create_notification
+            mongo_create_notification({
+                "title": "New lead referred",
+                "body": f"{current_user.name} ({department}) referred {doc['name']}. Assign it to a salesman.",
+                "type": "lead", "target_role": "admin", "target_id": lid,
+            })
+        except Exception:
+            pass
     return _format_mongo_doc(doc)
+
+
+@router.get("/referred", summary="Leads I referred (any employee) and how they are going")
+async def my_referred_leads(current_user: MongoUserProxy = Depends(require_staff)):
+    cursor = get_mongo_db()["leads"].find({"created_by": current_user.id}).sort("created_at", -1).limit(200)
+    fields = ("id", "name", "area", "kw", "status", "assigned_sales_name", "created_at", "updated_at")
+    out = []
+    for d in cursor:
+        f = _format_mongo_doc(d)
+        out.append({k: f.get(k) for k in fields})
+    return out
 
 
 @router.get("", summary="Leads visible to the caller")

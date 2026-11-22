@@ -19,7 +19,9 @@ from app.models.enums import TicketStatus, UserRole
 from app.schemas.ticket import TicketCommentCreate
 
 router = APIRouter(prefix="/tickets", tags=["Staff Service Tickets"])
-require_ticket_staff = require_roles(UserRole.ADMIN, UserRole.MANAGER, UserRole.SERVICE)
+# Service engineers (legacy) and the installation trades (structure / wiring /
+# civil), who only ever see the tickets an admin assigned to them.
+require_ticket_staff = require_roles(UserRole.ADMIN, UserRole.MANAGER, UserRole.SERVICE, UserRole.SITE)
 
 
 class TicketAssignIn(BaseModel):
@@ -43,9 +45,11 @@ async def list_tickets(
 ):
     if access.role_of(current_user) in access.MANAGER_ROLES:
         return mongo_get_tickets(customer_id=customer_id, status=status_filter, ticket_type=ticket_type)
-    # Service engineers: own + unassigned
-    return mongo_get_tickets(customer_id=customer_id, status=status_filter, ticket_type=ticket_type,
-                             assigned_to=current_user.id)
+    items = mongo_get_tickets(customer_id=customer_id, status=status_filter, ticket_type=ticket_type,
+                              assigned_to=current_user.id)
+    if access.role_of(current_user) in access.SERVICE_ROLES:
+        return items  # service engineers: own + the unassigned queue
+    return [t for t in items if t.get("assigned_to") == current_user.id]  # site trades: own only
 
 
 @router.get("/{ticket_id}", summary="Ticket details")

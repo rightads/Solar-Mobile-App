@@ -9,6 +9,7 @@ import 'package:solar_pro/core/network/api_client.dart';
 import 'package:solar_pro/core/theme/app_theme.dart';
 import 'package:solar_pro/features/employee/common/employee_empty_placeholder.dart';
 import 'package:solar_pro/features/employee/desk/desk_projects_tab.dart';
+import 'package:solar_pro/features/leads/presentation/referral/refer_lead.dart';
 import 'package:solar_pro/features/employee/salesman/customers/salesman_customers_tab.dart';
 import 'package:solar_pro/features/employee/salesman/home/salesman_home_tab.dart';
 import 'package:solar_pro/features/employee/salesman/leads/salesman_leads_tab.dart';
@@ -188,6 +189,7 @@ class _EmployeeShellState extends State<EmployeeShell> {
           SpNavItem(icon: Icons.dashboard_rounded, label: 'Home'),
           SpNavItem(icon: Icons.assignment_rounded, label: 'My Jobs'),
           SpNavItem(icon: Icons.calendar_month_rounded, label: 'Calendar'),
+          SpNavItem(icon: Icons.confirmation_number_rounded, label: 'Tickets'),
           SpNavItem(icon: Icons.menu_rounded, label: 'More'),
         ];
       case EmployeePortalType.kedl:
@@ -263,6 +265,9 @@ class _EmployeeShellState extends State<EmployeeShell> {
             return const SiteMyJobsTab();
           case 2:
             return const SiteCalendarTab();
+          case 3:
+            // Client tickets an admin assigned to this employee.
+            return const ServiceTicketsTab();
         }
         break;
 
@@ -465,6 +470,30 @@ class _EmployeeShellState extends State<EmployeeShell> {
               type: MaterialType.transparency,
               child: Column(
               children: [
+                // Salesmen add leads from their Leads tab; everyone else refers here.
+                if (widget.portalType != EmployeePortalType.salesman) ...[
+                  ListTile(
+                    leading: const Icon(Icons.person_add_alt_1_rounded, color: AppColors.teal400),
+                    title: const Text('Refer a customer (add lead)', style: TextStyle(color: AppColors.fg)),
+                    subtitle: const Text('Sends a new lead to the sales team',
+                        style: TextStyle(color: AppColors.grey500, fontSize: 12)),
+                    trailing: const Icon(Icons.chevron_right_rounded, color: AppColors.grey500),
+                    onTap: () => showReferLeadSheet(context),
+                  ),
+                  const Divider(height: 1, color: AppColors.navy600),
+                  ListTile(
+                    leading: const Icon(Icons.groups_rounded, color: AppColors.teal400),
+                    title: const Text('My referrals', style: TextStyle(color: AppColors.fg)),
+                    subtitle: const Text('See how the leads you referred are going',
+                        style: TextStyle(color: AppColors.grey500, fontSize: 12)),
+                    trailing: const Icon(Icons.chevron_right_rounded, color: AppColors.grey500),
+                    onTap: () => Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (_) => const ReferredLeadsScreen()),
+                    ),
+                  ),
+                  const Divider(height: 1, color: AppColors.navy600),
+                ],
                 ListTile(
                   leading: const Icon(Icons.cloud_sync_rounded, color: AppColors.gold500),
                   title: const Text('Offline Sync & Pending Uploads', style: TextStyle(color: AppColors.fg)),

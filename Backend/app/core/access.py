@@ -246,6 +246,8 @@ def can_view_ticket(user: Any, ticket: Dict[str, Any]) -> bool:
     if role in CLIENT_ROLES:
         own = client_customer(user)
         return bool(own) and str(ticket.get("customer_id")) == str(own["_id"])
+    if role in STAFF_ROLES and uid and ticket.get("assigned_to") == uid:
+        return True  # any employee an admin assigned the ticket to
     if role in SERVICE_ROLES:
         return ticket.get("assigned_to") in (None, "", uid)
     return False
