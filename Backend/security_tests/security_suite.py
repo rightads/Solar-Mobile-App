@@ -108,6 +108,39 @@ check("phone hijack does NOT expose victim project", "victim house" not in json.
 check("hijacker told to verify phone", home.get("needs_phone_verification") is True)
 check("hijack attempt did not link victim record", db["customers"].find_one({"_id": "custV"}).get("user_id") in (None, ""))
 
+# Phone hijack via the sign-in OTP's email copy: /request-otp also emails the
+# code to the (attacker's) verified inbox. That code must sign in but never
+# mark the victim's phone verified, through verify-otp or verify-signup.
+from app.core import ratelimit as _rl
+from app.services.email_service import email_service as _es_v
+_otp_mails = []
+_orig_verify_mail = _es_v.__class__.send_verification_email
+async def _fake_verify_mail(**kw):
+    _otp_mails.append(kw)
+    return True
+_es_v.__class__.send_verification_email = classmethod(lambda cls, **kw: _fake_verify_mail(**kw))
+_rl.reset("otp:cooldown:9888888888")
+TestClient(app, client=("10.3.0.3", 1)).post("/api/v1/auth/request-otp", json={"phone": "9888888888"})
+_es_v.__class__.send_verification_email = _orig_verify_mail
+emailed_code = next((m["code"] for m in _otp_mails if m.get("to_email") == "hj@x.in"), None)
+check("sign-in OTP copy reaches the verified inbox (still usable for login)", emailed_code is not None, _otp_mails)
+r = TestClient(app, client=("10.3.0.4", 1)).post("/api/v1/auth/verify-signup", json={
+    "email": "hj@x.in", "email_code": "000000", "phone": "9888888888", "phone_code": emailed_code or "000000"})
+check("emailed OTP copy rejected as phone proof by verify-signup", r.status_code == 400, r.text)
+check("verify-signup with emailed code left phone unverified", not db["users"].find_one({"_id": hj["_id"]}).get("is_phone_verified"))
+_otp_mails.clear()
+_es_v.__class__.send_verification_email = classmethod(lambda cls, **kw: _fake_verify_mail(**kw))
+_rl.reset("otp:cooldown:9888888888")
+TestClient(app, client=("10.3.0.5", 1)).post("/api/v1/auth/request-otp", json={"phone": "9888888888"})
+_es_v.__class__.send_verification_email = _orig_verify_mail
+emailed_code = _otp_mails[-1]["code"] if _otp_mails else None
+r = TestClient(app, client=("10.3.0.6", 1)).post("/api/v1/auth/verify-otp", json={"phone": "9888888888", "otp": emailed_code or "000000"})
+check("emailed OTP copy still signs the account holder in", r.status_code == 200, r.text)
+check("emailed OTP copy does NOT mark the phone verified", not db["users"].find_one({"_id": hj["_id"]}).get("is_phone_verified"))
+home = c.get("/api/v1/client/home", headers=H(r.json().get("access_token") if r.status_code == 200 else THJ)).json()
+check("OTP-email hijack does NOT expose victim project", "victim house" not in json.dumps(home), json.dumps(home)[:200])
+check("OTP-email hijack did not link victim record", db["customers"].find_one({"_id": "custV"}).get("user_id") in (None, ""))
+
 # ── Credential brute force / enumeration ────────────────────────────────────
 bc = TestClient(app, client=("10.4.0.1", 1))
 codes = [bc.post("/api/v1/auth/login", json={"identifier": "s2@x.in", "password": f"Wrong{i}"}).status_code for i in range(7)]
@@ -557,6 +590,31 @@ fc(40).post("/api/v1/auth/forgot-password", json={"email": "manish@x.in"})
 check("admins can use forgot-password", len(_mails) == n_before + 1 and _mails[-1]["to_email"] == "manish@x.in")
 check("super admin deactivates an admin", c.patch(f"/api/v1/users/{na['id']}", json={"is_active": False}, headers=H(TADM)).status_code == 200
       and login("manish@x.in", "Fresh1Admin", "10.6.0.4").status_code in (401, 403))
+
+# ── Customers without a sales owner are admin-only ──────────────────────────
+db["customers"].insert_one({"_id": "custU", "id": "custU", "name": "Unowned", "phone": "9876500001", "mobile": "9876500001",
+                            "address": "unowned house", "sales_id": None, "documents": {}, "created_at": now})
+listed = c.get("/api/v1/customers?page_size=100", headers=H(TS1)).json()
+check("sales list excludes customers with no sales owner", "custU" not in json.dumps(listed), json.dumps(listed)[:200])
+check("sales cannot read an unowned customer", c.get("/api/v1/customers/custU", headers=H(TS1)).status_code == 404)
+check("sales cannot edit an unowned customer", c.patch("/api/v1/customers/custU", json={"notes": "x"}, headers=H(TS1)).status_code == 404)
+check("sales cannot read an unowned customer's KYC", c.get("/api/v1/customers/custU/documents", headers=H(TS1)).status_code == 404)
+check("admin still sees the unowned customer", c.get("/api/v1/customers/custU", headers=H(TADM)).status_code == 200)
+
+# ── Payment status changes are compare-and-set (double-click race) ──────────
+import app.api.v1.payments as _P
+db["payments"].insert_one({"_id": "payRace", "id": "payRace", "customer_id": "custA", "amount": 100,
+                           "status": "pending", "created_at": now})
+_stale = dict(db["payments"].find_one({"_id": "payRace"}))
+_orig_payment = _P._payment
+_P._payment = lambda pid: dict(_stale)  # both requests read the row before either wrote
+r1 = c.post("/api/v1/payments/payRace/verify", headers=H(TADM))
+r2 = c.post("/api/v1/payments/payRace/verify", headers=H(TADM))
+r3 = c.post("/api/v1/payments/payRace/reject", json={"reason": "dup"}, headers=H(TADM))
+_P._payment = _orig_payment
+check("first verify of a payment succeeds", r1.status_code == 200, r1.text)
+check("racing second verify is refused", r2.status_code == 400, r2.text)
+check("racing reject after verify is refused", r3.status_code == 400 and db["payments"].find_one({"_id": "payRace"})["status"] == "verified", r3.text)
 
 # ── Misc hardening ──────────────────────────────────────────────────────────
 h = c.get("/api/v1/health").headers

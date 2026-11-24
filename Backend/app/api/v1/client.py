@@ -104,7 +104,8 @@ async def submit_client_payment(
         "title": "New payment submitted",
         "body": f"{cust.get('name', 'A client')} submitted ₹{amount / 100:,.0f} for approval.",
         "type": "payment",
-        "target_role": "sales" if not cust.get("sales_id") else None,
+        # No sales owner yet: only admins can see this project, so tell them.
+        "target_role": "admin" if not cust.get("sales_id") else None,
         "user_id": cust.get("sales_id"),
         "target_id": payment["id"],
     })

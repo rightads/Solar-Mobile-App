@@ -64,11 +64,20 @@ def _recompute_paid(customer_id: str) -> int:
     return verified
 
 
-def _set(payment: dict, updates: dict) -> dict:
+def _set(payment: dict, updates: dict, expect: Optional[tuple] = None) -> dict:
+    """Apply ``updates``; with ``expect``, only while the stored status is still
+    one of those (compare-and-set), so two concurrent clicks can never both
+    approve/verify/reject the same payment."""
     from pymongo import ReturnDocument
     updates["updated_at"] = datetime.now(timezone.utc)
-    return _format_mongo_doc(get_mongo_db()["payments"].find_one_and_update(
-        {"_id": payment["_id"]}, {"$set": updates}, return_document=ReturnDocument.AFTER))
+    query: dict = {"_id": payment["_id"]}
+    if expect is not None:
+        query["status"] = {"$in": list(expect)}
+    res = get_mongo_db()["payments"].find_one_and_update(
+        query, {"$set": updates}, return_document=ReturnDocument.AFTER)
+    if res is None:
+        raise BadRequestException("This payment was already processed. Refresh and try again.")
+    return _format_mongo_doc(res)
 
 
 @router.post("/customers/{customer_id}/payments", status_code=status.HTTP_201_CREATED, summary="Record a payment received from a customer")
@@ -96,7 +105,8 @@ async def create_payment(
     stored = _payment(payment["id"])
     if direct_verify and access.is_admin(current_user):
         payment = _set(stored, {"status": "verified", "verified_by": current_user.id,
-                                "verified_by_name": current_user.name, "verified_at": now})
+                                "verified_by_name": current_user.name, "verified_at": now},
+                       expect=("pending",))
         _recompute_paid(str(cust["_id"]))
         workflow.on_payment_verified(str(cust["_id"]), current_user)
     else:
@@ -147,7 +157,7 @@ async def sales_approve_payment(payment_id: str, current_user: MongoUserProxy = 
         "sales_approved_by_name": current_user.name,
         "sales_approver_emp_no": current_user.employee_no or "",
         "sales_approved_at": datetime.now(timezone.utc),
-    })
+    }, expect=("pending",))
     mongo_create_notification({
         "title": "Payment ready for verification",
         "body": f"₹{int(payment.get('amount', 0)) / 100:,.0f} from {payment.get('customer_name', 'a customer')} was approved by {current_user.name}.",
@@ -163,7 +173,8 @@ async def verify_payment(payment_id: str, current_user: MongoUserProxy = Depends
     if payment.get("status") not in ("pending", "sales_approved"):
         raise BadRequestException("This payment cannot be verified in its current state.")
     res = _set(payment, {"status": "verified", "verified_by": current_user.id,
-                         "verified_by_name": current_user.name, "verified_at": datetime.now(timezone.utc)})
+                         "verified_by_name": current_user.name, "verified_at": datetime.now(timezone.utc)},
+               expect=("pending", "sales_approved"))
     cid = str(payment.get("customer_id"))
     _recompute_paid(cid)
     workflow.on_payment_verified(cid, current_user)
@@ -179,7 +190,8 @@ async def reject_payment(payment_id: str, payload: RejectIn, current_user: Mongo
     if payment.get("status") not in allowed:
         raise BadRequestException("This payment cannot be rejected in its current state.")
     res = _set(payment, {"status": "rejected", "rejected_by": current_user.id, "rejected_by_name": current_user.name,
-                         "rejection_reason": payload.reason.strip(), "rejected_at": datetime.now(timezone.utc)})
+                         "rejection_reason": payload.reason.strip(), "rejected_at": datetime.now(timezone.utc)},
+               expect=allowed)
     _recompute_paid(str(payment.get("customer_id")))
     logger.info("payment_rejected", payment_id=res["id"], by=current_user.id)
     return res
@@ -201,4 +213,4 @@ async def update_payment(payment_id: str, payload: PaymentPatch, current_user: M
     if "amount" in updates:
         updates["amount_paise"] = updates["amount"]
         updates["amount_rupees"] = updates["amount"] / 100.0
-    return _set(payment, updates) if updates else _format_mongo_doc(payment)
+    return _set(payment, updates, expect=("pending",)) if updates else _format_mongo_doc(payment)

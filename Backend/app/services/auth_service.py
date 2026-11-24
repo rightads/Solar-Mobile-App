@@ -425,9 +425,14 @@ class AuthService:
             # and never spend SMS credits on unknown numbers.
             return {"message": GENERIC_OTP_SENT}
 
-        code = AuthService._issue_phone_code(clean_phone)
+        # A copy goes to the account's *verified* inbox as a sign-in convenience.
+        # Such a code proves the email, not the phone, so it is flagged and
+        # verify_otp / verify_signup never treat it as phone ownership (otherwise
+        # registering someone's number + reading this email links their project).
+        email_copy = bool(user.get("email")) and bool(user.get("is_email_verified"))
+        code = AuthService._issue_phone_code(clean_phone, emailed=email_copy)
         await AuthService._sms(clean_phone, code)
-        if user.get("email"):
+        if email_copy:
             try:
                 from app.services.email_service import email_service
                 await email_service.send_verification_email(to_email=user["email"], code=code, user_name=user.get("name", ""))
@@ -436,8 +441,12 @@ class AuthService:
         return {"message": GENERIC_OTP_SENT}
 
     @staticmethod
-    def _issue_phone_code(clean_phone: str) -> str:
-        """Store a fresh single-use SMS code (hashed) and return the plain code."""
+    def _issue_phone_code(clean_phone: str, emailed: bool = False) -> str:
+        """Store a fresh single-use SMS code (hashed) and return the plain code.
+
+        ``emailed`` marks a code that was also sent by email: it can sign the
+        user in but never proves they hold the phone.
+        """
         db = _db()
         code = generate_otp(length=settings.OTP_LENGTH)
         now = _now()
@@ -449,6 +458,7 @@ class AuthService:
             "_id": str(uuid.uuid4()),
             "phone": clean_phone,
             "code_hash": hash_token(code),
+            "emailed": bool(emailed),
             "expires_at": now + timedelta(seconds=settings.OTP_EXPIRE_SECONDS),
             "attempts": 0,
             "consumed_at": None,
@@ -532,6 +542,8 @@ class AuthService:
             "email_verifications", "email", clean_email, email_code)
         phone_rec = None if doc.get("is_phone_verified") else AuthService._find_code(
             "otp_codes", "phone", clean_phone, phone_code)
+        if phone_rec is not None and phone_rec.get("emailed"):
+            phone_rec = None  # an emailed copy does not prove the phone
         email_ok = bool(doc.get("is_email_verified")) or email_rec is not None
         phone_ok = bool(doc.get("is_phone_verified")) or phone_rec is not None
         if not (email_ok and phone_ok):
@@ -741,12 +753,15 @@ class AuthService:
         doc = db["users"].find_one({"phone": clean_phone})
         if not doc:
             raise BadRequestException("Invalid or expired code.")
-        # The SMS code proves ownership of this number.
-        db["users"].update_one(
-            {"_id": doc["_id"]},
-            {"$set": {"is_phone_verified": True, "phone_verified_at": now, "updated_at": now}},
-        )
-        doc["is_phone_verified"] = True
+        # Only an SMS-only code proves ownership of this number. A code that was
+        # also emailed signs the user in but leaves the phone unverified, so it
+        # can never link a staff-created project that carries this phone.
+        if not rec.get("emailed") and not doc.get("is_phone_verified"):
+            db["users"].update_one(
+                {"_id": doc["_id"]},
+                {"$set": {"is_phone_verified": True, "phone_verified_at": now, "updated_at": now}},
+            )
+            doc["is_phone_verified"] = True
         return AuthService._issue_tokens(doc, device_info)
 
     # ── Profile ─────────────────────────────────────────────────────────────

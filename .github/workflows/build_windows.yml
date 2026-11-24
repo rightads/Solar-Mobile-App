@@ -76,10 +76,13 @@ jobs:
           $build = [int]$env:GITHUB_RUN_NUMBER
           $notes = (($env:COMMIT_MSG -split "`r?`n")[0])
           if ($notes.Length -gt 300) { $notes = $notes.Substring(0, 300) }
+          # Installed apps refuse to apply an update whose zip does not match this hash.
+          $sha256 = (Get-FileHash -Algorithm SHA256 -Path "SolarPro-Windows-Release.zip").Hash.ToLowerInvariant()
           $manifest = [ordered]@{
             build        = $build
             version      = "1.0.$build"
             download_url = "https://github.com/$env:GITHUB_REPOSITORY/releases/download/Windows/SolarPro-Windows-Release.zip"
+            sha256       = $sha256
             notes        = $notes
             min_build    = [int]("0$env:MIN_BUILD")
           }

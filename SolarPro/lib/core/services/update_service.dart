@@ -1,8 +1,9 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:crypto/crypto.dart';
 import 'package:dio/dio.dart';
-import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/foundation.dart' show kIsWeb, visibleForTesting;
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -115,8 +116,9 @@ class UpdateService {
   static Future<void> _installOnWindows(BuildContext context, _Release latest) async {
     final exe = Platform.resolvedExecutable;
     final installDir = File(exe).parent.path;
-    if (!await _isWritable(installDir)) {
-      // e.g. installed under Program Files: let the user replace it manually.
+    if (!await _isWritable(installDir) || !isSha256Hex(latest.sha256)) {
+      // Installed under Program Files, or a manifest without a checksum: never
+      // swap files automatically; let the user download and replace manually.
       await _openInBrowser(latest.downloadUrl);
       return;
     }
@@ -164,6 +166,11 @@ class UpdateService {
           if (total > 0) progress.value = got / total;
         },
       );
+      // The zip must hash to the value CI published in version.json before a
+      // single file is replaced; a tampered or truncated download is dropped.
+      if (!await fileMatchesSha256(zip, latest.sha256)) {
+        throw const _UnverifiedUpdate();
+      }
       await File(script).writeAsString(_applyScript);
       await Process.start(
         'powershell.exe',
@@ -181,9 +188,36 @@ class UpdateService {
     } catch (e) {
       if (context.mounted) Navigator.of(context, rootNavigator: true).pop();
       if (e is DioException && CancelToken.isCancel(e)) return;
+      if (e is _UnverifiedUpdate) {
+        await work.delete(recursive: true).catchError((_) => work);
+        if (context.mounted) {
+          await showDialog<void>(
+            context: context,
+            builder: (ctx) => AlertDialog(
+              title: const Text('Update not installed'),
+              content: const Text(
+                  'The downloaded update failed its integrity check, so it was discarded and nothing was changed. '
+                  'Please try again later.'),
+              actions: [TextButton(onPressed: () => Navigator.of(ctx).pop(), child: const Text('OK'))],
+            ),
+          );
+        }
+        return;
+      }
       // Download or launch failed: fall back to a manual download.
       await _openInBrowser(latest.downloadUrl);
     }
+  }
+
+  static bool isSha256Hex(String value) => RegExp(r'^[0-9a-f]{64}$').hasMatch(value);
+
+  /// True when the file at [path] hashes (SHA-256) to [expectedHex].
+  @visibleForTesting
+  static Future<bool> fileMatchesSha256(String path, String expectedHex) async {
+    final expected = expectedHex.trim().toLowerCase();
+    if (!isSha256Hex(expected)) return false;
+    final digest = await sha256.bind(File(path).openRead()).first;
+    return digest.toString() == expected;
   }
 
   static Future<bool> _isWritable(String dir) async {
@@ -243,6 +277,7 @@ try {
         downloadUrl: url,
         notes: '${data['notes'] ?? ''}'.trim(),
         minBuild: int.tryParse('${data['min_build']}') ?? 0,
+        sha256: '${data['sha256'] ?? ''}'.trim().toLowerCase(),
       );
     } catch (_) {
       return null; // offline or GitHub unreachable: try again next launch
@@ -257,6 +292,7 @@ class _Release {
     required this.downloadUrl,
     required this.notes,
     required this.minBuild,
+    this.sha256 = '',
   });
 
   final int build;
@@ -264,4 +300,11 @@ class _Release {
   final String downloadUrl;
   final String notes;
   final int minBuild;
+
+  /// SHA-256 (lowercase hex) of the download, published by CI in version.json.
+  final String sha256;
+}
+
+class _UnverifiedUpdate implements Exception {
+  const _UnverifiedUpdate();
 }

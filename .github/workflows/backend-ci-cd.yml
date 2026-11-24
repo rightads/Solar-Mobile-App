@@ -109,25 +109,10 @@ jobs:
                 echo "✅ Backend/.env.prod synchronized successfully."
             fi
 
-            echo "=== Ensuring Node 20 LTS on VPS ==="
-            NODE_MAJOR=$(node -v 2>/dev/null | cut -d'.' -f1 | tr -d 'v' || echo "0")
-            if [ -z "$NODE_MAJOR" ] || [ "$NODE_MAJOR" -lt 18 ]; then
-                echo "Removing conflicting old distro packages..."
-                apt-get remove -y --purge libnode-dev libnode72 nodejs npm || true
-                apt-get autoremove -y || true
-                echo "Installing Node.js 20 LTS repository..."
-                curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
-                apt-get install -y -o Dpkg::Options::="--force-overwrite" nodejs
-            fi
-            echo "Active Node: $(node -v)"
-            echo "Active NPM: $(npm -v)"
-
-            echo "=== Building React Website ==="
-            cd "$DEPLOY_PATH/website"
-            rm -rf node_modules package-lock.json
-            npm install
-            npm run build
-            echo "✅ React website build complete in $DEPLOY_PATH/website/dist"
+            # The website is built inside its Docker image (npm ci against the
+            # committed lockfile) by scripts/deploy.sh; deploy.sh then copies
+            # that build to LiteSpeed. No Node toolchain is installed on the
+            # host and no remote install script is piped into a root shell.
 
             # Allow website ports and loopback in firewall
             ufw allow 3000:3005/tcp comment 'Website Ports' 2>/dev/null || true

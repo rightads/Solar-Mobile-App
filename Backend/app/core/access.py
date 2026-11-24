@@ -164,8 +164,19 @@ def require_client_customer(user: Any) -> Dict[str, Any]:
 # ── Customers ────────────────────────────────────────────────────────────────
 
 def sales_customer_query(user: Any) -> Dict[str, Any]:
-    """Mongo filter for customers a sales user owns (or that have no owner yet)."""
-    return {"$or": [{"sales_id": user_id(user)}, {"sales_id": None}, {"sales_id": ""}, {"sales_id": {"$exists": False}}]}
+    """Mongo filter for the customers a sales user owns.
+
+    Customers without a sales owner (client self-sign-ups, leads an admin
+    converted without assigning them) stay admin-only until an admin assigns
+    a salesperson; otherwise every salesperson could read and edit their KYC.
+    """
+    uid = user_id(user)
+    return {"sales_id": uid} if uid else {"_id": {"$in": []}}
+
+
+def _owns_customer(user: Any, cust: Dict[str, Any]) -> bool:
+    uid = user_id(user)
+    return bool(uid) and str(cust.get("sales_id") or "") == uid
 
 
 def staff_can_view_customer(user: Any, cust: Dict[str, Any]) -> bool:
@@ -175,7 +186,7 @@ def staff_can_view_customer(user: Any, cust: Dict[str, Any]) -> bool:
     if role in MANAGER_ROLES:
         return True
     if role in SALES_ROLES:
-        return str(cust.get("sales_id") or "") in ("", uid)
+        return _owns_customer(user, cust)
     department = normalize_department(role)
     field = DEPARTMENT_FIELD.get(department or "")
     if field and cust.get(field) == uid:
@@ -231,7 +242,7 @@ def require_customer_write(user: Any, customer_id: str) -> Dict[str, Any]:
     role = role_of(user)
     if role in ADMIN_ROLES:
         return cust
-    if role in SALES_ROLES and str(cust.get("sales_id") or "") in ("", user_id(user)):
+    if role in SALES_ROLES and _owns_customer(user, cust):
         return cust
     raise NotFoundException("Customer not found.")
 

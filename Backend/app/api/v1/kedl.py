@@ -144,7 +144,7 @@ async def list_kedl_files(
     for f in _files().find(query).sort("updated_at", -1):
         if role in access.SALES_ROLES:
             cust = db["customers"].find_one({"_id": f.get("customer_id")})
-            if not cust or str(cust.get("sales_id") or "") not in ("", current_user.id):
+            if not cust or not access.staff_can_view_customer(current_user, cust):
                 continue
         out.append(_format_mongo_doc(f))
     return out

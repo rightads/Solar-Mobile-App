@@ -154,11 +154,16 @@ fi
 CYBERPANEL_DIR="/home/solarpro-app.in/public_html"
 if [ -d "$CYBERPANEL_DIR" ]; then
     echo "📦 Deploying React production build into $CYBERPANEL_DIR..."
-    if [ -d "$DEPLOY_PATH/website/dist" ]; then
-        cp -rf "$DEPLOY_PATH/website/dist/"* "$CYBERPANEL_DIR/"
-    elif [ -d "../website/dist" ]; then
-        cp -rf ../website/dist/* "$CYBERPANEL_DIR/"
+    # The build comes out of the website image built above (npm ci with the
+    # committed lockfile), so the host needs no Node/npm of its own.
+    WEB_BUILD="$(mktemp -d)"
+    if docker cp solar_prod_website:/usr/share/nginx/html/. "$WEB_BUILD/" && [ -f "$WEB_BUILD/index.html" ]; then
+        cp -rf "$WEB_BUILD/"* "$CYBERPANEL_DIR/"
+        echo "✅ Website files copied from the website container."
+    else
+        echo "⚠️ Could not copy the website build out of its container; the current site is kept."
     fi
+    rm -rf "$WEB_BUILD"
 
     # Set up clean SPA .htaccess routing for React
     cat << 'EOF' > "$CYBERPANEL_DIR/.htaccess"

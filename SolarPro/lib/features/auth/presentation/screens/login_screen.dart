@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:solar_pro/core/constants/app_constants.dart';
+import 'package:solar_pro/core/dev/server_status_sheet.dart';
 import 'package:solar_pro/core/network/api_client.dart';
 import 'package:solar_pro/core/theme/app_theme.dart';
 import 'package:solar_pro/features/auth/presentation/widgets/forgot_password_sheet.dart';
@@ -446,7 +447,8 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         const SizedBox(height: 28),
-        const SpEntrance(child: Center(child: SolarProLogo(size: 26))),
+        // Hidden developer entry: tap the logo 7 times for the server status panel.
+        const SpEntrance(child: Center(child: DevTapTrigger(child: SolarProLogo(size: 26)))),
         const SizedBox(height: 26),
         SpEntrance(
           index: 1,
