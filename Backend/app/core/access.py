@@ -129,30 +129,32 @@ def _user_attr(user: Any, key: str) -> Any:
 
 
 def _verified_contact_clauses(user: Any) -> list:
-    """Return Mongo match clauses for the verified phone and/or verified email of ``user``."""
+    """Return Mongo match clauses for the phone and/or email of ``user``.
+
+    Matches even if the client tapped 'Verify later' during sign-up so their
+    Lead or Customer links immediately upon signing in.
+    """
     import re
     clauses = []
-    if _user_attr(user, "is_phone_verified"):
-        phone = str(_user_attr(user, "phone") or "").strip()
-        if phone:
-            clauses.append({"phone": phone})
-            clauses.append({"mobile": phone})
-    if _user_attr(user, "is_email_verified"):
-        email = str(_user_attr(user, "email") or "").strip().lower()
-        if email:
-            clauses.append({"email": email})
-            clauses.append({"email": {"$regex": f"^{re.escape(email)}$", "$options": "i"}})
+    phone = str(_user_attr(user, "phone") or "").strip()
+    if phone:
+        clauses.append({"phone": phone})
+        clauses.append({"mobile": phone})
+    email = str(_user_attr(user, "email") or "").strip().lower()
+    if email:
+        clauses.append({"email": email})
+        clauses.append({"email": {"$regex": f"^{re.escape(email)}$", "$options": "i"}})
     return clauses
 
 
 def find_verified_client_for_contact(phone: Optional[str] = None, email: Optional[str] = None) -> Optional[Dict[str, Any]]:
-    """Find an already-registered client account whose verified phone or verified email matches."""
+    """Find an already-registered client account whose phone or email matches."""
     import re
     conds = []
     if phone:
         clean_p = str(phone).strip()
         if clean_p:
-            conds.append({"phone": clean_p, "is_phone_verified": True})
+            conds.append({"phone": clean_p})
     if email:
         clean_e = str(email).strip().lower()
         if clean_e:
@@ -161,7 +163,6 @@ def find_verified_client_for_contact(phone: Optional[str] = None, email: Optiona
                     {"email": clean_e},
                     {"email": {"$regex": f"^{re.escape(clean_e)}$", "$options": "i"}},
                 ],
-                "is_email_verified": True,
             })
     if not conds:
         return None

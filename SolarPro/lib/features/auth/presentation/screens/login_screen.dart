@@ -243,6 +243,7 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
       _showSignupVerificationSheet(
         res?['email']?.toString() ?? email,
         res?['phone']?.toString() ?? phone,
+        registerResponse: res,
       );
     } catch (e) {
       if (mounted) _fail(e.toString());
@@ -869,8 +870,12 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
   // ── Sheets & dialogs ──────────────────────────────────────────────────────
 
   /// New accounts verify both the email (code by email) and the mobile
-  /// (separate code by SMS) before they can be used.
-  void _showSignupVerificationSheet(String email, String phone) {
+  /// (separate code by SMS) before they can be used, or can choose Verify later.
+  void _showSignupVerificationSheet(
+    String email,
+    String phone, {
+    Map<String, dynamic>? registerResponse,
+  }) {
     final emailCodeCtrl = TextEditingController();
     final phoneCodeCtrl = TextEditingController();
     bool verifying = false;
@@ -1014,9 +1019,16 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
                   const SizedBox(height: 4),
                   Center(
                     child: TextButton(
-                      onPressed: () {
+                      onPressed: () async {
                         Navigator.pop(sheetCtx);
-                        _go(_Stage.signIn, forward: false);
+                        if (_portal == _Portal.client &&
+                            registerResponse?['access_token'] is String) {
+                          await _playSuccessAndNavigate(registerResponse);
+                        } else if (_portal != _Portal.client) {
+                          _showPendingApprovalDialog();
+                        } else {
+                          _go(_Stage.signIn, forward: false);
+                        }
                       },
                       child: const Text('Verify later'),
                     ),

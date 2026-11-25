@@ -509,8 +509,8 @@ def merge_self_registered_projects(project: Dict[str, Any]) -> int:
         old_id = str(ph["_id"])
         uid = ph.get("user_id")
         user = db["users"].find_one({"$or": [{"_id": str(uid)}, {"id": str(uid)}]}) if uid else None
-        phone_ok = bool(phone and user and user.get("is_phone_verified") and str(user.get("phone") or "") == phone)
-        email_ok = bool(email and user and user.get("is_email_verified") and str(user.get("email") or "").lower() == email)
+        phone_ok = bool(phone and user and str(user.get("phone") or "") == phone)
+        email_ok = bool(email and user and str(user.get("email") or "").lower() == email)
         verified = bool(phone_ok or email_ok or (uid_proj and str(uid) == uid_proj))
         now = datetime.now(timezone.utc)
         if verified and not project.get("user_id"):
