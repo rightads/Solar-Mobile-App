@@ -289,16 +289,33 @@ def mongo_create_lead(lead_data: Dict[str, Any]) -> Dict[str, Any]:
     db = get_mongo_db()
     if db is None:
         raise RuntimeError("MongoDB is not available.")
+    from app.core.access import find_verified_client_for_contact
     leads_col = db["leads"]
     now = datetime.now(timezone.utc)
     lead_id = str(uuid.uuid4())
+    raw_phone = sanitize_input(lead_data.get("phone", ""))
+    try:
+        clean_phone = normalize_phone(raw_phone)
+    except Exception:
+        clean_phone = raw_phone
+    raw_email = sanitize_input(lead_data.get("email") or "")
+    clean_email = raw_email.strip().lower() if raw_email else None
+    matched_client = find_verified_client_for_contact(phone=clean_phone, email=clean_email)
+    linked_uid = str(matched_client["_id"]) if matched_client else lead_data.get("user_id")
+    if not clean_email and matched_client and matched_client.get("email"):
+        clean_email = str(matched_client["email"]).strip().lower()
+    kw_val = float(lead_data.get("kw") if lead_data.get("kw") is not None else (lead_data.get("expected_kw") or 3.0))
     doc = {
         "_id": lead_id,
         "id": lead_id,
+        "user_id": linked_uid,
         "name": sanitize_input(lead_data.get("name", "")),
-        "phone": sanitize_input(lead_data.get("phone", "")),
-        "area": sanitize_input(lead_data.get("area", "")),
-        "kw": float(lead_data.get("kw", 3.0)),
+        "phone": clean_phone,
+        "email": clean_email,
+        "area": sanitize_input(lead_data.get("area") or lead_data.get("address") or ""),
+        "address": sanitize_input(lead_data.get("address") or lead_data.get("area") or ""),
+        "kw": kw_val,
+        "expected_kw": kw_val,
         "status": lead_data.get("status", "new"),
         "source": lead_data.get("source", "Direct"),
         "created_at": now,
@@ -360,17 +377,33 @@ def mongo_create_customer(customer_data: Dict[str, Any]) -> Dict[str, Any]:
     db = get_mongo_db()
     if db is None:
         raise RuntimeError("MongoDB is not available.")
+    from app.core.access import find_verified_client_for_contact
     customers_col = db["customers"]
     now = datetime.now(timezone.utc)
     cust_id = str(customer_data.get("id") or uuid.uuid4())
     final_price_val = int(customer_data.get("final_price") or customer_data.get("total_amount") or 0)
+    raw_phone = sanitize_input(customer_data.get("phone", customer_data.get("mobile", "")))
+    try:
+        clean_phone = normalize_phone(raw_phone) if raw_phone else ""
+    except Exception:
+        clean_phone = raw_phone
+    raw_email = sanitize_input(customer_data.get("email", ""))
+    clean_email = raw_email.strip().lower() if raw_email else ""
+    linked_uid = customer_data.get("user_id")
+    if not linked_uid:
+        matched_client = find_verified_client_for_contact(phone=clean_phone, email=clean_email)
+        if matched_client:
+            linked_uid = str(matched_client["_id"])
+            if not clean_email and matched_client.get("email"):
+                clean_email = str(matched_client["email"]).strip().lower()
     doc = {
         "_id": cust_id,
         "id": cust_id,
+        "user_id": linked_uid,
         "name": sanitize_input(customer_data.get("name", "")),
-        "phone": sanitize_input(customer_data.get("phone", customer_data.get("mobile", ""))),
-        "mobile": sanitize_input(customer_data.get("phone", customer_data.get("mobile", ""))),
-        "email": sanitize_input(customer_data.get("email", "")),
+        "phone": clean_phone,
+        "mobile": clean_phone,
+        "email": clean_email,
         "address": sanitize_input(customer_data.get("address", "")),
         "location_gps": customer_data.get("location_gps") or customer_data.get("gps") or (
             f"{customer_data['latitude']:.6f},{customer_data['longitude']:.6f}"
@@ -379,6 +412,8 @@ def mongo_create_customer(customer_data: Dict[str, Any]) -> Dict[str, Any]:
         "longitude": customer_data.get("longitude"),
         "bom": customer_data.get("bom") or {},
         "lead_id": customer_data.get("lead_id"),
+        "approved_quotation_id": customer_data.get("approved_quotation_id"),
+        "quotation_approved_at": customer_data.get("quotation_approved_at"),
         "kw": float(customer_data.get("kw") or customer_data.get("capacity_kw") or 0),
         "capacity_kw": float(customer_data.get("capacity_kw") or customer_data.get("kw") or 0),
         "final_price": final_price_val,
@@ -442,30 +477,41 @@ def is_self_registered_project(cust: Dict[str, Any]) -> bool:
 
 def merge_self_registered_projects(project: Dict[str, Any]) -> int:
     """Fold a client's sign-up placeholder into the staff-created ``project``
-    with the same phone, so the client follows the real project.
+    with the same phone or email, so the client follows the real project.
 
     Without this the client stays linked to the empty placeholder and never
     sees anything staff do. The client account is linked to the real project
-    only if it has proven the phone number by OTP (same rule as
-    ``access.client_customer``); otherwise it is unlinked and the client is
-    asked to verify, after which the phone match links it. The placeholder is
-    archived to ``customers_merged`` and removed. Idempotent.
+    only if it has proven the phone number by OTP or email by verification code
+    (same rule as ``access.client_customer``); otherwise it is unlinked and the
+    client is asked to verify. The placeholder is archived to ``customers_merged``
+    and removed. Idempotent.
     """
     db = get_mongo_db()
     if db is None or is_self_registered_project(project):
         return 0
-    phone = str(project.get("phone") or project.get("mobile") or "")
+    phone = str(project.get("phone") or project.get("mobile") or "").strip()
+    email = str(project.get("email") or "").strip().lower()
+    uid_proj = str(project.get("user_id") or "").strip()
     pid = str(project["_id"])
-    if not phone:
+    match_clauses = []
+    if phone:
+        match_clauses.extend([{"phone": phone}, {"mobile": phone}])
+    if email:
+        match_clauses.append({"email": email})
+    if uid_proj:
+        match_clauses.append({"user_id": uid_proj})
+    if not match_clauses:
         return 0
     merged = 0
-    for ph in db["customers"].find({"_id": {"$ne": project["_id"]}, "$or": [{"phone": phone}, {"mobile": phone}]}):
+    for ph in db["customers"].find({"_id": {"$ne": project["_id"]}, "$or": match_clauses}):
         if not is_self_registered_project(ph):
             continue
         old_id = str(ph["_id"])
         uid = ph.get("user_id")
         user = db["users"].find_one({"$or": [{"_id": str(uid)}, {"id": str(uid)}]}) if uid else None
-        verified = bool(user and user.get("is_phone_verified"))
+        phone_ok = bool(phone and user and user.get("is_phone_verified") and str(user.get("phone") or "") == phone)
+        email_ok = bool(email and user and user.get("is_email_verified") and str(user.get("email") or "").lower() == email)
+        verified = bool(phone_ok or email_ok or (uid_proj and str(uid) == uid_proj))
         now = datetime.now(timezone.utc)
         if verified and not project.get("user_id"):
             db["customers"].update_one({"_id": project["_id"]}, {"$set": {"user_id": str(uid), "updated_at": now}})
@@ -738,16 +784,27 @@ def mongo_convert_lead(lead_id: str, customer_data: Optional[Dict[str, Any]] = N
     if not lead:
         return None
     if customer_data:
+        lid_str = str(lead["_id"])
         cust_payload = {
             "name": customer_data.get("name") or lead.get("name"),
             "phone": customer_data.get("phone") or lead.get("phone"),
-            "address": customer_data.get("address") or lead.get("area"),
-            "kw": float(customer_data.get("kw") or lead.get("kw", 5.0)),
+            "email": customer_data.get("email") or lead.get("email") or "",
+            "user_id": lead.get("user_id"),
+            "address": customer_data.get("address") or lead.get("address") or lead.get("area"),
+            "kw": float(customer_data.get("kw") or customer_data.get("capacity_kw") or lead.get("capacity_kw") or lead.get("kw", 5.0)),
             "sales_id": lead.get("assigned_sales_id"),
             "sales_name": lead.get("assigned_sales_name"),
+            "lead_id": lid_str,
+            "approved_quotation_id": lead.get("approved_quotation_id"),
+            "quotation_approved_at": lead.get("quotation_approved_at"),
             **customer_data,
         }
         cust = mongo_create_customer(cust_payload)
+        db["leads"].update_one({"_id": lead["_id"]}, {"$set": {"customer_id": cust["id"]}})
+        db["quotations"].update_many(
+            {"$or": [{"customer_id": lid_str}, {"lead_id": lid_str}]},
+            {"$set": {"customer_id": cust["id"], "lead_id": lid_str, "target_type": "customer"}},
+        )
         return cust
     return _format_mongo_doc(lead)
 
@@ -1331,12 +1388,17 @@ def access_department_field(department: str) -> Optional[str]:
     return DEPARTMENT_FIELD.get(department)
 
 
-def mongo_get_client_home(user: Dict[str, Any], customer: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+def mongo_get_client_home(
+    user: Dict[str, Any],
+    customer: Optional[Dict[str, Any]],
+    lead: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
     """Aggregate dashboard data for a client.
 
-    ``customer`` must already be resolved through ``access.client_customer`` (which
-    only links by user id or a verified phone). When the client has no project yet
-    a registration-stage placeholder is returned without touching the database.
+    ``customer`` must already be resolved through ``access.client_customer`` and
+    ``lead`` through ``access.client_lead`` (matching by user id, verified phone,
+    or verified email). While the client is linked to an unconverted lead, their
+    lead details and assigned salesman are shown until Sales converts the lead.
     """
     db = get_mongo_db()
     if db is None:
@@ -1346,7 +1408,34 @@ def mongo_get_client_home(user: Dict[str, Any], customer: Optional[Dict[str, Any
     user_phone = user.get("phone") or ""
 
     now = datetime.now(timezone.utc)
-    if not customer:
+    is_lead_only = customer is None and lead is not None
+    if not customer and lead:
+        customer = {
+            "_id": "",
+            "id": str(lead.get("_id") or lead.get("id") or ""),
+            "name": lead.get("name") or user_name,
+            "phone": lead.get("phone") or user_phone,
+            "mobile": lead.get("phone") or user_phone,
+            "email": lead.get("email") or user.get("email") or "",
+            "address": lead.get("address") or lead.get("area") or "",
+            "capacity_kw": float(lead.get("capacity_kw") or lead.get("kw") or lead.get("expected_kw") or 0.0),
+            "final_price": int(lead.get("final_price") or 0),
+            "phase": lead.get("phase") or "single",
+            "panel_brand": lead.get("panel_brand") or "",
+            "panel_watt": int(lead.get("panel_watt") or 0),
+            "panel_count": int(lead.get("panel_count") or 0),
+            "inverter_brand": lead.get("inverter_brand") or "",
+            "structure_type": lead.get("structure_type") or "",
+            "stage": "REGISTRATION_SUBMITTED",
+            "assigned_to": None,
+            "sales_id": lead.get("assigned_sales_id") or lead.get("sales_id"),
+            "sales_name": lead.get("assigned_sales_name") or lead.get("sales_name"),
+            "approved_quotation_id": lead.get("approved_quotation_id"),
+            "milestones": [],
+            "created_at": lead.get("created_at") or now,
+            "updated_at": lead.get("updated_at") or now,
+        }
+    elif not customer:
         customer = {
             "_id": "",
             "id": "",
@@ -1371,13 +1460,21 @@ def mongo_get_client_home(user: Dict[str, Any], customer: Optional[Dict[str, Any
             "updated_at": now,
         }
 
-    # Assigned Sales Rep only if explicitly linked to customer
+    # Assigned Sales Rep only if explicitly linked to customer or lead
     sales_rep = None
     sales_id = customer.get("sales_id") or customer.get("assigned_sales_id")
     if sales_id:
         sales_rep = db["users"].find_one({"$or": [{"id": str(sales_id)}, {"_id": str(sales_id)}]})
     elif customer.get("sales_name"):
         sales_rep = db["users"].find_one({"name": customer["sales_name"]})
+    if not sales_rep and (sales_id or customer.get("sales_name")):
+        sales_rep = {
+            "_id": str(sales_id or ""),
+            "name": customer.get("sales_name") or "Sales Representative",
+            "phone": "",
+            "email": "",
+            "employee_no": f"EMP-SLS-{str(sales_id)[:4].upper()}" if sales_id else "EMP-SLS",
+        }
 
     from app.services import workflow
 
@@ -1450,22 +1547,30 @@ def mongo_get_client_home(user: Dict[str, Any], customer: Optional[Dict[str, Any
             "email": officer.get("email", ""),
         }
     elif sales_rep:
+        emp_no = sales_rep.get("employee_no") or (
+            f"EMP-SLS-{str(sales_rep.get('_id') or sales_rep.get('id') or '')[:4].upper()}"
+            if (sales_rep.get("_id") or sales_rep.get("id")) else "EMP-SLS"
+        )
         resp_contact = {
             "name": sales_rep.get("name", "Sales Representative"),
             "phone": sales_rep.get("phone", ""),
             "role_title": "Assigned Sales Representative",
-            "employee_no": sales_rep.get("employee_no", ""),
+            "employee_no": emp_no,
             "email": sales_rep.get("email", ""),
         }
 
     # Sales Contact (null if no salesman assigned)
     sales_contact = None
     if sales_rep:
+        emp_no = sales_rep.get("employee_no") or (
+            f"EMP-SLS-{str(sales_rep.get('_id') or sales_rep.get('id') or '')[:4].upper()}"
+            if (sales_rep.get("_id") or sales_rep.get("id")) else "EMP-SLS"
+        )
         sales_contact = {
             "name": sales_rep.get("name", "Sales Representative"),
             "phone": sales_rep.get("phone", ""),
             "role_title": "Sales Executive",
-            "employee_no": sales_rep.get("employee_no", ""),
+            "employee_no": emp_no,
             "email": sales_rep.get("email", ""),
         }
 
@@ -1477,7 +1582,7 @@ def mongo_get_client_home(user: Dict[str, Any], customer: Optional[Dict[str, Any
 
     return {
         "customer": {
-            "id": str(customer["_id"]),
+            "id": str(customer.get("_id") or customer.get("id") or ""),
             "name": customer.get("name", user_name),
             "mobile": customer.get("phone", user_phone),
             "address": customer.get("address", ""),
@@ -1485,6 +1590,8 @@ def mongo_get_client_home(user: Dict[str, Any], customer: Optional[Dict[str, Any
             "final_price": final_price_paise,
             "stage": cust_stage,
         },
+        "lead": _format_mongo_doc(lead) if lead else None,
+        "is_lead_linked": is_lead_only,
         "stage": cust_stage,
         "timeline": timeline,
         "progress": {

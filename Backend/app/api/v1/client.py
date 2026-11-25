@@ -25,16 +25,26 @@ router = APIRouter(prefix="/client", tags=["Client Mobile Experience"])
 
 
 def _ensure_project(user: MongoUserProxy) -> Optional[dict]:
-    """Return the client's project, creating a registration-stage one if safe."""
+    """Return the client's project, creating a registration-stage one if safe.
+
+    If the client is linked to an unconverted Lead (matched by verified phone or
+    email), we do NOT create a blank customer placeholder—their account stays
+    linked to that Lead until Sales converts it to a full Customer.
+    """
     cust = access.client_customer(user)
     if cust:
         return cust
+    lead = access.client_lead(user)
+    if lead:
+        return None
     db = get_mongo_db()
     if db is None:
         return None
-    # A staff-created project with this phone exists but the client has not yet
-    # proven they own the number: do not create a duplicate, ask for OTP instead.
+    # A staff-created project or lead with this phone exists but the client has
+    # not yet proven they own the number: do not create a duplicate, ask for OTP.
     if db["customers"].find_one({"$or": [{"phone": user.phone}, {"mobile": user.phone}]}):
+        return None
+    if db["leads"].find_one({"phone": user.phone, "status": {"$ne": "converted"}}):
         return None
     now = datetime.now(timezone.utc)
     cid = str(uuid.uuid4())
@@ -65,8 +75,11 @@ def _ensure_project(user: MongoUserProxy) -> Optional[dict]:
 @router.get("/home", summary="Client dashboard: project, timeline, contacts, payments")
 async def get_client_home(current_user: MongoUserProxy = Depends(require_client)):
     customer = _ensure_project(current_user)
-    data = mongo_get_client_home(load_user(current_user.id) or {}, customer)
-    data["needs_phone_verification"] = customer is None and not current_user.is_phone_verified
+    lead = access.client_lead(current_user) if customer is None else None
+    data = mongo_get_client_home(load_user(current_user.id) or {}, customer, lead=lead)
+    data["needs_phone_verification"] = (
+        customer is None and lead is None and not current_user.is_phone_verified
+    )
     return data
 
 

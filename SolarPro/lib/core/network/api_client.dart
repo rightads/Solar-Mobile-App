@@ -450,6 +450,7 @@ class ApiClient {
   Future<Map<String, dynamic>?> createLead({
     required String name,
     required String phone,
+    String? email,
     String? area,
     double kw = 3.0,
     String status = 'new',
@@ -460,6 +461,7 @@ class ApiClient {
       final res = await _dio.post('/leads', data: {
         'name': name.trim(),
         'phone': phone.trim(),
+        if (email != null && email.trim().isNotEmpty) 'email': email.trim(),
         'area': area?.trim() ?? '',
         'kw': kw,
         'status': status,

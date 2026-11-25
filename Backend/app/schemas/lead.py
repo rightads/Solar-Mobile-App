@@ -10,6 +10,7 @@ from app.schemas.user import UserRead
 class LeadBase(BaseModel):
     name: str = Field(..., min_length=2, max_length=100)
     phone: str = Field(..., description="10-digit Indian phone number")
+    email: Optional[str] = None
     address: Optional[str] = None
     expected_kw: Optional[float] = Field(None, gt=0)
     source: Optional[str] = None
@@ -29,6 +30,7 @@ class LeadCreate(LeadBase):
 class LeadUpdate(BaseModel):
     name: Optional[str] = Field(None, min_length=2, max_length=100)
     phone: Optional[str] = None
+    email: Optional[str] = None
     address: Optional[str] = None
     expected_kw: Optional[float] = Field(None, gt=0)
     source: Optional[str] = None

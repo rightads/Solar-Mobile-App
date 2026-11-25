@@ -76,6 +76,7 @@ class LeadRepository {
   Future<LeadModel> createLead({
     required String name,
     required String phone,
+    String? email,
     String? address,
     double? expectedKw,
     String? reference,
@@ -90,6 +91,7 @@ class LeadRepository {
       final res = await _apiClient.dio.post('/leads', data: {
         'name': name.trim(),
         'phone': cleanPhone,
+        if (email != null && email.trim().isNotEmpty) 'email': email.trim(),
         'address': address?.trim(),
         'expected_kw': expectedKw,
         'source': source,

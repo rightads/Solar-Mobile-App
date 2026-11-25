@@ -75,11 +75,15 @@ def department_of(user_or_doc: Any) -> Optional[str]:
 
 
 def role_of(user: Any) -> str:
+    if isinstance(user, dict):
+        return str(user.get("role") or "").lower()
     role = getattr(user, "role", "")
     return str(getattr(role, "value", role) or "").lower()
 
 
 def user_id(user: Any) -> str:
+    if isinstance(user, dict):
+        return str(user.get("id") or user.get("_id") or "")
     return str(getattr(user, "id", ""))
 
 
@@ -118,40 +122,169 @@ def _by_id(collection: str, oid: str) -> Optional[Dict[str, Any]]:
 
 # ── Clients ──────────────────────────────────────────────────────────────────
 
-def client_customer(user: Any) -> Optional[Dict[str, Any]]:
-    """Return the customer record owned by a client user, linking it if safe.
+def _user_attr(user: Any, key: str) -> Any:
+    if isinstance(user, dict):
+        return user.get(key)
+    return getattr(user, key, None)
 
-    A customer created by sales is matched to a client account by phone only
-    after that account has *proven* ownership of the number via SMS OTP
-    (``is_phone_verified``). Registering with someone else's phone number
-    therefore never exposes their project data.
+
+def _verified_contact_clauses(user: Any) -> list:
+    """Return Mongo match clauses for the verified phone and/or verified email of ``user``."""
+    import re
+    clauses = []
+    if _user_attr(user, "is_phone_verified"):
+        phone = str(_user_attr(user, "phone") or "").strip()
+        if phone:
+            clauses.append({"phone": phone})
+            clauses.append({"mobile": phone})
+    if _user_attr(user, "is_email_verified"):
+        email = str(_user_attr(user, "email") or "").strip().lower()
+        if email:
+            clauses.append({"email": email})
+            clauses.append({"email": {"$regex": f"^{re.escape(email)}$", "$options": "i"}})
+    return clauses
+
+
+def find_verified_client_for_contact(phone: Optional[str] = None, email: Optional[str] = None) -> Optional[Dict[str, Any]]:
+    """Find an already-registered client account whose verified phone or verified email matches."""
+    import re
+    conds = []
+    if phone:
+        clean_p = str(phone).strip()
+        if clean_p:
+            conds.append({"phone": clean_p, "is_phone_verified": True})
+    if email:
+        clean_e = str(email).strip().lower()
+        if clean_e:
+            conds.append({
+                "$or": [
+                    {"email": clean_e},
+                    {"email": {"$regex": f"^{re.escape(clean_e)}$", "$options": "i"}},
+                ],
+                "is_email_verified": True,
+            })
+    if not conds:
+        return None
+    return _db()["users"].find_one({
+        "role": "client",
+        "deleted_at": None,
+        "$or": conds,
+    })
+
+
+def client_lead(user: Any) -> Optional[Dict[str, Any]]:
+    """Return the active (unconverted) lead owned by a client user, linking it by verified phone or email if safe.
+
+    Also links any converted lead (and its target customer) that matches the client's verified phone or email.
     """
     if role_of(user) not in CLIENT_ROLES:
         return None
     db = _db()
     uid = user_id(user)
-    raw_id = str(getattr(user, "_id", "") or "")
+    raw_id = str(_user_attr(user, "_id") or "")
     id_conds = [{"user_id": uid}]
     if raw_id and raw_id != uid:
         id_conds.append({"user_id": raw_id})
-    linked = db["customers"].find_one({"$or": id_conds})
-    if linked:
-        return linked
-    if not getattr(user, "is_phone_verified", False):
+
+    contact_clauses = _verified_contact_clauses(user)
+    unowned_clause = {"$or": [{"user_id": None}, {"user_id": {"$exists": False}}, {"user_id": ""}, *id_conds]}
+
+    # Link any matching leads (active or converted) to this client's user_id.
+    if contact_clauses:
+        matching_leads = list(
+            db["leads"].find({"$and": [{"$or": contact_clauses}, unowned_clause]}).sort("created_at", -1)
+        )
+        for ld in matching_leads:
+            updates: Dict[str, Any] = {"user_id": uid}
+            user_email = str(_user_attr(user, "email") or "").strip().lower()
+            if user_email and not ld.get("email"):
+                updates["email"] = user_email
+            if ld.get("user_id") != uid or "email" in updates:
+                db["leads"].update_one({"_id": ld["_id"]}, {"$set": updates})
+                ld.update(updates)
+            # If this lead was already converted into a customer, ensure the customer is linked too.
+            if ld.get("status") == "converted" and ld.get("customer_id"):
+                cid = str(ld["customer_id"])
+                db["customers"].update_one(
+                    {"$and": [{"$or": [{"_id": cid}, {"id": cid}]}, unowned_clause]},
+                    {"$set": {"user_id": uid}},
+                )
+
+    # Return the latest unconverted lead linked to this client (preferring non-lost/non-closed).
+    active_lead = db["leads"].find_one(
+        {"$and": [{"$or": id_conds}, {"status": {"$nin": ["converted", "lost", "closed"]}}]},
+        sort=[("created_at", -1)],
+    )
+    if active_lead:
+        return active_lead
+    return db["leads"].find_one(
+        {"$and": [{"$or": id_conds}, {"status": {"$ne": "converted"}}]},
+        sort=[("created_at", -1)],
+    )
+
+
+def client_customer(user: Any) -> Optional[Dict[str, Any]]:
+    """Return the customer record owned by a client user, linking it if safe.
+
+    A customer created by sales is matched to a client account by phone or email
+    only after that account has *proven* ownership of that phone (``is_phone_verified``)
+    or email (``is_email_verified``). Registering with someone else's unverified
+    contact details therefore never exposes their project data.
+    """
+    if role_of(user) not in CLIENT_ROLES:
         return None
-    phone = str(getattr(user, "phone", "") or "")
-    if not phone:
+    db = _db()
+    uid = user_id(user)
+    raw_id = str(_user_attr(user, "_id") or "")
+    id_conds = [{"user_id": uid}]
+    if raw_id and raw_id != uid:
+        id_conds.append({"user_id": raw_id})
+
+    # Ensure any converted lead matching by phone/email also links its customer.
+    lead = client_lead(user)
+
+    from app.db.mongo import is_self_registered_project, merge_self_registered_projects
+    linked_docs = list(db["customers"].find({"$or": id_conds}).sort("created_at", -1))
+    real_linked = next((c for c in linked_docs if not is_self_registered_project(c)), None)
+    if real_linked:
+        return real_linked
+
+    contact_clauses = _verified_contact_clauses(user)
+    if contact_clauses:
+        unowned_clause = {"$or": [{"user_id": None}, {"user_id": {"$exists": False}}, {"user_id": ""}, *id_conds]}
+        candidates = list(
+            db["customers"].find({"$and": [{"$or": contact_clauses}, unowned_clause]}).sort("created_at", -1)
+        )
+        real_candidate = next((c for c in candidates if not is_self_registered_project(c)), None)
+        candidate = real_candidate or (candidates[0] if candidates else None)
+        if candidate:
+            updates: Dict[str, Any] = {"user_id": uid}
+            user_email = str(_user_attr(user, "email") or "").strip().lower()
+            if user_email and not candidate.get("email"):
+                updates["email"] = user_email
+            db["customers"].update_one({"_id": candidate["_id"]}, {"$set": updates})
+            candidate.update(updates)
+            if not is_self_registered_project(candidate):
+                merge_self_registered_projects(candidate)
+                return candidate
+            if not lead:
+                return candidate
+
+    # If the user only has an untouched self-registered placeholder customer, but an
+    # active staff-created Lead exists for them, return None here so the client stays
+    # linked to their Lead until Sales converts it to a full Customer.
+    if lead and linked_docs:
         return None
-    candidate = db["customers"].find_one({
-        "$and": [
-            {"$or": [{"phone": phone}, {"mobile": phone}]},
-            {"$or": [{"user_id": None}, {"user_id": {"$exists": False}}, {"user_id": ""}, {"user_id": uid}]},
-        ]
-    })
-    if candidate:
-        db["customers"].update_one({"_id": candidate["_id"]}, {"$set": {"user_id": uid}})
-        candidate["user_id"] = uid
-    return candidate
+    return linked_docs[0] if linked_docs else None
+
+
+def link_client_records(user: Any) -> None:
+    """Eagerly link any matching lead and/or customer records for a newly verified client."""
+    try:
+        client_lead(user)
+        client_customer(user)
+    except Exception:
+        pass
 
 
 def require_client_customer(user: Any) -> Dict[str, Any]:
@@ -245,6 +378,39 @@ def require_customer_write(user: Any, customer_id: str) -> Dict[str, Any]:
     if role in SALES_ROLES and _owns_customer(user, cust):
         return cust
     raise NotFoundException("Customer not found.")
+
+
+def can_access_lead(user: Any, lead: Dict[str, Any]) -> bool:
+    role = role_of(user)
+    uid = user_id(user)
+    if role in MANAGER_ROLES:
+        return True
+    if role in SALES_ROLES:
+        owner = str(lead.get("assigned_sales_id") or lead.get("sales_id") or "")
+        return not owner or owner == uid
+    if role in CLIENT_ROLES:
+        own = client_lead(user)
+        return bool(own) and str(own["_id"]) == str(lead["_id"])
+    return False
+
+
+def require_lead(user: Any, lead_id: str) -> Dict[str, Any]:
+    lead = _by_id("leads", lead_id)
+    if not lead or not can_access_lead(user, lead):
+        raise NotFoundException("Lead not found.")
+    return lead
+
+
+def require_lead_write(user: Any, lead_id: str) -> Dict[str, Any]:
+    lead = _by_id("leads", lead_id)
+    if not lead:
+        raise NotFoundException("Lead not found.")
+    role = role_of(user)
+    if role in ADMIN_ROLES:
+        return lead
+    if role in SALES_ROLES and can_access_lead(user, lead):
+        return lead
+    raise NotFoundException("Lead not found.")
 
 
 # ── Tickets ──────────────────────────────────────────────────────────────────

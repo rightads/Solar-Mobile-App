@@ -5,6 +5,7 @@ import 'package:solar_pro/core/theme/app_theme.dart';
 import 'package:solar_pro/features/employee/salesman/customers/convert_lead_screen.dart';
 import 'package:solar_pro/features/leads/data/lead_repository.dart';
 import 'package:solar_pro/features/leads/data/models/lead_model.dart';
+import 'package:solar_pro/features/quotations/presentation/customer_quotations_tab.dart';
 
 class SalesmanLeadDetailScreen extends StatefulWidget {
   final LeadModel lead;
@@ -325,6 +326,27 @@ class _SalesmanLeadDetailScreenState extends State<SalesmanLeadDetailScreen> {
     );
   }
 
+  void _openQuotations() {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => Scaffold(
+          backgroundColor: AppColors.navy900,
+          appBar: AppBar(
+            title: Text('Quotations • ${_lead.name}'),
+            backgroundColor: AppColors.navy800,
+            elevation: 0,
+          ),
+          body: CustomerQuotationsTab(
+            customerId: _lead.id,
+            customerName: _lead.name,
+            canCreate: true,
+            onChanged: () => widget.onLeadUpdated?.call(),
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final statusColor = _getStatusColor(_lead.status);
@@ -470,6 +492,8 @@ class _SalesmanLeadDetailScreenState extends State<SalesmanLeadDetailScreen> {
                       children: [
                         Text('Lead Specifications', style: AppTextStyles.labelLarge.copyWith(color: AppColors.gold500)),
                         const SizedBox(height: 12),
+                        if (_lead.email != null && _lead.email!.isNotEmpty)
+                          _buildMetaRow(Icons.email_outlined, 'Email Address', _lead.email!),
                         _buildMetaRow(Icons.location_on_outlined, 'Address / Area', _lead.address ?? 'Not specified'),
                         _buildMetaRow(Icons.bolt_rounded, 'Expected Capacity', _lead.expectedKw != null ? '${_lead.expectedKw} kW' : 'Not specified'),
                         _buildMetaRow(Icons.source_rounded, 'Lead Source', sourceTag),
@@ -565,6 +589,20 @@ class _SalesmanLeadDetailScreenState extends State<SalesmanLeadDetailScreen> {
                         ),
                       ),
                     ],
+                  ),
+                  const SizedBox(height: 10),
+                  SizedBox(
+                    width: double.infinity,
+                    child: OutlinedButton.icon(
+                      onPressed: _openQuotations,
+                      icon: const Icon(Icons.request_quote_rounded, size: 20, color: AppColors.gold500),
+                      label: const Text('Send / View Quotations', style: TextStyle(color: AppColors.gold500)),
+                      style: OutlinedButton.styleFrom(
+                        side: const BorderSide(color: AppColors.gold500),
+                        padding: const EdgeInsets.symmetric(vertical: 13),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.md)),
+                      ),
+                    ),
                   ),
                   const SizedBox(height: 10),
                   SizedBox(

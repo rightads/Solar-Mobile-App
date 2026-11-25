@@ -46,6 +46,10 @@ class ClientStatusTab extends StatelessWidget {
     final capacity = (customer?['capacity_kw'] as num?)?.toDouble() ??
         (specs['capacity_kw'] as num?)?.toDouble() ??
         0.0;
+    final isLeadLinked = homeData?['is_lead_linked'] == true;
+    final leadData = homeData?['lead'] is Map
+        ? Map<String, dynamic>.from(homeData!['lead'] as Map)
+        : null;
 
     final hasAssignedOfficer = assignedEmployee != null &&
         assignedEmployee!.name.isNotEmpty &&
@@ -116,6 +120,67 @@ class ClientStatusTab extends StatelessWidget {
           SliverToBoxAdapter(
             child: ClientQuotationsSection(key: ObjectKey(homeData), onDecided: onRefresh),
           ),
+
+          if (isLeadLinked && leadData != null)
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
+                child: Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: AppColors.navy800,
+                    borderRadius: BorderRadius.circular(AppRadius.lg),
+                    border: Border.all(color: AppColors.teal500.withValues(alpha: 0.45), width: 1.4),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          const Icon(Icons.link_rounded, color: AppColors.teal400, size: 20),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              'Linked Inquiry / Lead Details',
+                              style: AppTextStyles.labelLarge.copyWith(color: AppColors.fg),
+                            ),
+                          ),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                            decoration: BoxDecoration(
+                              color: AppColors.teal500.withValues(alpha: 0.18),
+                              borderRadius: BorderRadius.circular(AppRadius.pill),
+                              border: Border.all(color: AppColors.teal500.withValues(alpha: 0.4)),
+                            ),
+                            child: Text(
+                              (leadData['status']?.toString() ?? 'new').toUpperCase(),
+                              style: const TextStyle(
+                                color: AppColors.teal400,
+                                fontSize: 10,
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const Divider(color: AppColors.navy600, height: 18),
+                      if ((leadData['address'] ?? leadData['area'] ?? '').toString().isNotEmpty)
+                        _specRow('Site Area / Address', (leadData['address'] ?? leadData['area']).toString()),
+                      _specRow('Expected Capacity', '${capacity > 0 ? capacity : (leadData['kw'] ?? 0)} kW'),
+                      if ((leadData['assigned_sales_name'] ?? '').toString().isNotEmpty)
+                        _specRow('Assigned Salesman', leadData['assigned_sales_name'].toString()),
+                      const SizedBox(height: 6),
+                      Text(
+                        leadData['approved_quotation_id'] != null
+                            ? 'Quotation approved! Your salesman will convert this lead into an active installation project shortly.'
+                            : 'Your inquiry is linked to your account. Review and approve or reject any quotation sent by your salesman above.',
+                        style: AppTextStyles.caption.copyWith(color: AppColors.grey400),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
 
           // REQUIREMENT 1: "Status with Employee No." Card
           SliverToBoxAdapter(

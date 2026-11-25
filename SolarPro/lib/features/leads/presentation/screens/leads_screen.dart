@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 import 'package:solar_pro/core/network/api_client.dart';
 import 'package:solar_pro/core/theme/app_theme.dart';
 import 'package:solar_pro/features/admin/employees/widgets/add_employee_sheet.dart';
+import 'package:solar_pro/features/quotations/presentation/customer_quotations_tab.dart';
 
 class LeadsScreen extends StatefulWidget {
   const LeadsScreen({super.key});
@@ -269,6 +270,7 @@ class _LeadsScreenState extends State<LeadsScreen>
   void _showAddLeadSheet(BuildContext context) {
     final nameCtrl = TextEditingController();
     final phoneCtrl = TextEditingController();
+    final emailCtrl = TextEditingController();
     final areaCtrl = TextEditingController();
     final kwCtrl = TextEditingController();
     final referrerCtrl = TextEditingController();
@@ -323,6 +325,16 @@ class _LeadsScreenState extends State<LeadsScreen>
                     prefixIcon: Icon(Icons.phone_outlined),
                   ),
                   keyboardType: TextInputType.phone,
+                  style: AppTextStyles.bodyMedium.copyWith(color: AppColors.fg),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: emailCtrl,
+                  decoration: const InputDecoration(
+                    hintText: 'Email Address (Optional)',
+                    prefixIcon: Icon(Icons.email_outlined),
+                  ),
+                  keyboardType: TextInputType.emailAddress,
                   style: AppTextStyles.bodyMedium.copyWith(color: AppColors.fg),
                 ),
                 const SizedBox(height: 12),
@@ -421,6 +433,7 @@ class _LeadsScreenState extends State<LeadsScreen>
                       await ApiClient().createLead(
                         name: name,
                         phone: phone,
+                        email: emailCtrl.text.trim().isNotEmpty ? emailCtrl.text.trim() : null,
                         area: area.isEmpty ? 'Delhi NCR' : area,
                         kw: kw.toDouble(),
                         status: 'new',
@@ -787,6 +800,42 @@ class _LeadsScreenState extends State<LeadsScreen>
             ),
 
             const SizedBox(height: 20),
+
+            if (lead.status != 'converted') ...[
+              SizedBox(
+                width: double.infinity,
+                height: 44,
+                child: OutlinedButton.icon(
+                  onPressed: () {
+                    Navigator.pop(ctx);
+                    Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => Scaffold(
+                          backgroundColor: AppColors.navy900,
+                          appBar: AppBar(
+                            title: Text('Quotations • ${lead.name}'),
+                            backgroundColor: AppColors.navy800,
+                          ),
+                          body: CustomerQuotationsTab(
+                            customerId: lead.id,
+                            customerName: lead.name,
+                            canCreate: true,
+                            onChanged: _fetchLeads,
+                          ),
+                        ),
+                      ),
+                    );
+                  },
+                  icon: const Icon(Icons.request_quote_rounded, size: 18, color: AppColors.gold500),
+                  label: const Text('Send / View Quotations', style: TextStyle(color: AppColors.gold500)),
+                  style: OutlinedButton.styleFrom(
+                    side: const BorderSide(color: AppColors.gold500),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.lg)),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 10),
+            ],
 
             // Notebook Page 1: Sales Closed (Convert to Customer)
             if (lead.status != 'converted')

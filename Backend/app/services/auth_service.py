@@ -102,6 +102,9 @@ class AuthService:
         now = _now()
         uid = str(doc.get("id") or doc["_id"])
         role = str(doc.get("role", "client")).lower()
+        if role == "client":
+            from app.core.access import link_client_records
+            link_client_records(doc)
         access = create_access_token(subject=uid, role=role, token_version=int(doc.get("token_version", 0) or 0))
         refresh_plain = generate_random_token()
         db["refresh_tokens"].insert_one({

@@ -124,24 +124,41 @@ def _notify(title: str, body: str, *, user_id: Optional[str] = None, role: Optio
         logger.warning("quotation_notify_failed", error=str(e))
 
 
-def _client_user_id(cust: dict) -> Optional[str]:
-    """The client account for a project: the linked one, else the verified
-    client account with the project's phone (it links on first app open)."""
-    if cust.get("user_id"):
-        return str(cust["user_id"])
-    phone = cust.get("phone") or cust.get("mobile")
-    if not phone:
-        return None
-    user = get_mongo_db()["users"].find_one({"role": "client", "phone": phone, "is_phone_verified": True,
-                                             "deleted_at": None}, {"_id": 1})
-    return str(user["_id"]) if user else None
+def _client_user_id(target: dict) -> Optional[str]:
+    """The client account for a project or lead: the linked one, else the verified
+    client account matching the phone or email."""
+    if target.get("user_id"):
+        return str(target["user_id"])
+    matched = access.find_verified_client_for_contact(
+        phone=target.get("phone") or target.get("mobile"),
+        email=target.get("email"),
+    )
+    return str(matched["_id"]) if matched else None
+
+
+def _resolve_quote_target(user: MongoUserProxy, target_id: str, *, write: bool = False) -> tuple[str, dict]:
+    """Resolve ``target_id`` as either a customer or an unconverted lead."""
+    db = get_mongo_db()
+    tid = str(target_id)
+    if db["customers"].find_one({"$or": [{"_id": tid}, {"id": tid}]}, {"_id": 1}):
+        cust = access.require_customer_write(user, tid) if write else access.require_customer(user, tid)
+        return "customer", cust
+    if db["leads"].find_one({"$or": [{"_id": tid}, {"id": tid}]}, {"_id": 1}):
+        lead = access.require_lead_write(user, tid) if write else access.require_lead(user, tid)
+        if lead.get("status") == "converted" and lead.get("customer_id"):
+            cid = str(lead["customer_id"])
+            if db["customers"].find_one({"$or": [{"_id": cid}, {"id": cid}]}, {"_id": 1}):
+                cust = access.require_customer_write(user, cid) if write else access.require_customer(user, cid)
+                return "customer", cust
+        return "lead", lead
+    raise NotFoundException("Customer or lead not found.")
 
 
 def _staff_quote(user: MongoUserProxy, quotation_id: str) -> dict:
     doc = _col().find_one({"_id": str(quotation_id)})
     if not doc:
         raise NotFoundException("Quotation not found.")
-    access.require_customer(user, doc["customer_id"])  # 404 unless this staff member may see the customer
+    _resolve_quote_target(user, doc["customer_id"], write=False)
     return doc
 
 
@@ -197,22 +214,27 @@ def _apply_to_customer(cust: dict, q: dict) -> dict:
 
 # ── Staff (salesman / admin) ────────────────────────────────────────────────
 
-@router.post("", status_code=status.HTTP_201_CREATED, summary="Create a quotation and send it to the customer")
+@router.post("", status_code=status.HTTP_201_CREATED, summary="Create a quotation and send it to the customer or lead")
 async def create_quotation(payload: QuotationIn, current_user: MongoUserProxy = Depends(require_quote_staff)):
-    cust = access.require_customer_write(current_user, payload.customer_id)
-    cid = str(cust["_id"])
-    if cust.get("approved_quotation_id"):
+    target_type, target = _resolve_quote_target(current_user, payload.customer_id, write=True)
+    cid = str(target["_id"])
+    lead_id = cid if target_type == "lead" else target.get("lead_id")
+    if target.get("approved_quotation_id"):
         raise BadRequestException("This customer has already approved a quotation; it can no longer be changed.")
     if payload.revision_of:
-        prev = _col().find_one({"_id": payload.revision_of, "customer_id": cid})
+        prev = _col().find_one({
+            "_id": payload.revision_of,
+            "$or": [{"customer_id": cid}, *([{"lead_id": str(lead_id)}] if lead_id else [])],
+        })
         if not prev:
             raise NotFoundException("Quotation not found.")
     col = _col()
     now = _now()
     # Anything still awaiting the client is replaced by this version.
-    col.update_many({"customer_id": cid, "status": "sent"},
+    match_target = {"$or": [{"customer_id": cid}, *([{"lead_id": str(lead_id)}] if lead_id else [])]}
+    col.update_many({**match_target, "status": "sent"},
                     {"$set": {"status": "superseded", "superseded_at": now}})
-    version = col.count_documents({"customer_id": cid}) + 1
+    version = col.count_documents(match_target) + 1
     total = round(payload.project_cost + payload.discom_charges + payload.file_charges, 2)
     qid = str(uuid.uuid4())
     doc = {
@@ -221,9 +243,12 @@ async def create_quotation(payload: QuotationIn, current_user: MongoUserProxy = 
         "quote_no": f"QT-{cid[:4].upper()}-{version:02d}",
         "version": version,
         "customer_id": cid,
-        "customer_name": cust.get("name", ""),
-        "customer_phone": cust.get("phone") or cust.get("mobile") or "",
-        "customer_address": cust.get("address", ""),
+        "lead_id": str(lead_id) if lead_id else None,
+        "target_type": target_type,
+        "customer_name": target.get("name", ""),
+        "customer_phone": target.get("phone") or target.get("mobile") or "",
+        "customer_email": target.get("email") or "",
+        "customer_address": target.get("address") or target.get("area") or "",
         "status": "sent",
         "capacity_kw": payload.capacity_kw,
         "load_kw": payload.load_kw,
@@ -247,12 +272,12 @@ async def create_quotation(payload: QuotationIn, current_user: MongoUserProxy = 
     _notify("New quotation for your solar project",
             f"{current_user.name} sent you quotation {doc['quote_no']} for a {payload.capacity_kw:g} kW system. "
             f"Please review and approve or reject it.",
-            user_id=_client_user_id(cust), target=qid)
-    logger.info("quotation_sent", quotation_id=qid, customer_id=cid, by=current_user.id, version=version)
+            user_id=_client_user_id(target), target=qid)
+    logger.info("quotation_sent", quotation_id=qid, customer_id=cid, target_type=target_type, by=current_user.id, version=version)
     return _out(doc)
 
 
-@router.get("", summary="Quotations visible to the caller (filter by customer or status)")
+@router.get("", summary="Quotations visible to the caller (filter by customer/lead or status)")
 async def list_quotations(
     customer_id: Optional[str] = Query(None, max_length=64),
     status_filter: Optional[str] = Query(None, alias="status", max_length=20),
@@ -260,10 +285,26 @@ async def list_quotations(
 ):
     query: dict = {}
     if customer_id:
-        query["customer_id"] = str(access.require_customer(current_user, customer_id)["_id"])
+        _, target = _resolve_quote_target(current_user, customer_id, write=False)
+        tid = str(target["_id"])
+        target_ids = [tid]
+        if target.get("lead_id"):
+            target_ids.append(str(target["lead_id"]))
+        if target.get("customer_id"):
+            target_ids.append(str(target["customer_id"]))
+        query["$or"] = [{"customer_id": {"$in": target_ids}}, {"lead_id": {"$in": target_ids}}]
     elif not access.is_admin(current_user):
-        ids = [str(c["_id"]) for c in get_mongo_db()["customers"].find(access.sales_customer_query(current_user), {"_id": 1})]
-        query["customer_id"] = {"$in": ids}
+        db = get_mongo_db()
+        c_ids = [str(c["_id"]) for c in db["customers"].find(access.sales_customer_query(current_user), {"_id": 1})]
+        l_ids = [
+            str(l["_id"])
+            for l in db["leads"].find(
+                {"$or": [{"assigned_sales_id": current_user.id}, {"assigned_sales_id": None}, {"assigned_sales_id": ""}]},
+                {"_id": 1},
+            )
+        ]
+        all_ids = c_ids + l_ids
+        query["$or"] = [{"customer_id": {"$in": all_ids}}, {"lead_id": {"$in": all_ids}}]
     if status_filter and status_filter != "all":
         query["status"] = status_filter
     return [_out(d) for d in _col().find(query).sort("created_at", -1).limit(200)]
@@ -271,18 +312,42 @@ async def list_quotations(
 
 # ── Client ──────────────────────────────────────────────────────────────────
 
+def _client_target_ids(user: MongoUserProxy) -> List[str]:
+    """Return all customer and lead IDs owned by the signed-in client."""
+    cust = access.client_customer(user)
+    lead = access.client_lead(user)
+    ids: List[str] = []
+    if cust:
+        ids.append(str(cust["_id"]))
+        if cust.get("lead_id"):
+            ids.append(str(cust["lead_id"]))
+    if lead:
+        ids.append(str(lead["_id"]))
+        if lead.get("customer_id"):
+            ids.append(str(lead["customer_id"]))
+    return list(dict.fromkeys(i for i in ids if i))
+
+
 @router.get("/mine", summary="Quotations sent to the signed-in client")
 async def my_quotations(current_user: MongoUserProxy = Depends(require_client)):
-    cust = access.client_customer(current_user)
-    if not cust:
+    target_ids = _client_target_ids(current_user)
+    if not target_ids:
         return []
-    cursor = _col().find({"customer_id": str(cust["_id"]), "status": {"$ne": "superseded"}}).sort("created_at", -1)
+    cursor = _col().find({
+        "$or": [{"customer_id": {"$in": target_ids}}, {"lead_id": {"$in": target_ids}}],
+        "status": {"$ne": "superseded"},
+    }).sort("created_at", -1)
     return [_out(d) for d in cursor]
 
 
 def _client_quote(user: MongoUserProxy, quotation_id: str) -> dict:
-    cust = access.require_client_customer(user)
-    doc = _col().find_one({"_id": str(quotation_id), "customer_id": str(cust["_id"])})
+    target_ids = _client_target_ids(user)
+    if not target_ids:
+        raise NotFoundException("No solar project or lead is linked to your account yet.")
+    doc = _col().find_one({
+        "_id": str(quotation_id),
+        "$or": [{"customer_id": {"$in": target_ids}}, {"lead_id": {"$in": target_ids}}],
+    })
     if not doc:
         raise NotFoundException("Quotation not found.")
     return doc
@@ -294,11 +359,18 @@ async def approve_quotation(quotation_id: str, current_user: MongoUserProxy = De
     if q.get("status") != "sent":
         raise BadRequestException(f"This quotation is already {q.get('status')}.")
     db = get_mongo_db()
-    cid = q["customer_id"]
+    cid = str(q["customer_id"])
     now = _now()
-    # Claim the customer first so two quotations can never both be approved.
-    claim = db["customers"].update_one(
-        {"_id": cid, "approved_quotation_id": None},
+
+    cust = db["customers"].find_one({"_id": cid})
+    target_col = "customers" if cust is not None else "leads"
+    target_doc = cust if cust is not None else db["leads"].find_one({"_id": cid})
+    if not target_doc:
+        raise NotFoundException("Project or lead not found.")
+
+    # Claim the target (customer or lead) first so two quotations can never both be approved.
+    claim = db[target_col].update_one(
+        {"_id": cid, "$or": [{"approved_quotation_id": None}, {"approved_quotation_id": {"$exists": False}}]},
         {"$set": {"approved_quotation_id": q["_id"], "updated_at": now}},
     )
     if claim.modified_count != 1:
@@ -310,18 +382,35 @@ async def approve_quotation(quotation_id: str, current_user: MongoUserProxy = De
         return_document=ReturnDocument.AFTER,
     )
     if not approved:
-        db["customers"].update_one({"_id": cid, "approved_quotation_id": q["_id"]},
-                                   {"$set": {"approved_quotation_id": None}})
+        db[target_col].update_one({"_id": cid, "approved_quotation_id": q["_id"]},
+                                  {"$set": {"approved_quotation_id": None}})
         raise BadRequestException("This quotation was replaced by a newer version. Please review the latest one.")
-    cust = db["customers"].find_one({"_id": cid})
-    db["customers"].update_one({"_id": cid}, {"$set": _apply_to_customer(cust, approved)})
-    _col().update_many({"customer_id": cid, "status": "sent"}, {"$set": {"status": "superseded", "superseded_at": now}})
-    from app.services import workflow
-    workflow.on_quotation_approved(cid)
-    msg = f"{cust.get('name', 'The customer')} approved quotation {approved['quote_no']}."
+
+    target_doc = db[target_col].find_one({"_id": cid}) or target_doc
+    applied = _apply_to_customer(target_doc, approved)
+    if target_col == "leads":
+        applied["expected_kw"] = float(approved["capacity_kw"])
+    db[target_col].update_one({"_id": cid}, {"$set": applied})
+
+    match_clauses = [{"customer_id": cid}]
+    if q.get("lead_id"):
+        match_clauses.append({"lead_id": str(q["lead_id"])})
+    _col().update_many({"$or": match_clauses, "status": "sent"},
+                       {"$set": {"status": "superseded", "superseded_at": now}})
+
+    if target_col == "customers":
+        if target_doc.get("lead_id"):
+            db["leads"].update_one(
+                {"_id": str(target_doc["lead_id"])},
+                {"$set": {"approved_quotation_id": q["_id"], "quotation_approved_at": now, "updated_at": now}},
+            )
+        from app.services import workflow
+        workflow.on_quotation_approved(cid)
+
+    msg = f"{target_doc.get('name', 'The customer')} approved quotation {approved['quote_no']}."
     _notify("Quotation approved", msg, user_id=approved.get("created_by_id"), target=q["_id"])
     _notify("Quotation approved", msg, role="admin", target=q["_id"])
-    logger.info("quotation_approved", quotation_id=q["_id"], customer_id=cid)
+    logger.info("quotation_approved", quotation_id=q["_id"], target_id=cid, target_type=target_col)
     return _out(approved)
 
 

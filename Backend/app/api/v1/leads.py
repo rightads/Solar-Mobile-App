@@ -13,7 +13,7 @@ from app.core import access
 from app.core.deps import MongoUserProxy, require_roles
 from app.core.exceptions import BadRequestException, NotFoundException
 from app.core.helpers import paginate_list
-from app.core.security import normalize_phone
+from app.core.security import normalize_email, normalize_phone
 from app.schemas.customer import ProjectBom
 from app.db.mongo import _format_mongo_doc, get_mongo_db, mongo_create_customer, mongo_get_salespersons
 from app.models.enums import UserRole
@@ -30,6 +30,7 @@ class LeadIn(BaseModel):
     model_config = ConfigDict(extra="ignore")
     name: str = Field(..., min_length=2, max_length=100)
     phone: str = Field(..., max_length=15)
+    email: Optional[str] = Field(None, max_length=120)
     area: Optional[str] = Field(None, max_length=200)
     address: Optional[str] = Field(None, max_length=300)
     kw: Optional[float] = Field(None, ge=0, le=1000)
@@ -43,6 +44,7 @@ class LeadPatch(BaseModel):
     model_config = ConfigDict(extra="forbid")
     name: Optional[str] = Field(None, min_length=2, max_length=100)
     phone: Optional[str] = Field(None, max_length=15)
+    email: Optional[str] = Field(None, max_length=120)
     area: Optional[str] = Field(None, max_length=200)
     address: Optional[str] = Field(None, max_length=300)
     kw: Optional[float] = Field(None, ge=0, le=1000)
@@ -106,6 +108,15 @@ def _phone(raw: str) -> str:
         raise BadRequestException(str(e))
 
 
+def _email(raw: Optional[str]) -> Optional[str]:
+    if not raw or not str(raw).strip():
+        return None
+    try:
+        return normalize_email(raw)
+    except ValueError as e:
+        raise BadRequestException(str(e))
+
+
 @router.post("", status_code=status.HTTP_201_CREATED, summary="Create a lead (any employee)")
 async def create_lead(payload: LeadIn, current_user: MongoUserProxy = Depends(require_staff)):
     import uuid
@@ -117,11 +128,17 @@ async def create_lead(payload: LeadIn, current_user: MongoUserProxy = Depends(re
     is_sales = role in access.SALES_ROLES
     referral = not is_sales and not access.is_admin(current_user)
     phone = _phone(payload.phone)
+    email = _email(payload.email)
     if referral and db["leads"].find_one({"phone": phone, "status": {"$nin": ["lost", "closed"]}}):
         raise BadRequestException("This customer is already a lead. Sales is on it.")
+    matched_client = access.find_verified_client_for_contact(phone=phone, email=email)
+    linked_uid = str(matched_client["_id"]) if matched_client else None
+    if not email and matched_client and matched_client.get("email"):
+        email = str(matched_client["email"]).strip().lower()
     department = access.DEPARTMENT_LABELS.get(access.normalize_department(role) or "", role.title())
     doc = {
-        "_id": lid, "id": lid, "name": payload.name.strip(), "phone": phone,
+        "_id": lid, "id": lid, "name": payload.name.strip(), "phone": phone, "email": email,
+        "user_id": linked_uid,
         "area": (payload.area or payload.address or "").strip(), "address": (payload.address or payload.area or "").strip(),
         "kw": float(kw), "expected_kw": float(kw),
         "source": (f"Referral: {current_user.name} ({department})" if referral else (payload.source or "Direct")).strip()[:60],
@@ -172,7 +189,7 @@ async def list_leads(
         clauses.append({"status": status.lower()})
     if search:
         s = re.escape(search.strip())
-        clauses.append({"$or": [{f: {"$regex": s, "$options": "i"}} for f in ("name", "phone", "area", "address")]})
+        clauses.append({"$or": [{f: {"$regex": s, "$options": "i"}} for f in ("name", "phone", "email", "area", "address")]})
     col = get_mongo_db()["leads"]
     query = {"$and": clauses}
     total = col.count_documents(query)
@@ -209,12 +226,21 @@ async def update_lead(lead_id: str, payload: LeadPatch, current_user: MongoUserP
     updates = payload.model_dump(exclude_unset=True)
     if "phone" in updates and updates["phone"]:
         updates["phone"] = _phone(updates["phone"])
+    if "email" in updates:
+        updates["email"] = _email(updates["email"])
     if updates.get("status") == "converted":
         raise BadRequestException("Use the convert action to close a sale.")
     if "reason" in updates:
         updates["lost_reason"] = updates.pop("reason")
     if not lead.get("assigned_sales_id") and not access.is_admin(current_user):
         updates["assigned_sales_id"], updates["assigned_sales_name"] = current_user.id, current_user.name
+    if not lead.get("user_id") or "phone" in updates or "email" in updates:
+        matched_client = access.find_verified_client_for_contact(
+            phone=updates.get("phone") or lead.get("phone"),
+            email=updates.get("email") if "email" in updates else lead.get("email"),
+        )
+        if matched_client:
+            updates["user_id"] = str(matched_client["_id"])
     updates["updated_at"] = datetime.now(timezone.utc)
     from pymongo import ReturnDocument
     res = get_mongo_db()["leads"].find_one_and_update({"_id": lead["_id"]}, {"$set": updates},
@@ -264,19 +290,46 @@ async def convert_lead(lead_id: str, payload: Optional[ConvertIn] = None, curren
     spec = payload.model_dump(exclude_none=True)
     if payload.bom is not None:
         spec["bom"] = payload.bom.cleaned()
+    lid_str = str(lead["_id"])
+    lead_email = _email(spec.get("email")) or lead.get("email") or ""
     cust = mongo_create_customer({
         **spec,
         "name": spec.get("name") or lead.get("name"),
         "phone": lead.get("phone"),
+        "email": lead_email,
+        "user_id": lead.get("user_id"),
         "address": spec.get("address") or lead.get("address") or lead.get("area") or "",
-        "capacity_kw": spec.get("capacity_kw") or lead.get("kw") or 0,
+        "capacity_kw": spec.get("capacity_kw") or lead.get("capacity_kw") or lead.get("kw") or 0,
+        "final_price": spec.get("final_price") or lead.get("final_price") or 0,
+        "panel_brand": spec.get("panel_brand") or lead.get("panel_brand") or "",
+        "panel_watt": spec.get("panel_watt") or lead.get("panel_watt") or 0,
+        "panel_count": spec.get("panel_count") or lead.get("panel_count") or 0,
+        "inverter_brand": spec.get("inverter_brand") or lead.get("inverter_brand") or "",
+        "structure_type": spec.get("structure_type") or lead.get("structure_type") or "",
+        "bom": spec.get("bom") or lead.get("bom") or {},
+        "approved_quotation_id": lead.get("approved_quotation_id"),
+        "quotation_approved_at": lead.get("quotation_approved_at"),
         "sales_id": sales_id,
         "sales_name": sales_name,
-        "lead_id": str(lead["_id"]),
+        "lead_id": lid_str,
     })
-    get_mongo_db()["leads"].update_one(
+    db = get_mongo_db()
+    db["leads"].update_one(
         {"_id": lead["_id"]},
         {"$set": {"status": "converted", "closed_at": now, "customer_id": cust["id"], "updated_at": now}},
     )
+    # Transfer any quotations created on this lead over to the new customer record.
+    db["quotations"].update_many(
+        {"$or": [{"customer_id": lid_str}, {"lead_id": lid_str}]},
+        {"$set": {"customer_id": cust["id"], "lead_id": lid_str, "target_type": "customer"}},
+    )
+    if lead.get("approved_quotation_id"):
+        approved_q = db["quotations"].find_one({"_id": str(lead["approved_quotation_id"])})
+        if approved_q:
+            from app.api.v1.quotations import _apply_to_customer
+            cust_doc = db["customers"].find_one({"_id": cust["id"]}) or cust
+            db["customers"].update_one({"_id": cust["id"]}, {"$set": _apply_to_customer(cust_doc, approved_q)})
     workflow.on_customer_created(cust["id"])
-    return _format_mongo_doc(get_mongo_db()["customers"].find_one({"_id": cust["id"]}))
+    if lead.get("approved_quotation_id"):
+        workflow.on_quotation_approved(cust["id"])
+    return _format_mongo_doc(db["customers"].find_one({"_id": cust["id"]}))
