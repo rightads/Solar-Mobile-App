@@ -204,8 +204,15 @@ class AuthService:
             raise UnauthorizedException(INVALID_LOGIN)
         ratelimit.reset(fail_key)
 
-        # Correct password: issue tokens and link any matching lead/customer records
-        # even if the client chose "Verify later" during registration.
+        # Correct password: status messages can now be shown without enabling enumeration.
+        role = str(doc.get("role", "client")).lower()
+        if role == "client" and not doc.get("is_email_verified") and not doc.get("is_phone_verified"):
+            await AuthService.send_email_verification(doc.get("email") or "", ip, quiet=True)
+            raise EmailVerificationRequiredException(
+                message="Please verify your email. A 6-digit code has been sent to your inbox.",
+                email=doc.get("email"),
+                role="client",
+            )
         return AuthService._issue_tokens(doc, device_info)
 
     # ── Registration ────────────────────────────────────────────────────────
@@ -265,15 +272,14 @@ class AuthService:
         await AuthService.send_email_verification(clean_email, ip, quiet=True)
         await AuthService._send_phone_code(clean_phone, quiet=True)
         if is_client:
-            tokens = AuthService._issue_tokens(doc)
             return {
-                **tokens,
                 "requires_verification": True,
                 "requires_email_verification": True,
                 "requires_phone_verification": True,
-                "message": "Account created. Enter the codes we sent to your email and mobile, or verify later.",
+                "message": "Account created. Enter the codes we sent to your email and mobile.",
                 "email": clean_email,
                 "phone": clean_phone,
+                "user": _user_payload(doc),
             }
 
         from app.core.access import DEPARTMENT_LABELS

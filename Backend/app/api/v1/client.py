@@ -77,7 +77,9 @@ async def get_client_home(current_user: MongoUserProxy = Depends(require_client)
     customer = _ensure_project(current_user)
     lead = access.client_lead(current_user) if customer is None else None
     data = mongo_get_client_home(load_user(current_user.id) or {}, customer, lead=lead)
-    data["needs_phone_verification"] = False
+    data["needs_phone_verification"] = (
+        customer is None and lead is None and not current_user.is_phone_verified
+    )
     return data
 
 
